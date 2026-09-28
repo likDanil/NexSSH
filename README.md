@@ -131,6 +131,8 @@ Releases are built by GitHub Actions ([release.yml](.github/workflows/release.ym
 
 The workflow writes the version into `Cargo.toml`, builds the NSIS installer on Windows and
 publishes a GitHub release with `NexSSH_<version>_x64-setup.exe` and `SHA256SUMS.txt`.
+Branch pushes that change the release setup (the workflow, `tauri.conf.json`, icons) run it as
+a dry run: the installer is built and attached to the workflow run, nothing is published.
 
 ## Roadmap
 

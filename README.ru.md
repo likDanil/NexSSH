@@ -130,6 +130,8 @@ cargo test -p nexssh-core --test sshd
 
 Workflow подставляет версию в `Cargo.toml`, собирает NSIS-установщик на Windows и публикует
 релиз с `NexSSH_<версия>_x64-setup.exe` и `SHA256SUMS.txt`.
+Пуши в ветки, которые меняют настройки релиза (workflow, `tauri.conf.json`, иконки), запускают
+его в режиме dry run: установщик собирается и прикрепляется к запуску workflow, но не публикуется.
 
 ## Планы
 

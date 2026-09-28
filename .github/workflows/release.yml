@@ -7,12 +7,22 @@ name: Release
 #     empty to bump the patch number of the latest release. "Dry run" only builds
 #     the installer and attaches it to the workflow run.
 #
+# Branch pushes that change the release setup (this file, the bundle config or
+# the icons) run as a dry run, so a broken installer build shows up before a
+# release does.
+#
 # The version from the tag/input is written into Cargo.toml for the build, so the
 # app, the installer name and the release always agree.
 
 on:
   push:
     tags: ['v*.*.*']
+    # Dry run on branches (path filters do not apply to tags).
+    branches: ['**']
+    paths:
+      - .github/workflows/release.yml
+      - desktop/tauri.conf.json
+      - desktop/icons/**
   workflow_dispatch:
     inputs:
       version:
@@ -29,8 +39,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: release
-  cancel-in-progress: false
+  # Publishing runs are queued one at a time; branch dry runs replace each other.
+  group: ${{ github.ref_type == 'branch' && github.event_name == 'push' && format('release-check-{0}', github.ref) || 'release' }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' && github.event_name == 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,6 +53,7 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,9 +64,23 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+            is_tag=true
+          else
+            is_tag=false
+          fi
+          if $is_tag; then
+            publish=true
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${DRY_RUN:-false}" != "true" ]]; then
+            publish=true
+          else
+            publish=false
+          fi
+
+          if $is_tag; then
             version="${GITHUB_REF_NAME#v}"
           elif [[ -n "${INPUT_VERSION:-}" ]]; then
             version="${INPUT_VERSION#v}"
@@ -73,13 +99,18 @@ jobs:
             echo "::error::'$version' is not a version like 1.2.3"
             exit 1
           fi
-          if [[ "$GITHUB_EVENT_NAME" != "push" ]] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+          if $publish && ! $is_tag && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "::error::Tag v$version already exists"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "Releasing NexSSH $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          if $publish; then
+            echo "Releasing NexSSH $version" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Dry run: building the NexSSH $version installer without publishing" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   windows:
     name: Build Windows installer
@@ -128,7 +159,7 @@ jobs:
   publish:
     name: Publish release
     needs: [version, windows]
-    if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+    if: ${{ needs.version.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
