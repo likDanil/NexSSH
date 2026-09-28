@@ -54,7 +54,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     version: &'static str,
-    os: &'static str,
+    os: String,
     data_dir: String,
     settings: Value,
 }
@@ -66,9 +66,11 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         .lock()
         .map(|s| s.value().clone())
         .unwrap_or(Value::Null);
+    // NEXSSH_UI_OS lets contributors preview another platform's window chrome.
+    let os = std::env::var("NEXSSH_UI_OS").unwrap_or_else(|_| std::env::consts::OS.to_string());
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
-        os: std::env::consts::OS,
+        os,
         data_dir: state.core.data_dir.display().to_string(),
         settings,
     }

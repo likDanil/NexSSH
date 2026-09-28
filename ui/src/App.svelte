@@ -157,14 +157,10 @@
     position: relative;
     flex: 1;
     min-height: 0;
-    margin: 0 6px 6px 0;
+    margin: 0 6px 6px;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     background: var(--surface);
     overflow: hidden;
-  }
-  :global(:root[data-os='linux']) .surface,
-  :global(.app:not(:has(.sidebar))) .surface {
-    margin-left: 6px;
   }
 </style>

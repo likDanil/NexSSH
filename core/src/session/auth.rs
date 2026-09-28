@@ -568,10 +568,11 @@ async fn connect_agent() -> Option<Agent> {
         }
         #[cfg(windows)]
         {
-            if let Ok(path) = std::env::var("SSH_AUTH_SOCK") {
-                if let Ok(a) = AgentClient::connect_named_pipe(&path).await {
-                    return Some(a.dynamic());
-                }
+            // Windows OpenSSH agent, or a custom agent (1Password, KeePassXC...) via SSH_AUTH_SOCK.
+            if let Ok(path) = std::env::var("SSH_AUTH_SOCK")
+                && let Ok(a) = AgentClient::connect_named_pipe(&path).await
+            {
+                return Some(a.dynamic());
             }
             if let Ok(a) = AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
                 return Some(a.dynamic());

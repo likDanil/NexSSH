@@ -4,6 +4,7 @@
 import { api, Channel, errorMessage, type OpenTarget, type SessionMessage } from '../api';
 import type { ForwardInfo, Prompt, PromptReply, Server, SessionEvent } from '../types';
 import { destination } from './servers.svelte';
+import { toasts } from './toasts.svelte';
 
 export type TabStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -63,6 +64,11 @@ const YELLOW = '\x1b[33m';
 const RESET = '\x1b[0m';
 
 let counter = 0;
+
+/** Core messages are lowercase fragments ("cannot connect to …"); show them as sentences. */
+function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 class SessionsState {
   tabs = $state<Tab[]>([]);
@@ -152,7 +158,7 @@ class SessionsState {
       if (current) {
         current.status = 'disconnected';
         current.failed = true;
-        current.message = errorMessage(e);
+        current.message = sentence(errorMessage(e));
       }
       terminal.write(`${RED}${errorMessage(e)}${RESET}\r\n`);
     }
@@ -186,7 +192,7 @@ class SessionsState {
           tab.failed = false;
         } else if (ev.status === 'disconnected') {
           tab.status = 'disconnected';
-          tab.message = ev.message ?? 'Disconnected';
+          tab.message = sentence(ev.message ?? 'Disconnected');
           tab.failed = !/^Session ended/.test(tab.message);
           tab.prompts = [];
           term?.write(`\r\n${DIM}── ${tab.message} ──${RESET}\r\n`);
@@ -194,12 +200,17 @@ class SessionsState {
           this.#remove(tab.key);
         }
         break;
-      case 'log': {
-        const color = ev.level === 'error' ? RED : ev.level === 'warn' ? YELLOW : DIM;
-        // Errors also end up in the status message; only echo infos and warnings.
-        if (ev.level !== 'error') term?.write(`${color}${ev.message}${RESET}\r\n`);
+      case 'log':
+        // Errors also end up in the status message. While connecting, progress goes to the
+        // terminal like `ssh -v` lite; once the shell runs, writing into it would garble
+        // the user's command line, so only warnings surface (as toasts).
+        if (ev.level === 'error') break;
+        if (tab.status === 'connecting') {
+          term?.write(`${ev.level === 'warn' ? YELLOW : DIM}${ev.message}${RESET}\r\n`);
+        } else if (ev.level === 'warn') {
+          toasts.show(`${tab.title}: ${ev.message}`, 'error');
+        }
         break;
-      }
       case 'prompt':
         tab.prompts.push({ id: ev.id, prompt: ev.prompt });
         break;

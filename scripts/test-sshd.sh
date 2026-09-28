@@ -51,6 +51,8 @@ echo "$USER_NAME:$PASSWORD" | chpasswd
 [ -f "$DIR/client/id_ed25519_enc" ] || ssh-keygen -q -t ed25519 -N "$PASSPHRASE" -C "nexssh encrypted" -f "$DIR/client/id_ed25519_enc"
 [ -f "$DIR/client/id_rsa" ] || ssh-keygen -q -t rsa -b 2048 -N "" -C "nexssh rsa" -f "$DIR/client/id_rsa"
 chmod 644 "$DIR"/client/*.pub
+# Tests run as the invoking (non-root) user and must be able to read the client keys.
+if [ -n "${SUDO_USER:-}" ]; then chown -R "$SUDO_USER" "$DIR/client"; fi
 
 HOME_DIR="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 install -d -m 700 -o "$USER_NAME" "$HOME_DIR/.ssh"
