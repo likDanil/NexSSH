@@ -27,6 +27,8 @@ enum Outcome {
 enum Control {
     Close,
     Reconnect,
+    /// The user aborted a connection attempt.
+    Stop,
 }
 
 enum Input {
@@ -43,14 +45,16 @@ pub(crate) async fn run(
     loop {
         ctx.status(SessionStatus::Connecting, None);
         let attempt = tokio::select! {
-            result = connect::establish(&ctx, &server) => result,
-            control = idle(&mut rx, &mut size) => match control {
+            result = connect::establish(&ctx, &server) => Some(result),
+            control = idle(&mut rx, &mut size, true) => match control {
                 Control::Close => break,
                 Control::Reconnect => continue,
+                Control::Stop => None,
             },
         };
         let outcome = match attempt {
-            Ok(conn) => {
+            None => Outcome::Lost("Disconnected".into()),
+            Some(Ok(conn)) => {
                 if !server.id.is_empty() {
                     let store = Arc::clone(&ctx.shared.store);
                     let id = server.id.clone();
@@ -58,8 +62,8 @@ pub(crate) async fn run(
                 }
                 interactive(&ctx, conn, &server, &mut size, &mut rx).await
             }
-            Err(Error::Cancelled) => Outcome::Lost("Authentication cancelled".into()),
-            Err(e) => {
+            Some(Err(Error::Cancelled)) => Outcome::Lost("Authentication cancelled".into()),
+            Some(Err(e)) => {
                 ctx.log(LogLevel::Error, e.to_string());
                 Outcome::Lost(e.to_string())
             }
@@ -69,9 +73,9 @@ pub(crate) async fn run(
             Outcome::Reconnect => continue,
             Outcome::Lost(reason) => {
                 ctx.status(SessionStatus::Disconnected, Some(reason));
-                match idle(&mut rx, &mut size).await {
+                match idle(&mut rx, &mut size, false).await {
                     Control::Close => break,
-                    Control::Reconnect => continue,
+                    Control::Reconnect | Control::Stop => continue,
                 }
             }
         }
@@ -80,12 +84,19 @@ pub(crate) async fn run(
     ctx.status(SessionStatus::Closed, None);
 }
 
-/// Handles commands while there is no live connection.
-async fn idle(rx: &mut mpsc::UnboundedReceiver<Command>, size: &mut PtySize) -> Control {
+/// Handles commands while there is no live connection (`connecting`: an attempt is
+/// in progress and may be aborted).
+async fn idle(
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    size: &mut PtySize,
+    connecting: bool,
+) -> Control {
     loop {
         match rx.recv().await {
             None | Some(Command::Close) => return Control::Close,
             Some(Command::Reconnect) => return Control::Reconnect,
+            Some(Command::Disconnect) if connecting => return Control::Stop,
+            Some(Command::Disconnect) => {}
             Some(Command::Resize(s)) => *size = s,
             Some(Command::Write(_)) | Some(Command::RemoveForward(_)) => {}
             Some(Command::AddForward(_, reply)) => {
@@ -217,6 +228,7 @@ async fn interactive(
                     let _ = input_tx.send(Input::Resize(s));
                 }
                 Some(Command::Reconnect) => break Some(Outcome::Reconnect),
+                Some(Command::Disconnect) => break Some(Outcome::Lost("Disconnected".into())),
                 Some(Command::Close) | None => break Some(Outcome::Closed),
                 Some(Command::AddForward(spec, reply)) => {
                     let result = forwards.start(spec, false).await;

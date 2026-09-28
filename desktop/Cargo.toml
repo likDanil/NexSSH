@@ -1,0 +1,25 @@
+[package]
+name = "nexssh"
+description = "NexSSH — a fast, minimal SSH client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "nexssh"
+
+[lib]
+name = "nexssh_desktop"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+nexssh-core.workspace = true
+tauri = { version = "2.12", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+zeroize = "1"

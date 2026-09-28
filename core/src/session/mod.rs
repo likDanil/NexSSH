@@ -150,6 +150,8 @@ pub(crate) enum Command {
     Write(Vec<u8>),
     Resize(PtySize),
     Reconnect,
+    /// Drops the connection (or aborts connecting) but keeps the session reconnectable.
+    Disconnect,
     Close,
     AddForward(ForwardSpec, oneshot::Sender<Result<()>>),
     RemoveForward(u64),
@@ -228,6 +230,11 @@ impl SessionManager {
     /// Reconnects a disconnected session (or restarts a live one) in place.
     pub fn reconnect(&self, id: SessionId) -> Result<()> {
         self.send(id, Command::Reconnect)
+    }
+
+    /// Drops the connection but keeps the session so it can be reconnected.
+    pub fn disconnect(&self, id: SessionId) -> Result<()> {
+        self.send(id, Command::Disconnect)
     }
 
     /// Closes a session; its task emits a final `Closed` status.

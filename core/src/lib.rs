@@ -35,6 +35,21 @@ pub use store::{ImportSummary, ServerStore, StoreData};
 
 pub use util::{contract_tilde, expand_tilde};
 
+/// Default data directory: `%APPDATA%\NexSSH` on Windows,
+/// `~/Library/Application Support/NexSSH` on macOS, `~/.config/nexssh` elsewhere.
+/// `NEXSSH_DATA_DIR` overrides it (portable installs, tests).
+pub fn default_data_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("NEXSSH_DATA_DIR").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    let name = if cfg!(any(windows, target_os = "macos")) {
+        "NexSSH"
+    } else {
+        "nexssh"
+    };
+    dirs::config_dir().map(|d| d.join(name))
+}
+
 /// All core services, rooted at one data directory.
 pub struct Core {
     pub data_dir: PathBuf,

@@ -62,10 +62,20 @@ impl Secrets {
     }
 
     /// `None` when secrets can be stored, otherwise the reason why not.
+    ///
+    /// Connecting to the store is not enough (e.g. a Secret Service without a default
+    /// collection), so this probes it with a lookup of an entry that never exists.
     pub fn unavailable_reason(&self) -> Option<String> {
         match self.backend() {
             Backend::Unavailable(reason) => Some(reason.clone()),
-            _ => None,
+            Backend::Os(store) => match entry(store, "probe")
+                .and_then(|e| e.get_password().map_err(|e| Error::Secret(e.to_string())))
+            {
+                Ok(_) => None,
+                Err(Error::Secret(msg)) if msg == keyring_core::Error::NoEntry.to_string() => None,
+                Err(e) => Some(e.to_string()),
+            },
+            Backend::Memory(_) => None,
         }
     }
 

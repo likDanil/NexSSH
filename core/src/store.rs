@@ -189,8 +189,8 @@ impl ServerStore {
     /// Merges servers produced by the ssh_config importer.
     ///
     /// Entries are matched by alias first; a matching entry keeps its id, name, group
-    /// and history, and only connection fields are refreshed. Entries identical to an
-    /// existing server (same user, host and port) are not duplicated.
+    /// and history, and only connection fields are refreshed. Entries that duplicate an
+    /// existing server (same name, or same user, host, port, key and jump host) are skipped.
     pub fn merge_imported(&self, imported: Vec<Server>) -> Result<ImportSummary> {
         self.mutate(|data| {
             let mut summary = ImportSummary::default();
@@ -225,10 +225,20 @@ impl ServerStore {
                     }
                     continue;
                 }
+                // Same name, or a manually added server connecting the very same way.
+                // (Imported entries are distinct aliases even for one address: a jump
+                // host may be referenced by its alias.)
                 let duplicate = data.servers.iter().any(|s| {
-                    s.host.eq_ignore_ascii_case(&incoming.host)
-                        && s.port == incoming.port
-                        && s.user == incoming.user
+                    incoming
+                        .alias
+                        .as_deref()
+                        .is_some_and(|a| s.name.eq_ignore_ascii_case(a))
+                        || (s.alias.is_none()
+                            && s.host.eq_ignore_ascii_case(&incoming.host)
+                            && s.port == incoming.port
+                            && s.user == incoming.user
+                            && s.identity_file == incoming.identity_file
+                            && s.jump_host == incoming.jump_host)
                 });
                 if duplicate {
                     summary.unchanged += 1;
@@ -381,6 +391,40 @@ mod tests {
             })
             .count();
         assert_eq!(backups, 1);
+    }
+
+    #[test]
+    fn import_keeps_distinct_aliases_for_the_same_address() {
+        let path = temp_path("servers.json");
+        let store = ServerStore::open(&path).unwrap();
+        store
+            .save_server(Server {
+                name: "manual".into(),
+                host: "10.0.0.1".into(),
+                user: "root".into(),
+                ..Server::default()
+            })
+            .unwrap();
+        let imported = |alias: &str, key: Option<&str>| Server {
+            alias: Some(alias.into()),
+            name: alias.into(),
+            host: "10.0.0.1".into(),
+            user: "root".into(),
+            identity_file: key.map(Into::into),
+            ..Server::default()
+        };
+        let summary = store
+            .merge_imported(vec![
+                imported("same-as-manual", None),
+                imported("with-key", Some("~/.ssh/id_rsa")),
+                imported("bastion", Some("~/.ssh/id_rsa")),
+                imported("MANUAL", Some("~/.ssh/other")),
+            ])
+            .unwrap();
+        assert_eq!(summary.added, 2, "{summary:?}");
+        assert_eq!(summary.unchanged, 2);
+        assert!(store.find("with-key").is_some());
+        assert!(store.find("bastion").is_some());
     }
 
     #[test]

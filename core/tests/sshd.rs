@@ -526,3 +526,44 @@ async fn local_dynamic_and_remote_forwarding() {
             .is_err()
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disconnect_keeps_session_reconnectable() {
+    let Some(env) = env() else { return };
+    let core = Arc::new(core());
+    let mut srv = server(&env, AuthKind::Key);
+    srv.identity_file = Some(env.key.clone());
+    let mut s = Session::open(Arc::clone(&core), srv);
+    s.accept_host_key().await;
+    s.expect_status(SessionStatus::Connected).await;
+
+    core.sessions.disconnect(s.id).unwrap();
+    let reason = s.expect_status(SessionStatus::Disconnected).await.unwrap();
+    assert_eq!(reason, "Disconnected");
+    // Input while disconnected is ignored, the session is still there.
+    s.write("echo ignored\n");
+    core.sessions.reconnect(s.id).unwrap();
+    s.expect_status(SessionStatus::Connected).await;
+    s.write("echo back-again\n");
+    s.wait_output("back-again").await;
+    s.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn final_output_is_delivered_before_disconnect() {
+    let Some(env) = env() else { return };
+    let core = Arc::new(core());
+    let mut srv = server(&env, AuthKind::Key);
+    srv.identity_file = Some(env.key.clone());
+    let mut s = Session::open(Arc::clone(&core), srv);
+    s.accept_host_key().await;
+    s.expect_status(SessionStatus::Connected).await;
+    s.write("echo ready\n");
+    s.wait_output("ready").await;
+    s.output.clear();
+    s.write("printf 'bye-bye\\n'; exit 0\n");
+    s.expect_status(SessionStatus::Disconnected).await;
+    eprintln!("OUTPUT AFTER EXIT: {:?}", s.output);
+    assert!(s.output.contains("bye-bye"), "{:?}", s.output);
+    s.close().await;
+}

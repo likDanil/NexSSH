@@ -365,7 +365,7 @@ impl Auth<'_> {
             .ctx
             .ask(Prompt::Password {
                 user: self.user.clone(),
-                host: self.hop.destination(),
+                host: short_host(self.hop),
                 can_remember,
                 error,
             })
@@ -498,7 +498,7 @@ impl Auth<'_> {
                         vec![password.to_string()]
                     } else {
                         let prompt = Prompt::KeyboardInteractive {
-                            host: self.hop.destination(),
+                            host: format!("{}@{}", self.user, short_host(self.hop)),
                             name,
                             instructions,
                             prompts: prompts
@@ -526,6 +526,15 @@ impl Auth<'_> {
             }
         }
         Ok(false)
+    }
+}
+
+/// `host` or `host:port` (port omitted when 22), for prompts.
+fn short_host(hop: &Server) -> String {
+    if hop.port == 22 {
+        hop.host.clone()
+    } else {
+        util::host_port(&hop.host, hop.port)
     }
 }
 
