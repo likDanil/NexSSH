@@ -44,6 +44,8 @@ export const api = {
   deleteGroup: (name: string) => invoke<StoreData>('group_delete', { name }),
   importSshConfig: (path?: string) => invoke<ImportReport>('ssh_config_import', { path: path || null }),
   keys: () => invoke<KeyInfo[]>('keys_list'),
+  /** The system file dialog for a private key; `null` when cancelled. */
+  pickKeyFile: (title: string) => invoke<string | null>('pick_key_file', { title }),
 
   openSession: (target: OpenTarget, cols: number, rows: number, onEvent: Channel<SessionMessage>) =>
     invoke<number>('session_open', { target, cols, rows, onEvent }),

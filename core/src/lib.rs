@@ -37,7 +37,7 @@ pub use session::{
 };
 pub use store::{ImportSummary, ServerStore, StoreData};
 
-pub use util::{contract_tilde, expand_tilde};
+pub use util::{contract_tilde, expand_tilde, ssh_dir};
 
 /// Default data directory: `%APPDATA%\NexSSH` on Windows,
 /// `~/Library/Application Support/NexSSH` on macOS, `~/.config/nexssh` elsewhere.

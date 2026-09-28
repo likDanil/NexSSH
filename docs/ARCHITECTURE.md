@@ -56,6 +56,7 @@ NexSSH/
 │           ├── types.ts  TypeScript mirror of the Rust types
 │           ├── terminal.ts xterm.js wrapper (lazy-loaded chunk)
 │           ├── actions.ts user actions shared by menus, palette, shortcuts
+│           ├── popup.ts  lists that open under a control, rendered on <body>
 │           ├── i18n.svelte.ts t(), plurals, language detection
 │           ├── locales/  en.ts (reference), ru.ts
 │           ├── state/    app, servers, sessions, files, updates, toasts (Svelte runes)
@@ -130,6 +131,8 @@ App.svelte
 ├── SettingsDialog   themes, font, terminal, keyboard, about
 ├── ForwardsDialog   active forwards of the session, add -L / -R / SOCKS
 ├── ConfirmDialog, ContextMenu, Toasts
+├── Select, Suggest  drop-down list / text field with suggestions in the app's style: the
+│                  popups of a native <select> or <datalist> cannot be themed
 └── Rich           a translated message with styled placeholders (<b>, <code>, <kbd>)
 ```
 
@@ -220,8 +223,9 @@ type SessionEvent =
 | Font | JetBrains Mono (bundled, OFL) | Consistent metrics on every OS; ~100 KB, subsets loaded on demand. |
 
 Deliberately **not** used: icon libraries (hand-drawn inline SVG), UI kits, state libraries,
-fuzzy-search libraries (30 lines in `fuzzy.ts`), dialog/clipboard/shell plugins
-(`navigator.clipboard` with Tauri's clipboard access), logging frameworks.
+fuzzy-search libraries (30 lines in `fuzzy.ts`), clipboard/shell plugins (`navigator.clipboard`
+with Tauri's clipboard access), logging frameworks. The dialog plugin is used only from Rust,
+for the native file picker that chooses a key file (a webview file input gives no path).
 
 ## 7. Credentials and security
 
@@ -235,8 +239,8 @@ fuzzy-search libraries (30 lines in `fuzzy.ts`), dialog/clipboard/shell plugins
 * Host keys: NexSSH writes only its own `known_hosts`; the user's `~/.ssh/known_hosts` is
   read-only. A changed key shows a warning with both fingerprints; cancel is the default.
 * The webview runs with a strict CSP (no remote content, no `eval`), and only the window
-  permissions needed for the custom title bar are granted. The updater plugin's own
-  commands are not granted either: the UI can only use NexSSH's commands.
+  permissions needed for the custom title bar are granted. The updater and dialog plugins'
+  own commands are not granted either: the UI can only use NexSSH's commands.
 * Updates run only if their minisign signature matches the public key built into the app
   (`plugins.updater.pubkey`); the private key exists only as a GitHub Actions secret.
 * "Show in folder" opens only files this run of the app downloaded itself.
