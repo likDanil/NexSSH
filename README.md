@@ -28,8 +28,9 @@
   (`Include`, wildcard `Host` blocks, `ProxyJump`, forwards).
 * Tabs with a real terminal (xterm.js, GPU rendering), resize, copy/paste, reconnect with <kbd>Enter</kbd>.
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,
-  PEM, PKCS#8, PuTTY `.ppk`) — the passphrase is asked only if the server accepts the key —
-  passwords and keyboard-interactive / 2FA.
+  PEM, PKCS#8, PuTTY `.ppk`) — the passphrase is asked only if the server accepts the key;
+  pick a key from those found in `~/.ssh` or with *Browse…* — passwords and
+  keyboard-interactive / 2FA.
 * `known_hosts` support (hashed entries, wildcards) with a clear warning when a host key changes.
 * Jump hosts (including chains), keepalive, connection timeouts, custom ports.
 * Port forwarding: local (`-L`), remote (`-R`) and SOCKS5 (`-D`), optionally saved per server.

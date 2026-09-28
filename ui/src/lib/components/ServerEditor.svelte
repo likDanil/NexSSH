@@ -8,6 +8,8 @@
   import type { AuthKind, ForwardKind, ForwardSpec, KeyInfo, Server } from '../types';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
+  import Select from './Select.svelte';
+  import Suggest from './Suggest.svelte';
 
   interface Props {
     editor: EditorState;
@@ -57,8 +59,18 @@
   ];
   const authHint = $derived(AUTH.find((a) => a.id === auth)?.hint);
 
-  const groupOptions = $derived([...new Set([...servers.groupNames, ...suggestedGroups()])]);
-  const jumpOptions = $derived(servers.data.servers.filter((s) => s.id !== initial.id));
+  const groupOptions = $derived([...new Set([...servers.groupNames, ...suggestedGroups()])].map((value) => ({ value })));
+  const jumpOptions = $derived(
+    servers.data.servers.filter((s) => s.id !== initial.id).map((s) => ({ value: s.name, hint: s.host })),
+  );
+  const keyOptions = $derived(
+    keyList.map((k) => ({ value: k.path, hint: k.encrypted ? `${k.keyType} · ${t('editor.keyEncrypted')}` : k.keyType })),
+  );
+  const forwardKinds = $derived<{ value: ForwardKind; label: string }[]>([
+    { value: 'local', label: t('forward.local') },
+    { value: 'remote', label: t('forward.remote') },
+    { value: 'dynamic', label: t('forward.dynamic') },
+  ]);
   const selectedKey = $derived(keyList.find((k) => k.path === identityFile.trim()));
   const portValid = $derived(/^\d+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535);
   const canSave = $derived(host.trim().length > 0 && portValid && !saving && (auth !== 'key' || identityFile.trim().length > 0));
@@ -86,6 +98,16 @@
     // Store saved servers by id so renames do not break the reference.
     const byName = servers.data.servers.find((s) => s.name === t);
     return byName ? byName.id : t;
+  }
+
+  /** The system file dialog, opened in ~/.ssh; the chosen path goes into the field. */
+  async function browseKey() {
+    try {
+      const path = await api.pickKeyFile(t('editor.pickKey'));
+      if (path) identityFile = path;
+    } catch (e) {
+      error = errorMessage(e);
+    }
   }
 
   function addForward(kind: ForwardKind = 'local') {
@@ -164,12 +186,9 @@
       </label>
       <label class="field c4">
         <span>{t('editor.group')}</span>
-        <input class="input" bind:value={group} list="nexssh-groups" placeholder={t('group.production')} spellcheck="false" />
+        <Suggest bind:value={group} suggestions={groupOptions} placeholder={t('group.production')} />
       </label>
     </div>
-    <datalist id="nexssh-groups">
-      {#each groupOptions as g (g)}<option value={g}></option>{/each}
-    </datalist>
 
     <div class="section">
       <span class="label">{t('editor.auth')}</span>
@@ -205,15 +224,16 @@
       {/if}
 
       {#if auth === 'key' || auth === 'auto'}
-        <label class="field">
-          <span>{t(auth === 'key' ? 'editor.privateKey' : 'editor.privateKeyOptional')}</span>
-          <input class="input mono" bind:value={identityFile} list="nexssh-keys" placeholder="~/.ssh/id_ed25519" spellcheck="false" />
-        </label>
-        <datalist id="nexssh-keys">
-          {#each keyList as k (k.path)}
-            <option value={k.path}>{k.keyType}{k.encrypted ? ` · ${t('editor.keyEncrypted')}` : ''}</option>
-          {/each}
-        </datalist>
+        <div class="field">
+          <label class="label" for="identity-file">{t(auth === 'key' ? 'editor.privateKey' : 'editor.privateKeyOptional')}</label>
+          <div class="picker">
+            <Suggest id="identity-file" bind:value={identityFile} suggestions={keyOptions} placeholder="~/.ssh/id_ed25519" mono />
+            <button type="button" class="btn" title={t('editor.pickKey')} onclick={browseKey}>
+              <Icon name="folder" size={14} />
+              {t('editor.browse')}
+            </button>
+          </div>
+        </div>
         {#if selectedKey}
           <p class="hint">
             <Icon name="key" size={12} />
@@ -236,13 +256,7 @@
       <div class="grid">
         <label class="field c6">
           <span>{t('editor.jumpHost')}</span>
-          <input
-            class="input"
-            bind:value={jumpHost}
-            list="nexssh-jumps"
-            placeholder={t('editor.jumpPlaceholder')}
-            spellcheck="false"
-          />
+          <Suggest bind:value={jumpHost} suggestions={jumpOptions} placeholder={t('editor.jumpPlaceholder')} />
         </label>
         <label class="field c3">
           <span>{t('editor.keepalive')}</span>
@@ -253,19 +267,12 @@
           <input class="input" bind:value={timeout} inputmode="numeric" placeholder="15" />
         </label>
       </div>
-      <datalist id="nexssh-jumps">
-        {#each jumpOptions as s (s.id)}<option value={s.name}>{s.host}</option>{/each}
-      </datalist>
 
       <div class="section">
         <span class="label">{t('editor.forwarding')} <span class="muted">{t('editor.forwardingNote')}</span></span>
         {#each forwards as f, i (i)}
           <div class="fwd">
-            <select class="input kind" bind:value={f.kind}>
-              <option value="local">{t('forward.local')}</option>
-              <option value="remote">{t('forward.remote')}</option>
-              <option value="dynamic">{t('forward.dynamic')}</option>
-            </select>
+            <Select bind:value={f.kind} options={forwardKinds} label={t('editor.forwarding')} width={124} />
             <input
               class="input port"
               type="number"
@@ -378,9 +385,13 @@
     align-items: center;
     gap: 6px;
   }
-  .fwd .kind {
-    width: 100px;
+  .picker {
+    display: flex;
+    gap: 6px;
+  }
+  .picker .btn {
     flex: none;
+    height: 32px;
   }
   .fwd .port {
     width: 84px;

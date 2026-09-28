@@ -252,6 +252,44 @@ pub async fn keys_list() -> CmdResult<Vec<KeyInfo>> {
     blocking(nexssh_core::keys::list_local_keys).await
 }
 
+/// Opens the system file dialog in `~/.ssh` and returns the chosen private key, written like
+/// the other key paths in the editor (`~/…`); `None` when cancelled.
+#[tauri::command]
+pub async fn pick_key_file(
+    window: tauri::WebviewWindow,
+    title: String,
+) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let mut dialog = window.dialog().file().set_parent(&window).set_title(title);
+    if let Some(dir) = nexssh_core::ssh_dir().filter(|d| d.is_dir()) {
+        dialog = dialog.set_directory(dir);
+    }
+    // The dialog runs on the main thread; wait for its answer here.
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    dialog.pick_file(move |picked| {
+        let _ = tx.try_send(picked);
+    });
+    let Some(picked) = rx.recv().await.flatten() else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| CmdError::from(e.to_string()))?;
+    Ok(Some(nexssh_core::contract_tilde(&private_key_for(&path))))
+}
+
+/// A picked `.pub` file stands for the private key next to it.
+fn private_key_for(path: &std::path::Path) -> std::path::PathBuf {
+    if path.extension().is_some_and(|e| e == "pub") {
+        let private = path.with_extension("");
+        if private.is_file() {
+            return private;
+        }
+    }
+    path.to_path_buf()
+}
+
 // ---- sessions ---------------------------------------------------------------------
 
 #[derive(Deserialize)]

@@ -19,6 +19,8 @@ pub fn run() {
     logger::init();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Only its Rust API is used (the key file picker); the webview gets no dialog permissions.
+        .plugin(tauri_plugin_dialog::init())
         .manage(updates::Updates::default())
         .manage(sftp::Transfers::default())
         .setup(|app| {
@@ -52,6 +54,7 @@ pub fn run() {
             commands::group_delete,
             commands::ssh_config_import,
             commands::keys_list,
+            commands::pick_key_file,
             commands::session_open,
             commands::session_write,
             commands::session_write_binary,

@@ -1,7 +1,7 @@
 <script lang="ts">
   import logo from '../../assets/logo.png';
   import { keys } from '../actions';
-  import { LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
+  import { formatNumber, LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
   import { app } from '../state/app.svelte';
   import { toasts } from '../state/toasts.svelte';
@@ -9,6 +9,10 @@
   import { THEMES, themeLabel } from '../themes';
   import type { Settings } from '../types';
   import Modal from './Modal.svelte';
+  import Select from './Select.svelte';
+
+  const LINE_HEIGHTS = [1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5];
+  const SCROLLBACKS = [1000, 5000, 10000, 50000, 100000];
 
   type Section = 'appearance' | 'terminal' | 'keyboard' | 'about';
   let section = $state<Section>('appearance');
@@ -138,12 +142,16 @@
           <button class="btn" onclick={() => fontSize(1)} aria-label={t('settings.larger')}>+</button>
         </div>
       </div>
-      <label class="row">
+      <div class="row">
         <span>{t('settings.lineHeight')}</span>
-        <select class="input narrow" value={String(s.lineHeight)} onchange={(e) => app.update({ lineHeight: Number(e.currentTarget.value) })}>
-          {#each [1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5] as lh (lh)}<option value={String(lh)}>{lh}</option>{/each}
-        </select>
-      </label>
+        <Select
+          value={s.lineHeight}
+          options={LINE_HEIGHTS.map((lh) => ({ value: lh, label: formatNumber(lh) }))}
+          onchange={(lineHeight) => app.update({ lineHeight })}
+          label={t('settings.lineHeight')}
+          width={160}
+        />
+      </div>
     </div>
   {:else if section === 'terminal'}
     <div class="rows">
@@ -159,18 +167,16 @@
         <span>{t('settings.cursorBlink')}</span>
         <input type="checkbox" class="toggle" checked={s.cursorBlink} onchange={(e) => app.update({ cursorBlink: e.currentTarget.checked })} />
       </label>
-      <label class="row">
+      <div class="row">
         <span>{t('settings.scrollback')}</span>
-        <select
-          class="input narrow"
-          value={String(s.scrollback)}
-          onchange={(e) => app.update({ scrollback: Number(e.currentTarget.value) })}
-        >
-          {#each [1000, 5000, 10000, 50000, 100000] as n (n)}
-            <option value={String(n)}>{tn('settings.scrollbackLines', n)}</option>
-          {/each}
-        </select>
-      </label>
+        <Select
+          value={s.scrollback}
+          options={SCROLLBACKS.map((n) => ({ value: n, label: tn('settings.scrollbackLines', n) }))}
+          onchange={(scrollback) => app.update({ scrollback })}
+          label={t('settings.scrollback')}
+          width={160}
+        />
+      </div>
       <label class="row">
         <span>{t('settings.copyOnSelect')}</span>
         <input type="checkbox" class="toggle" checked={s.copyOnSelect} onchange={(e) => app.update({ copyOnSelect: e.currentTarget.checked })} />
@@ -359,9 +365,6 @@
   }
   .row .input {
     max-width: 260px;
-  }
-  .narrow {
-    width: 160px;
   }
   .stepper {
     display: flex;

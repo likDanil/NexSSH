@@ -210,6 +210,8 @@ const en = {
   'editor.keychainUnavailable': 'System keychain unavailable: passwords cannot be saved.',
   'editor.privateKey': 'Private key',
   'editor.privateKeyOptional': 'Private key (optional)',
+  'editor.browse': 'Browse…',
+  'editor.pickKey': 'Choose a private key file',
   'editor.keyEncrypted': 'encrypted',
   'editor.keyProtected': 'passphrase protected',
   'editor.keysFound': {

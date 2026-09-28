@@ -332,18 +332,61 @@ select:focus-visible {
 .input.invalid {
   border-color: var(--red);
 }
-select.input {
-  appearance: none;
-  padding-right: 28px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%),
-    linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
-  background-position:
-    calc(100% - 15px) 14px,
-    calc(100% - 11px) 14px;
-  background-size:
-    4px 4px,
-    4px 4px;
-  background-repeat: no-repeat;
+/* Lists that open under a control (Select, Suggest); rendered on <body>, see popup.ts. */
+.popup-list {
+  position: fixed;
+  z-index: 70;
+  max-width: min(480px, calc(100vw - 16px));
+  overflow-y: auto;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  box-shadow: var(--shadow);
+  animation: popup-in 0.1s var(--ease);
+}
+.popup-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.popup-option.active {
+  background: var(--active);
+}
+.popup-option[aria-selected='true'] {
+  font-weight: 500;
+}
+.popup-option .text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.popup-option .hint {
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+.popup-option .tick {
+  display: grid;
+  min-width: 14px;
+  color: var(--text-2);
+}
+@keyframes popup-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .popup-list {
+    animation: none;
+  }
 }
 .mono {
   font-family: var(--font-mono);

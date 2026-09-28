@@ -117,7 +117,7 @@
     text-align: left;
   }
   button.focused {
-    background: var(--hover);
+    background: var(--active);
   }
   button:disabled {
     opacity: 0.45;

@@ -223,6 +223,8 @@ const ru: Catalog = {
   'editor.keychainUnavailable': 'Системное хранилище недоступно: пароли нельзя сохранить.',
   'editor.privateKey': 'Закрытый ключ',
   'editor.privateKeyOptional': 'Закрытый ключ (необязательно)',
+  'editor.browse': 'Обзор…',
+  'editor.pickKey': 'Выберите файл закрытого ключа',
   'editor.keyEncrypted': 'зашифрован',
   'editor.keyProtected': 'защищён парольной фразой',
   'editor.keysFound': {

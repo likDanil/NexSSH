@@ -25,3 +25,4 @@ serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
 zeroize = "1"
+tauri-plugin-dialog = "2.7"
