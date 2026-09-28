@@ -129,7 +129,7 @@ App.svelte
 ├── PermissionsDialog chmod: checkboxes and the octal value, optionally recursive
 ├── Home             welcome screen or server overview when no tab is active
 ├── CommandPalette   Ctrl/Cmd+K: servers, tabs, actions, quick connect
-├── ServerEditor     add/edit server (auth, key picker, jump host, forwards)
+├── ServerEditor     add/edit server (auth, key picker, jump host with its login, forwards)
 ├── SettingsDialog   themes, font, terminal, keyboard, about
 ├── ForwardsDialog   active forwards of the session, add -L / -R / SOCKS
 ├── ConfirmDialog, ContextMenu, Toasts
@@ -172,7 +172,12 @@ kept outside reactive state; backend output is written straight into them.
 
 * `auth`: `auto | password | key | agent`.
 * `jumpHost`: id or name of a saved server, or `[user@]host[:port]`; comma-separated chains
-  and nested jump hosts are resolved recursively (with loop detection).
+  and nested jump hosts are resolved recursively (with loop detection). A saved server signs
+  in with its own settings.
+* `jumpUser`: login on a jump host typed as an address (a single one, not a chain); its
+  password, if remembered, is in the keychain as `jump-password:<id>` of the server that
+  uses it. Without them the login comes from `user@` in `jumpHost` (else the local user name)
+  and the password is asked on connect.
 * `alias`: the `Host` alias when imported from `~/.ssh/config`; re-importing updates
   connection fields but keeps the name, group and history.
 
@@ -248,8 +253,9 @@ into, a folder to upload.
 ## 7. Credentials and security
 
 * Passwords and key passphrases are stored **only** in the OS credential store under the
-  service `NexSSH` (Windows: target `NexSSH password:<id>`, persistence *Local* so they do
-  not roam). NexSSH's files never contain secrets.
+  service `NexSSH` (Windows: target `NexSSH password:<id>`, or `NexSSH jump-password:<id>` for
+  a jump host typed as an address; persistence *Local* so they do not roam). NexSSH's files
+  never contain secrets.
 * If no credential store is usable, the app still works: "remember" is disabled and the
   user is asked on connect.
 * Secrets typed during a session stay in memory for reconnects (zeroized on drop);

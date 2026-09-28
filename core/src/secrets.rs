@@ -88,6 +88,12 @@ impl Secrets {
         format!("password:{server_id}")
     }
 
+    /// Account name for the password of a saved server's jump host, when that jump host is
+    /// typed in place (`host[:port]`) rather than another saved server.
+    pub fn jump_password_account(server_id: &str) -> String {
+        format!("jump-password:{server_id}")
+    }
+
     /// Account name for a private key passphrase (keyed by the key's path, so the
     /// passphrase is shared by every server using that key).
     pub fn passphrase_account(key_path: &Path) -> String {

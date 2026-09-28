@@ -108,6 +108,11 @@ pub struct Server {
     /// Several hops may be chained with commas, like OpenSSH's `ProxyJump`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jump_host: Option<String>,
+    /// Login on the jump host when `jump_host` names one host that is not a saved server
+    /// (a saved server signs in with its own settings). Its password, if remembered, is in
+    /// the OS keychain under [`crate::secrets::Secrets::jump_password_account`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jump_user: Option<String>,
     /// Keepalive interval; `None` uses the default, `Some(0)` disables keepalives.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keepalive_secs: Option<u32>,
@@ -136,6 +141,7 @@ impl Default for Server {
             auth: AuthKind::Auto,
             identity_file: None,
             jump_host: None,
+            jump_user: None,
             keepalive_secs: None,
             connect_timeout_secs: None,
             forwards: Vec::new(),
@@ -165,7 +171,11 @@ impl Server {
         self.group = self.group.trim().to_string();
         trim_opt(&mut self.identity_file);
         trim_opt(&mut self.jump_host);
+        trim_opt(&mut self.jump_user);
         trim_opt(&mut self.alias);
+        if self.jump_host.is_none() {
+            self.jump_user = None;
+        }
 
         if self.host.is_empty() {
             return Err(Error::invalid(i18n::host_required()));
@@ -176,7 +186,12 @@ impl Server {
         if self.port == 0 {
             return Err(Error::invalid(i18n::port_out_of_range()));
         }
-        if self.user.chars().any(char::is_whitespace) {
+        if self.user.chars().any(char::is_whitespace)
+            || self
+                .jump_user
+                .as_deref()
+                .is_some_and(|u| u.chars().any(char::is_whitespace))
+        {
             return Err(Error::invalid(i18n::user_has_spaces()));
         }
         if self.name.is_empty() {

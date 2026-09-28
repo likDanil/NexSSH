@@ -234,6 +234,57 @@ async fn jump_host_chain() {
     s.close().await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn jump_host_typed_in_place_with_its_own_login_and_password() {
+    let Some(env) = env() else { return };
+    let core = Arc::new(core());
+    // The jump host is typed in place (not a saved server) and signs in with the login
+    // and password kept for it; the target itself uses a key.
+    let mut target = server(&env, AuthKind::Key);
+    target.identity_file = Some(env.key.clone());
+    target.jump_host = Some(format!("{}:{}", env.host, env.port));
+    target.jump_user = Some(env.user.clone());
+    let target = core.store.save_server(target).unwrap();
+    let account = Secrets::jump_password_account(&target.id);
+
+    // The first time the password is asked for, for that login, and can be remembered.
+    let mut s = Session::open(Arc::clone(&core), target.clone());
+    s.accept_host_key().await;
+    let (id, prompt) = s.expect_prompt().await;
+    match prompt {
+        Prompt::Password {
+            user, can_remember, ..
+        } => {
+            assert_eq!(user, env.user);
+            assert!(can_remember);
+        }
+        other => panic!("{other:?}"),
+    }
+    s.answer(
+        id,
+        PromptReply::Secret {
+            value: env.password.clone(),
+            remember: true,
+        },
+    );
+    s.expect_status(SessionStatus::Connected).await;
+    assert!(core.secrets.has(&account));
+    assert!(
+        !core.secrets.has(&Secrets::password_account(&target.id)),
+        "the target's own password is separate"
+    );
+    s.write("echo via-jump-password\n");
+    s.wait_output("via-jump-password").await;
+    s.close().await;
+
+    // After that it comes from the keychain: no questions at all.
+    let mut s = Session::open(Arc::clone(&core), target);
+    s.expect_status(SessionStatus::Connected).await;
+    s.write("echo again-via-jump\n");
+    s.wait_output("again-via-jump").await;
+    s.close().await;
+}
+
 async fn read_banner(port: u16) -> String {
     let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await

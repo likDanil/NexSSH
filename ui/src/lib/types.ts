@@ -23,7 +23,10 @@ export interface Server {
   group: string;
   auth: AuthKind;
   identityFile?: string;
+  /** A saved server's id or name, or `host[:port]` (comma-separated for a chain). */
   jumpHost?: string;
+  /** Login on a jump host typed in place; its password is in the OS keychain. */
+  jumpUser?: string;
   keepaliveSecs?: number;
   connectTimeoutSecs?: number;
   forwards?: ForwardSpec[];

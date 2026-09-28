@@ -1,6 +1,6 @@
 // Saved servers (loaded from and written through the backend store).
 
-import { api, errorMessage } from '../api';
+import { api, errorMessage, type ServerSecrets } from '../api';
 import { t, tn } from '../i18n.svelte';
 import type { ImportReport, Server, StoreData } from '../types';
 import { toasts } from './toasts.svelte';
@@ -65,8 +65,8 @@ class ServersState {
     }
   }
 
-  async save(server: Server, password?: string, clearPassword = false): Promise<Server> {
-    const { server: saved, warning } = await api.saveServer(server, password, clearPassword);
+  async save(server: Server, secrets: ServerSecrets = {}): Promise<Server> {
+    const { server: saved, warning } = await api.saveServer(server, secrets);
     await this.load();
     if (warning) toasts.show(warning, 'error', 7000);
     return saved;
