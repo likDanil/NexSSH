@@ -1,2 +1,2 @@
-# RuSSH
-RuSSH - Rush into SSH (Быстрый доступ по SSH)
+NexSSH - Next-generation SSH
+(SSH нового поколения)
