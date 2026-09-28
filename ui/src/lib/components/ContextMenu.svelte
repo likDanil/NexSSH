@@ -5,6 +5,8 @@
   let el = $state<HTMLDivElement>();
   let pos = $state({ x: 0, y: 0 });
   let focused = $state(-1);
+  /** What had the focus before the menu took it; it gets it back when the menu closes. */
+  let previous: HTMLElement | null = null;
 
   const items = $derived((app.menu?.items ?? []).map((e, i) => ({ e, i })));
   const actionable = $derived(
@@ -21,11 +23,17 @@
       y: menu.y + rect.height > window.innerHeight - 6 ? Math.max(6, menu.y - rect.height) : menu.y,
     };
     focused = -1;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && !el.contains(active)) previous = active;
     el.focus();
   });
 
   function close() {
     app.menu = null;
+    // Before the menu goes, so a dialog opened by the item returns the focus there too.
+    const back = previous;
+    previous = null;
+    if (back?.isConnected && el?.contains(document.activeElement)) back.focus();
   }
 
   function run(item: MenuItem) {

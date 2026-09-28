@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: Settings = {
   collapsedGroups: [],
   filesShowHidden: false,
   filesWidth: 380,
+  filesSort: 'name',
+  filesSortDesc: false,
   autoUpdateCheck: true,
   lastVersion: '',
 };
@@ -63,6 +65,21 @@ export interface ConfirmState {
   resolve: (value: string | null) => void;
 }
 
+export interface PermissionsChoice {
+  mode: number;
+  /** Also change everything inside the chosen folders. */
+  recursive: boolean;
+}
+
+export interface PermissionsState {
+  title: string;
+  /** The mode to start from (the first item's when several are chosen). */
+  mode: number;
+  /** Folders are among the items: offer to apply the mode inside them too. */
+  folders: boolean;
+  resolve: (value: PermissionsChoice | null) => void;
+}
+
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
 class AppState {
@@ -85,11 +102,19 @@ class AppState {
   forwardsOpen = $state(false);
   menu = $state<MenuState | null>(null);
   confirmation = $state<ConfirmState | null>(null);
+  permissions = $state<PermissionsState | null>(null);
 
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   get overlayOpen(): boolean {
-    return this.palette.open || !!this.editor || this.settingsOpen || this.forwardsOpen || !!this.confirmation;
+    return (
+      this.palette.open ||
+      !!this.editor ||
+      this.settingsOpen ||
+      this.forwardsOpen ||
+      !!this.confirmation ||
+      !!this.permissions
+    );
   }
 
   async init() {
@@ -185,6 +210,22 @@ class AppState {
         ...state,
         resolve: (value) => {
           this.confirmation = null;
+          resolve(value);
+        },
+      };
+    });
+  }
+
+  /** The permissions dialog (chmod); `null` when cancelled. */
+  askPermissions(title: string, mode: number, folders: boolean): Promise<PermissionsChoice | null> {
+    this.menu = null;
+    return new Promise((resolve) => {
+      this.permissions = {
+        title,
+        mode,
+        folders,
+        resolve: (value) => {
+          this.permissions = null;
           resolve(value);
         },
       };

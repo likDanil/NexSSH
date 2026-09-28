@@ -71,11 +71,16 @@
     };
   });
 
-  // Re-fit and focus when the tab becomes visible.
+  // Re-fit and focus when the tab becomes visible, or a dialog closes; a dialog opened from
+  // the files drawer gives the focus back to the drawer instead.
   $effect(() => {
     if (active && loaded) {
       fitSoon();
-      if (!app.overlayOpen && !tab.prompts.length) requestAnimationFrame(() => view?.focus());
+      if (!app.overlayOpen && !tab.prompts.length) {
+        requestAnimationFrame(() => {
+          if (!document.activeElement?.closest('[data-keep-focus]')) view?.focus();
+        });
+      }
     }
   });
 

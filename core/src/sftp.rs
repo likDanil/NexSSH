@@ -1,6 +1,8 @@
-//! Files over SFTP on a session's SSH connection (russh-sftp): browse, create folders,
-//! rename, delete, upload and download. A session opens one SFTP channel on first use
-//! (see [`crate::SessionManager::sftp`]), so no second login is needed.
+//! Files over SFTP on a session's SSH connection (russh-sftp): browse, create files and
+//! folders, rename, delete, change permissions, upload and download (files and whole
+//! folders). A session opens one
+//! SFTP channel on first use (see [`crate::SessionManager::sftp`]), so no second login is
+//! needed.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +11,7 @@ use russh::client::Handle;
 use russh_sftp::client::SftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::client::fs::{File, Metadata};
-use russh_sftp::protocol::{FilePermissions, StatusCode};
+use russh_sftp::protocol::{FilePermissions, OpenFlags, StatusCode};
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -19,6 +21,9 @@ use crate::session::handler::ClientHandler;
 
 /// Read size for downloads; the client pipelines several requests per read.
 const CHUNK: usize = 256 * 1024;
+
+/// Permission bits, including setuid, setgid and sticky (the rest of `st_mode` is the type).
+const MODE_BITS: u32 = 0o7777;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -44,6 +49,9 @@ pub struct Entry {
     /// `rwxr-xr-x`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<String>,
+    /// The permission bits as a number (`0o755`), for editing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
 }
 
 impl Entry {
@@ -117,6 +125,7 @@ impl Sftp {
                 permissions: meta
                     .permissions
                     .map(|p| FilePermissions::from(p).to_string()),
+                mode: meta.permissions.map(|p| p & MODE_BITS),
             });
         }
         entries.sort_by(|a, b| {
@@ -133,6 +142,76 @@ impl Sftp {
         }
         self.session
             .create_dir(path)
+            .await
+            .map_err(|e| fail(path, e))
+    }
+
+    /// Creates the folder unless it already exists (an upload merges into it).
+    pub async fn ensure_dir(&self, path: &str) -> Result<()> {
+        match self.session.metadata(path).await {
+            Ok(meta) if meta.is_dir() => Ok(()),
+            Ok(_) => Err(Error::invalid(i18n::sftp_exists(path))),
+            Err(_) => self
+                .session
+                .create_dir(path)
+                .await
+                .map_err(|e| fail(path, e)),
+        }
+    }
+
+    /// Creates an empty file; never replaces an existing one.
+    pub async fn new_file(&self, path: &str) -> Result<()> {
+        if self.session.try_exists(path).await.unwrap_or(false) {
+            return Err(Error::invalid(i18n::sftp_exists(path)));
+        }
+        let flags = OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE;
+        let mut file = self
+            .session
+            .open_with_flags(path, flags)
+            .await
+            .map_err(|e| fail(path, e))?;
+        file.shutdown().await.map_err(|e| fail_io(path, e))
+    }
+
+    /// Sets the permission bits of `path`. With `recursive`, everything inside a folder gets
+    /// them too, and folders also get execute where they have read (like `chmod -R a+X`), so
+    /// that `644` leaves the folders openable. Symlinks inside are left alone.
+    pub async fn chmod(&self, path: &str, mode: u32, recursive: bool) -> Result<()> {
+        let meta = self
+            .session
+            .symlink_metadata(path)
+            .await
+            .map_err(|e| fail(path, e))?;
+        if !recursive || !meta.is_dir() {
+            return self.set_mode(path, mode & MODE_BITS).await;
+        }
+        let mut pending = vec![path.to_string()];
+        while let Some(dir) = pending.pop() {
+            self.set_mode(&dir, folder_mode(mode)).await?;
+            for item in self
+                .session
+                .read_dir(&dir)
+                .await
+                .map_err(|e| fail(&dir, e))?
+            {
+                let child = join(&dir, &item.file_name());
+                match kind_of(&item.metadata()) {
+                    EntryKind::Dir => pending.push(child),
+                    EntryKind::File => self.set_mode(&child, mode & MODE_BITS).await?,
+                    EntryKind::Link | EntryKind::Other => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn set_mode(&self, path: &str, mode: u32) -> Result<()> {
+        let attrs = Metadata {
+            permissions: Some(mode),
+            ..Metadata::empty()
+        };
+        self.session
+            .set_metadata(path, attrs)
             .await
             .map_err(|e| fail(path, e))
     }
@@ -320,6 +399,116 @@ impl Sftp {
         Ok(())
     }
 
+    /// Uploads a local file or folder into `remote_dir` under its own name and returns the
+    /// remote path. Folders merge into existing ones and files replace existing files (the
+    /// UI asks first). Inside folders, symlinks to files are followed and symlinks to
+    /// folders skipped (they may loop). A cancelled or failed upload removes the file it was
+    /// writing; what was uploaded before stays.
+    pub async fn upload_path(
+        &self,
+        local: &Path,
+        remote_dir: &str,
+        on_progress: &mut (dyn FnMut(Progress) + Send),
+        cancel: &AtomicBool,
+    ) -> Result<String> {
+        let unreadable = |path: &Path, e| local_read_fail(path, e);
+        let meta = std::fs::metadata(local).map_err(|e| unreadable(local, e))?;
+        let name = local
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| Error::invalid(i18n::sftp_no_such_file(&local.display().to_string())))?;
+        let target = join(remote_dir, &name);
+
+        // Plan first so the progress has a total.
+        let mut dirs = Vec::new();
+        let mut files: Vec<(PathBuf, String, u64)> = Vec::new();
+        if meta.is_dir() {
+            dirs.push(target.clone());
+            let mut pending = vec![(local.to_path_buf(), target.clone())];
+            while let Some((dir, remote)) = pending.pop() {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(Error::Cancelled);
+                }
+                for item in std::fs::read_dir(&dir).map_err(|e| unreadable(&dir, e))? {
+                    let item = item.map_err(|e| unreadable(&dir, e))?;
+                    let (path, child) = (
+                        item.path(),
+                        join(&remote, &item.file_name().to_string_lossy()),
+                    );
+                    let kind = item.file_type().map_err(|e| unreadable(&path, e))?;
+                    if kind.is_dir() {
+                        dirs.push(child.clone());
+                        pending.push((path, child));
+                    } else if let Ok(meta) = std::fs::metadata(&path)
+                        && meta.is_file()
+                    {
+                        files.push((path, child, meta.len()));
+                    }
+                }
+            }
+        } else {
+            files.push((local.to_path_buf(), target.clone(), meta.len()));
+        }
+
+        let mut progress = Progress {
+            done: 0,
+            total: files.iter().map(|f| f.2).sum(),
+        };
+        on_progress(progress);
+        for dir in &dirs {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(Error::Cancelled);
+            }
+            self.ensure_dir(dir).await?;
+        }
+        for (path, remote, _) in &files {
+            self.send(path, remote, &mut progress, on_progress, cancel)
+                .await?;
+        }
+        Ok(target)
+    }
+
+    async fn send(
+        &self,
+        local: &Path,
+        remote: &str,
+        progress: &mut Progress,
+        on_progress: &mut (dyn FnMut(Progress) + Send),
+        cancel: &AtomicBool,
+    ) -> Result<()> {
+        let mut input = tokio::fs::File::open(local)
+            .await
+            .map_err(|e| local_read_fail(local, e))?;
+        let mut upload = self.create(remote).await?;
+        let mut buf = vec![0u8; CHUNK];
+        let sent: Result<()> = async {
+            loop {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(Error::Cancelled);
+                }
+                let n = input
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| local_read_fail(local, e))?;
+                if n == 0 {
+                    return Ok(());
+                }
+                upload.write(&buf[..n]).await?;
+                progress.done += n as u64;
+                on_progress(*progress);
+            }
+        }
+        .await;
+        match sent {
+            Ok(()) => upload.finish().await,
+            Err(e) => {
+                drop(upload);
+                self.discard(remote).await;
+                Err(e)
+            }
+        }
+    }
+
     /// Creates (or replaces) a remote file to upload into.
     pub async fn create(&self, path: &str) -> Result<Upload> {
         let file = self.session.create(path).await.map_err(|e| fail(path, e))?;
@@ -360,6 +549,12 @@ impl Upload {
             .await
             .map_err(|e| fail_io(&self.path, e))
     }
+}
+
+/// `mode` for a folder in a recursive change: execute (enter) wherever there is read.
+fn folder_mode(mode: u32) -> u32 {
+    let mode = mode & MODE_BITS;
+    mode | ((mode & 0o444) >> 2)
 }
 
 fn kind_of(meta: &Metadata) -> EntryKind {
@@ -471,6 +666,10 @@ fn local_fail(path: &Path, e: std::io::Error) -> Error {
     Error::Invalid(i18n::local_write_failed(&path.display().to_string(), e))
 }
 
+fn local_read_fail(path: &Path, e: std::io::Error) -> Error {
+    Error::Invalid(i18n::local_read_failed(&path.display().to_string(), e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,6 +682,16 @@ mod tests {
         assert_eq!(base_name("/"), "root");
         assert_eq!(safe_name("a:b?.txt"), "a_b_.txt");
         assert_eq!(safe_name("trailing. "), "trailing");
+    }
+
+    #[test]
+    fn folders_stay_openable_in_recursive_chmod() {
+        assert_eq!(folder_mode(0o644), 0o755);
+        assert_eq!(folder_mode(0o640), 0o750);
+        assert_eq!(folder_mode(0o600), 0o700);
+        assert_eq!(folder_mode(0o000), 0o000);
+        assert_eq!(folder_mode(0o1777), 0o1777);
+        assert_eq!(folder_mode(0o100644), 0o755, "type bits are dropped");
     }
 
     #[test]

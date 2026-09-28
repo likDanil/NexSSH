@@ -29,7 +29,7 @@ NexSSH/
 │   │   ├── ssh_config.rs ~/.ssh/config import
 │   │   ├── keys.rs       private key discovery/loading (OpenSSH, PEM, PKCS#8, PPK)
 │   │   ├── forward.rs    -L / -R / -D (SOCKS5) forwarding
-│   │   ├── sftp.rs       files over SFTP: list, mkdir, rename, delete, upload, download
+│   │   ├── sftp.rs       files over SFTP: list, create, rename, delete, chmod, transfers
 │   │   ├── i18n.rs       user-facing messages in every language
 │   │   └── session/
 │   │       ├── mod.rs    SessionManager, events, prompts
@@ -77,7 +77,7 @@ NexSSH/
 | `keys` | Finds keys in `~/.ssh`, reads public halves without the passphrase (OpenSSH format or `.pub`). |
 | `session` | One Tokio task per session. See below. |
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
-| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. |
+| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders; the file being written when an upload fails or is cancelled is removed. A recursive `chmod` also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
 | `i18n` | Every user-facing message with all its translations; process-wide language set by the app. |
 
 ### Session lifecycle
@@ -124,7 +124,9 @@ App.svelte
 ├── TabBar           tabs (status, title, close), +, files, ⋯ session menu, WindowControls (Windows)
 ├── TerminalPane ×N  one xterm per tab, kept alive while hidden (display: none)
 │   └── PromptCard   host key / password / passphrase / keyboard-interactive, over the terminal
-├── FilesDrawer      SFTP files of the active tab, right of the terminal (which narrows), transfers
+├── FilesDrawer      SFTP files of the active tab, right of the terminal (which narrows):
+│                    sortable list with multi-selection, drops, transfers with speed
+├── PermissionsDialog chmod: checkboxes and the octal value, optionally recursive
 ├── Home             welcome screen or server overview when no tab is active
 ├── CommandPalette   Ctrl/Cmd+K: servers, tabs, actions, quick connect
 ├── ServerEditor     add/edit server (auth, key picker, jump host, forwards)
@@ -199,11 +201,26 @@ type SessionEvent =
   later keystrokes and pastes are batched, order is guaranteed.
 * **Prompts:** the core emits `Prompt { id, … }` and awaits a oneshot; the UI answers with
   `prompt_answer(id, reply)`. Abandoned prompts emit `promptClosed`.
-* **File transfers:** downloads run in the backend straight into the Downloads folder, with
-  progress on a `Channel` (at most every 100 ms). Uploads come from the webview's `File`
-  objects: `sftp_upload_begin`, then 1 MiB pieces as raw IPC bodies (`ArrayBuffer`, no JSON or
-  base64) with the transfer id in a header, then `sftp_upload_end`. A transfer id chosen by the
-  UI lets `sftp_cancel` stop either kind; a cancelled upload deletes its partial file.
+* **File transfers:** downloads run in the backend straight into the Downloads folder (or a
+  folder picked with *Download to…*), with progress on a `Channel` (at most every 100 ms).
+  Uploads take two routes:
+  * files from the webview (the file dialog, and drops on WebView2 / WKWebView, where
+    `webkitGetAsEntry` walks dropped folders) arrive as `File` objects: `sftp_ensure_dir` for
+    their folders, then per file `sftp_upload_begin`, 1 MiB pieces as raw IPC bodies
+    (`ArrayBuffer`, no JSON or base64) with the transfer id in a header, and
+    `sftp_upload_end`;
+  * a folder picked in the native dialog (*Upload folder…*: the webview's folder picking
+    differs per system), and on Linux whatever is dropped (WebKitGTK shows the page such a drop
+    without its files, see below), is read from disk by the backend: `sftp_upload_path`.
+
+  A transfer id chosen by the UI lets `sftp_cancel` stop any of them; a cancelled upload
+  deletes its partial file. The UI measures the speed from the progress (over ½ s, smoothed)
+  and shows the time left.
+* **Dropping files:** the page handles drag & drop itself (tab reordering needs it, and the
+  native handler would take every drag from WebView2). WebKitGTK never gives the page the
+  files of a drop from outside, so on Linux the native handler stays enabled: it reports the
+  paths being dragged in (`files-dragged`), and a drop on the files drawer uploads them. A
+  file dropped anywhere else is refused instead of opening in the webview.
 * **Start-up:** the window is created in Rust with the saved theme's background colour;
   an inline script applies the last theme before first paint; `xterm.js` is a lazy chunk
   loaded with the first session.
@@ -225,7 +242,8 @@ type SessionEvent =
 Deliberately **not** used: icon libraries (hand-drawn inline SVG), UI kits, state libraries,
 fuzzy-search libraries (30 lines in `fuzzy.ts`), clipboard/shell plugins (`navigator.clipboard`
 with Tauri's clipboard access), logging frameworks. The dialog plugin is used only from Rust,
-for the native file picker that chooses a key file (a webview file input gives no path).
+for native pickers: a key file (a webview file input gives no path), a folder to download
+into, a folder to upload.
 
 ## 7. Credentials and security
 
@@ -243,7 +261,10 @@ for the native file picker that chooses a key file (a webview file input gives n
   own commands are not granted either: the UI can only use NexSSH's commands.
 * Updates run only if their minisign signature matches the public key built into the app
   (`plugins.updater.pubkey`); the private key exists only as a GitHub Actions secret.
-* "Show in folder" opens only files this run of the app downloaded itself.
+* "Show in folder" opens only files this run of the app downloaded itself. The same goes for
+  local paths the page hands back: a download goes only to Downloads or a folder the user
+  picked in the native dialog, and an upload by path reads only what the user picked or
+  dragged in. A compromised page could not make NexSSH write or send other local files.
 
 ## Languages
 
@@ -291,7 +312,6 @@ The interface is available in English and Russian; the default follows the syste
 
 ## Extending
 
-* **Folder uploads:** walk dropped folders (`webkitGetAsEntry`) and reuse the upload commands.
 * **Snippets / history / sync:** new modules in `core` behind their own stores.
 * **Split panes:** several `TerminalPane`s per tab; sessions are already independent.
 * **Themes:** a theme is a block of CSS variables in `app.css` plus an xterm palette in

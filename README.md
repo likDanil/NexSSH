@@ -35,8 +35,12 @@
 * Jump hosts (including chains), keepalive, connection timeouts, custom ports.
 * Port forwarding: local (`-L`), remote (`-R`) and SOCKS5 (`-D`), optionally saved per server.
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
-  browse, upload (button or drag & drop), download files and whole folders into
-  *Downloads*, rename, delete, create folders; transfers show progress and can be cancelled.
+  upload files and whole folders (buttons, or drag & drop — onto a folder in the list to
+  put them there), download into *Downloads* or any folder, several at once with
+  <kbd>Ctrl</kbd>/<kbd>Shift</kbd>+click; rename, delete, create files and folders, change
+  permissions (also recursively), sort by name, size or date, jump to a name by typing it,
+  and *Open in terminal* to `cd` there. Transfers show speed and time left and can be
+  cancelled; nothing is overwritten without asking.
 * **In-app updates** (Windows): NexSSH finds a new release by itself; *Download* fetches it
   in the background and *Install* updates silently — no installer windows — and restarts.
   Updates are signed and verified before they run.
@@ -165,7 +169,6 @@ right away (installed apps could not see it); dry runs still build, unsigned.
 
 * Split terminals
 * Snippets and command history
-* Uploading whole folders over SFTP
 * macOS and Linux installers, code signing
 * Settings sync
 

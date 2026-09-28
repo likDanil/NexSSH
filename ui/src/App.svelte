@@ -6,6 +6,7 @@
   import FilesDrawer from './lib/components/FilesDrawer.svelte';
   import ForwardsDialog from './lib/components/ForwardsDialog.svelte';
   import Home from './lib/components/Home.svelte';
+  import PermissionsDialog from './lib/components/PermissionsDialog.svelte';
   import ServerEditor from './lib/components/ServerEditor.svelte';
   import SettingsDialog from './lib/components/SettingsDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
@@ -153,6 +154,7 @@
 {#if app.settingsOpen}<SettingsDialog />{/if}
 {#if app.forwardsOpen}<ForwardsDialog />{/if}
 {#if app.confirmation}<ConfirmDialog request={app.confirmation} />{/if}
+{#if app.permissions}<PermissionsDialog request={app.permissions} />{/if}
 <ContextMenu />
 <Toasts />
 

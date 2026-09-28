@@ -30,6 +30,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(updates::Updates::default())
         .manage(sftp::Transfers::default())
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { paths, .. }) => {
+                sftp::dragged(window, paths)
+            }
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) => {
+                sftp::dropped(window, paths, *position)
+            }
+            _ => {}
+        })
         .setup(|app| {
             let data_dir = nexssh_core::default_data_dir()
                 .ok_or("cannot determine the configuration directory")?;
@@ -76,9 +85,15 @@ pub fn run() {
             sftp::sftp_resolve,
             sftp::sftp_list,
             sftp::sftp_mkdir,
+            sftp::sftp_ensure_dir,
+            sftp::sftp_new_file,
+            sftp::sftp_chmod,
             sftp::sftp_rename,
             sftp::sftp_remove,
             sftp::sftp_download,
+            sftp::sftp_pick_destination,
+            sftp::sftp_pick_upload,
+            sftp::sftp_upload_path,
             sftp::sftp_upload_begin,
             sftp::sftp_upload_chunk,
             sftp::sftp_upload_end,
@@ -118,10 +133,16 @@ fn create_main_window(app: &tauri::App, background: Color) -> tauri::Result<()> 
         .min_inner_size(640.0, 400.0)
         .center()
         .background_color(background)
-        // Let the page handle drag & drop itself (tab reordering).
-        .disable_drag_drop_handler()
         // navigator.clipboard for copy/paste in the terminal (no clipboard plugin needed).
         .enable_clipboard_access();
+
+    // The page handles drag & drop itself (tabs, files dropped on the files drawer): the
+    // native handler would take every drag from WebView2 and WKWebView. WebKitGTK keeps
+    // the page's own drags working next to it but never gives dropped files to the page,
+    // so on Linux the native handler stays and tells the page what is being dragged in
+    // (`sftp::dragged`).
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.disable_drag_drop_handler();
 
     #[cfg(target_os = "windows")]
     let builder = builder.decorations(false).shadow(true);
