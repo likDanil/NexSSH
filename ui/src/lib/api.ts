@@ -21,6 +21,15 @@ import type {
 
 export type SessionMessage = SessionEvent | ArrayBuffer;
 
+/** Passwords saved with a server, in the OS keychain: a new one, or forget the stored one. */
+export interface ServerSecrets {
+  password?: string;
+  clearPassword?: boolean;
+  /** For its jump host, when that is typed in place rather than a saved server. */
+  jumpPassword?: string;
+  clearJumpPassword?: boolean;
+}
+
 export interface OpenTarget {
   serverId?: string;
   destination?: string;
@@ -36,10 +45,17 @@ export const api = {
   saveSettings: (settings: Settings) => invoke<void>('settings_set', { settings }),
 
   servers: () => invoke<StoreData>('servers_list'),
-  saveServer: (server: Server, password?: string, clearPassword = false) =>
-    invoke<{ server: Server; warning?: string }>('server_save', { server, password: password || null, clearPassword }),
+  saveServer: (server: Server, secrets: ServerSecrets = {}) =>
+    invoke<{ server: Server; warning?: string }>('server_save', {
+      server,
+      password: secrets.password || null,
+      clearPassword: !!secrets.clearPassword,
+      jumpPassword: secrets.jumpPassword || null,
+      clearJumpPassword: !!secrets.clearJumpPassword,
+    }),
   deleteServer: (id: string) => invoke<void>('server_delete', { id }),
-  hasPassword: (id: string) => invoke<boolean>('server_has_password', { id }),
+  /** Whether a password is remembered for the server, or with `jump` for its jump host. */
+  hasPassword: (id: string, jump = false) => invoke<boolean>('server_has_password', { id, jump }),
   setGroups: (groups: string[]) => invoke<StoreData>('groups_set', { groups }),
   renameGroup: (from: string, to: string) => invoke<StoreData>('group_rename', { from, to }),
   deleteGroup: (name: string) => invoke<StoreData>('group_delete', { name }),

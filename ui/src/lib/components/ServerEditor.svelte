@@ -39,7 +39,15 @@
   let group = $state(initial.group);
   let auth = $state<AuthKind>(initial.auth);
   let identityFile = $state(initial.identityFile ?? '');
-  let jumpHost = $state(jumpDisplay(initial.jumpHost));
+  // A login typed with the jump host (`ops@bastion`, from older versions or ~/.ssh/config)
+  // moves to its own field.
+  // svelte-ignore state_referenced_locally
+  const initialJump = splitLogin(jumpDisplay(initial.jumpHost), initial.jumpUser ?? '');
+  let jumpHost = $state(initialJump.host);
+  let jumpUser = $state(initialJump.user);
+  let jumpPassword = $state('');
+  let hasJumpPassword = $state(false);
+  let forgetJumpPassword = $state(false);
   let keepalive = $state(initial.keepaliveSecs != null ? String(initial.keepaliveSecs) : '');
   let timeout = $state(initial.connectTimeoutSecs != null ? String(initial.connectTimeoutSecs) : '');
   let forwards = $state<ForwardSpec[]>(initial.forwards ? [...initial.forwards] : []);
@@ -80,9 +88,39 @@
     return servers.byId.get(value)?.name ?? value;
   }
 
+  /** A saved server by id, alias or name, the way the backend resolves jump hosts. */
+  function findServer(value: string): Server | undefined {
+    const key = value.toLowerCase();
+    const list = servers.data.servers.filter((s) => s.id !== initial.id);
+    return (
+      list.find((s) => s.id === value) ?? list.find((s) => s.alias === value) ?? list.find((s) => s.name.toLowerCase() === key)
+    );
+  }
+
+  /** What the jump host field names: one host typed in place gets its own login and password. */
+  function jumpKind(value: string): { kind: 'none' | 'typed' | 'chain' } | { kind: 'saved'; server: Server } {
+    const v = value.trim();
+    if (!v || v.toLowerCase() === 'none') return { kind: 'none' };
+    if (v.includes(',')) return { kind: 'chain' };
+    const server = findServer(v);
+    return server ? { kind: 'saved', server } : { kind: 'typed' };
+  }
+
+  /** `ops@bastion:22` → host `bastion:22`, login `ops` (unless a login is given already). */
+  function splitLogin(host: string, user: string): { host: string; user: string } {
+    const at = host.lastIndexOf('@');
+    if (at < 0 || jumpKind(host).kind !== 'typed') return { host, user };
+    return { host: host.slice(at + 1), user: user || host.slice(0, at) };
+  }
+
+  const jump = $derived(jumpKind(jumpHost));
+
   onMount(() => {
     api.keys().then((k) => (keyList = k)).catch(() => {});
-    if (existing) api.hasPassword(existing.id).then((h) => (hasPassword = h)).catch(() => {});
+    if (existing) {
+      api.hasPassword(existing.id).then((h) => (hasPassword = h)).catch(() => {});
+      api.hasPassword(existing.id, true).then((h) => (hasJumpPassword = h)).catch(() => {});
+    }
   });
 
   function toNumber(v: string): number | undefined {
@@ -96,8 +134,8 @@
     const t = v.trim();
     if (!t) return undefined;
     // Store saved servers by id so renames do not break the reference.
-    const byName = servers.data.servers.find((s) => s.name === t);
-    return byName ? byName.id : t;
+    const target = jumpKind(t);
+    return target.kind === 'saved' ? target.server.id : t;
   }
 
   /** The system file dialog, opened in ~/.ssh; the chosen path goes into the field. */
@@ -118,6 +156,8 @@
     if (!canSave) return;
     error = null;
     saving = true;
+    const typed = jump.kind === 'typed';
+    const jumpParts = typed ? splitLogin(jumpHost.trim(), jumpUser.trim()) : { host: jumpHost, user: '' };
     const server: Server = {
       ...initial,
       name: name.trim() || host.trim(),
@@ -127,7 +167,8 @@
       group: group.trim(),
       auth,
       identityFile: auth === 'key' || auth === 'auto' ? identityFile.trim() || undefined : undefined,
-      jumpHost: resolveJump(jumpHost),
+      jumpHost: resolveJump(jumpParts.host),
+      jumpUser: jumpParts.user || undefined,
       keepaliveSecs: toNumber(keepalive),
       connectTimeoutSecs: toNumber(timeout),
       forwards: forwards
@@ -135,7 +176,13 @@
         .map((f) => ({ ...f, bindPort: Number(f.bindPort), targetPort: Number(f.targetPort) })),
     };
     try {
-      const saved = await servers.save(server, auth === 'password' ? password : undefined, forgetPassword);
+      const saved = await servers.save(server, {
+        password: auth === 'password' ? password : undefined,
+        clearPassword: forgetPassword,
+        jumpPassword: typed ? jumpPassword : undefined,
+        // Only a jump host typed in place has a password of its own.
+        clearJumpPassword: hasJumpPassword && (forgetJumpPassword || !typed),
+      });
       app.editor = null;
       if (connectAfter) connect(saved, true);
     } catch (e) {
@@ -266,7 +313,44 @@
           <span>{t('editor.timeout')}</span>
           <input class="input" bind:value={timeout} inputmode="numeric" placeholder="15" />
         </label>
+
+        {#if jump.kind === 'typed'}
+          <label class="field c5">
+            <span>{t('editor.jumpUser')}</span>
+            <input class="input" bind:value={jumpUser} placeholder={t('editor.jumpUserPlaceholder')} spellcheck="false" />
+          </label>
+          <label class="field c7">
+            <span>{t('editor.jumpPassword')}</span>
+            <input
+              class="input"
+              type="password"
+              bind:value={jumpPassword}
+              placeholder={t(hasJumpPassword && !forgetJumpPassword ? 'editor.jumpPasswordSaved' : 'editor.jumpPasswordEmpty')}
+              disabled={forgetJumpPassword}
+              autocomplete="new-password"
+            />
+          </label>
+        {/if}
       </div>
+      {#if (jump.kind === 'typed' && (hasJumpPassword || app.keychainIssue)) || jump.kind === 'saved' || jump.kind === 'chain'}
+        <div class="jump-notes">
+          {#if jump.kind === 'typed'}
+            {#if hasJumpPassword}
+              <label class="check small">
+                <input type="checkbox" bind:checked={forgetJumpPassword} />
+                {t('editor.forgetPassword')}
+              </label>
+            {/if}
+            {#if app.keychainIssue}
+              <p class="warn"><Icon name="alert" size={13} /> {t('editor.keychainUnavailable')}</p>
+            {/if}
+          {:else if jump.kind === 'saved'}
+            <p class="hint">{t('editor.jumpSaved', { name: jump.server.name })}</p>
+          {:else}
+            <p class="hint">{t('editor.jumpChain')}</p>
+          {/if}
+        </div>
+      {/if}
 
       <div class="section">
         <span class="label">{t('editor.forwarding')} <span class="muted">{t('editor.forwardingNote')}</span></span>
@@ -327,8 +411,23 @@
   .c4 {
     grid-column: span 4;
   }
+  .c5 {
+    grid-column: span 5;
+  }
   .c6 {
     grid-column: span 6;
+  }
+  .c7 {
+    grid-column: span 7;
+  }
+  .jump-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .jump-notes .hint {
+    margin: 0;
   }
   .c9 {
     grid-column: span 9;

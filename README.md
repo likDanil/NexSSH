@@ -32,7 +32,8 @@
   pick a key from those found in `~/.ssh` or with *Browse…* — passwords and
   keyboard-interactive / 2FA.
 * `known_hosts` support (hashed entries, wildcards) with a clear warning when a host key changes.
-* Jump hosts (including chains), keepalive, connection timeouts, custom ports.
+* Jump hosts (including chains): a saved server, or an address with its own login and
+  password (kept in the keychain like the others); keepalive, connection timeouts, custom ports.
 * Port forwarding: local (`-L`), remote (`-R`) and SOCKS5 (`-D`), optionally saved per server.
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
   upload files and whole folders (buttons, or drag & drop — onto a folder in the list to

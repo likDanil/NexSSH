@@ -171,25 +171,25 @@ pub struct SaveResult {
     warning: Option<String>,
 }
 
-/// Creates or updates a server. A non-empty `password` is stored in the OS keychain;
-/// `clear_password` removes a stored one. Keychain problems never lose the server:
-/// they are reported as a warning.
+/// Creates or updates a server. A non-empty `password` (or `jump_password`, for its jump
+/// host) is stored in the OS keychain; `clear_password` (`clear_jump_password`) removes a
+/// stored one. Keychain problems never lose the server: they are reported as a warning.
 #[tauri::command]
 pub async fn server_save(
     state: State<'_, AppState>,
     server: Server,
     password: Option<String>,
     clear_password: Option<bool>,
+    jump_password: Option<String>,
+    clear_jump_password: Option<bool>,
 ) -> CmdResult<SaveResult> {
     let saved = state.core.store.save_server(server)?;
-    let account = Secrets::password_account(&saved.id);
-    let secrets = Arc::clone(&state.core.secrets);
-    let result = match password.filter(|p| !p.is_empty()) {
-        Some(p) => secrets.set_async(account, Zeroizing::new(p)).await,
-        None if clear_password == Some(true) => blocking(move || secrets.delete(&account))
-            .await
-            .unwrap_or_else(|e| Err(nexssh_core::Error::Secret(e.0))),
-        None => Ok(()),
+    let secrets = &state.core.secrets;
+    let own = Secrets::password_account(&saved.id);
+    let jump = Secrets::jump_password_account(&saved.id);
+    let result = match store_secret(secrets, own, password, clear_password).await {
+        Ok(()) => store_secret(secrets, jump, jump_password, clear_jump_password).await,
+        Err(e) => Err(e),
     };
     let warning = result.err().map(i18n::password_not_stored);
     Ok(SaveResult {
@@ -198,18 +198,51 @@ pub async fn server_save(
     })
 }
 
+/// Stores a non-empty `secret` under `account`, or removes the stored one on `clear`.
+async fn store_secret(
+    secrets: &Arc<Secrets>,
+    account: String,
+    secret: Option<String>,
+    clear: Option<bool>,
+) -> nexssh_core::Result<()> {
+    match secret.filter(|p| !p.is_empty()) {
+        Some(p) => secrets.set_async(account, Zeroizing::new(p)).await,
+        None if clear == Some(true) => {
+            let secrets = Arc::clone(secrets);
+            blocking(move || secrets.delete(&account))
+                .await
+                .unwrap_or_else(|e| Err(nexssh_core::Error::Secret(e.0)))
+        }
+        None => Ok(()),
+    }
+}
+
 #[tauri::command]
 pub async fn server_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     state.core.store.delete_server(&id)?;
     let secrets = Arc::clone(&state.core.secrets);
-    blocking(move || secrets.delete(&Secrets::password_account(&id))).await??;
+    blocking(move || {
+        secrets.delete(&Secrets::password_account(&id))?;
+        secrets.delete(&Secrets::jump_password_account(&id))
+    })
+    .await??;
     Ok(())
 }
 
+/// Whether a password is remembered for the server, or with `jump` for its jump host.
 #[tauri::command]
-pub async fn server_has_password(state: State<'_, AppState>, id: String) -> CmdResult<bool> {
+pub async fn server_has_password(
+    state: State<'_, AppState>,
+    id: String,
+    jump: Option<bool>,
+) -> CmdResult<bool> {
+    let account = if jump == Some(true) {
+        Secrets::jump_password_account(&id)
+    } else {
+        Secrets::password_account(&id)
+    };
     let secrets = Arc::clone(&state.core.secrets);
-    blocking(move || secrets.has(&Secrets::password_account(&id))).await
+    blocking(move || secrets.has(&account)).await
 }
 
 #[tauri::command]

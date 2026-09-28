@@ -17,6 +17,7 @@ use crate::error::{Error, Result};
 use crate::i18n;
 use crate::known_hosts::preferred_host_key_algorithms;
 use crate::model::{Destination, Server};
+use crate::secrets::Secrets;
 use crate::store::ServerStore;
 use crate::util;
 
@@ -42,41 +43,81 @@ impl Connection {
     }
 }
 
+/// A server on the way to the target (or the target itself).
+#[derive(Debug)]
+pub(crate) struct Hop {
+    pub server: Server,
+    /// Keychain account of its password. `None` for hosts that are not saved anywhere:
+    /// their password is asked for and cannot be remembered.
+    pub password_account: Option<String>,
+}
+
 /// Expands jump hosts (recursively, like chained `ProxyJump`s) into connection order,
 /// ending with `target`.
-pub(crate) fn resolve_chain(store: &ServerStore, target: &Server) -> Result<Vec<Server>> {
+pub(crate) fn resolve_chain(store: &ServerStore, target: &Server) -> Result<Vec<Hop>> {
     let mut chain = Vec::new();
-    if let Some(spec) = &target.jump_host {
-        expand_jumps(store, spec, &mut chain, 0)?;
-    }
-    chain.push(target.clone());
+    expand_jumps(store, target, &mut chain, 0)?;
+    let saved = is_saved(store, target);
+    chain.push(Hop {
+        server: target.clone(),
+        password_account: saved.then(|| Secrets::password_account(&target.id)),
+    });
     if chain.len() > MAX_HOPS {
         return Err(Error::invalid(i18n::jump_chain_too_long()));
     }
     Ok(chain)
 }
 
+fn is_saved(store: &ServerStore, server: &Server) -> bool {
+    !server.id.is_empty() && store.get(&server.id).is_some()
+}
+
+/// Appends the jump hosts of `owner`. A jump host typed in place (`host[:port]`, not a
+/// saved server) signs in with the owner's jump host login and remembered password, when
+/// it is the only one: in a chain the hops would all share them.
 fn expand_jumps(
     store: &ServerStore,
-    spec: &str,
-    out: &mut Vec<Server>,
+    owner: &Server,
+    out: &mut Vec<Hop>,
     depth: usize,
 ) -> Result<()> {
+    let Some(spec) = &owner.jump_host else {
+        return Ok(());
+    };
     if depth >= MAX_HOPS {
         return Err(Error::invalid(i18n::jump_chain_loop()));
     }
-    for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
-        if part.eq_ignore_ascii_case("none") {
-            continue;
-        }
+    let parts: Vec<&str> = spec
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && !p.eq_ignore_ascii_case("none"))
+        .collect();
+    let single = parts.len() == 1;
+    for part in parts {
         match store.find(part) {
             Some(server) => {
-                if let Some(inner) = &server.jump_host {
-                    expand_jumps(store, inner, out, depth + 1)?;
-                }
-                out.push(server);
+                expand_jumps(store, &server, out, depth + 1)?;
+                out.push(Hop {
+                    password_account: Some(Secrets::password_account(&server.id)),
+                    server,
+                });
             }
-            None => out.push(Destination::parse(part)?.to_server()),
+            None => {
+                let mut server = Destination::parse(part)?.to_server();
+                let mut password_account = None;
+                if single {
+                    if let Some(user) = &owner.jump_user {
+                        server.user = user.clone();
+                    }
+                    if is_saved(store, owner) {
+                        password_account = Some(Secrets::jump_password_account(&owner.id));
+                    }
+                }
+                out.push(Hop {
+                    server,
+                    password_account,
+                });
+            }
         }
         if out.len() >= MAX_HOPS {
             return Err(Error::invalid(i18n::jump_chain_too_long()));
@@ -91,7 +132,7 @@ pub(crate) async fn establish(ctx: &Arc<SessionCtx>, target: &Server) -> Result<
     let mut handles: Vec<Arc<Handle<ClientHandler>>> = Vec::with_capacity(chain.len());
     for (i, hop) in chain.iter().enumerate() {
         let is_target = i + 1 == chain.len();
-        let dest = hop.destination();
+        let dest = hop.server.destination();
         let message = match (is_target, i) {
             (true, 0) => i18n::connecting(&dest),
             (true, _) => i18n::connecting_through_jump(&dest),
@@ -99,7 +140,7 @@ pub(crate) async fn establish(ctx: &Arc<SessionCtx>, target: &Server) -> Result<
         };
         ctx.log(LogLevel::Info, message);
         let via = handles.last().cloned();
-        let secs = hop.connect_timeout();
+        let secs = hop.server.connect_timeout();
         let result = with_deadline(ctx, secs, connect_hop(ctx, hop, via, &state))
             .await
             .and_then(|r| r);
@@ -128,10 +169,11 @@ pub(crate) async fn establish(ctx: &Arc<SessionCtx>, target: &Server) -> Result<
 
 async fn connect_hop(
     ctx: &Arc<SessionCtx>,
-    hop: &Server,
+    target: &Hop,
     via: Option<Arc<Handle<ClientHandler>>>,
     state: &Arc<ConnState>,
 ) -> Result<Handle<ClientHandler>> {
+    let hop = &target.server;
     let known = ctx.shared.known_hosts.known_algorithms(&hop.host, hop.port);
     let config = client_config(hop, &known);
     let handler = ClientHandler::new(
@@ -158,7 +200,7 @@ async fn connect_hop(
             client::connect_stream(config, channel.into_stream(), handler).await?
         }
     };
-    auth::authenticate(&mut handle, hop, ctx).await?;
+    auth::authenticate(&mut handle, hop, target.password_account.as_deref(), ctx).await?;
     Ok(handle)
 }
 
@@ -265,19 +307,67 @@ mod tests {
         let store = store_with(&[named("edge", None), named("bastion", Some("edge"))]);
         let target = named("db", Some("bastion"));
         let chain = resolve_chain(&store, &target).unwrap();
-        let hosts: Vec<&str> = chain.iter().map(|s| s.host.as_str()).collect();
+        let hosts: Vec<&str> = chain.iter().map(|h| h.server.host.as_str()).collect();
         assert_eq!(hosts, ["edge.example", "bastion.example", "db.example"]);
+        // Saved jump hosts sign in with their own remembered passwords.
+        let edge = store.find("edge").unwrap();
+        assert_eq!(
+            chain[0].password_account,
+            Some(Secrets::password_account(&edge.id))
+        );
+        assert_eq!(chain[2].password_account, None, "the target is not saved");
     }
 
     #[test]
     fn resolves_literal_and_comma_separated_jumps() {
         let store = store_with(&[]);
-        let target = named("db", Some("ops@hop1:2222, hop2"));
+        let mut target = named("db", Some("ops@hop1:2222, hop2"));
+        target.jump_user = Some("ignored".into());
         let chain = resolve_chain(&store, &target).unwrap();
         assert_eq!(chain.len(), 3);
-        assert_eq!(chain[0].user, "ops");
-        assert_eq!(chain[0].port, 2222);
-        assert_eq!(chain[1].host, "hop2");
+        assert_eq!(chain[0].server.user, "ops");
+        assert_eq!(chain[0].server.port, 2222);
+        assert_eq!(chain[1].server.host, "hop2");
+        // A chain typed in place has no login or password of its own.
+        assert_eq!(chain[1].server.user, "");
+        assert!(chain.iter().all(|h| h.password_account.is_none()));
+    }
+
+    #[test]
+    fn jump_host_typed_in_place_uses_the_owners_login_and_password() {
+        let mut db = named("db", Some("ops@bastion.example:2200"));
+        db.jump_user = Some("admin".into());
+        let store = store_with(&[db, named("app", Some("db"))]);
+        let db = store.find("db").unwrap();
+
+        let chain = resolve_chain(&store, &db).unwrap();
+        let hop = &chain[0].server;
+        assert_eq!((hop.user.as_str(), hop.port), ("admin", 2200));
+        assert_eq!(
+            chain[0].password_account,
+            Some(Secrets::jump_password_account(&db.id))
+        );
+        assert_eq!(
+            chain[1].password_account,
+            Some(Secrets::password_account(&db.id))
+        );
+
+        // Through another server, db's jump host still uses db's login.
+        let app = store.find("app").unwrap();
+        let chain = resolve_chain(&store, &app).unwrap();
+        let users: Vec<&str> = chain.iter().map(|h| h.server.user.as_str()).collect();
+        assert_eq!(users, ["admin", "", ""]);
+        assert_eq!(
+            chain[0].password_account,
+            Some(Secrets::jump_password_account(&db.id))
+        );
+
+        // Without a login of its own, the one typed with the host stays.
+        let mut quick = named("quick", Some("ops@bastion.example"));
+        quick.id = String::new();
+        let chain = resolve_chain(&store, &quick).unwrap();
+        assert_eq!(chain[0].server.user, "ops");
+        assert_eq!(chain[0].password_account, None, "not a saved server");
     }
 
     #[test]

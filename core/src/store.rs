@@ -210,6 +210,11 @@ impl ServerStore {
                     updated.port = incoming.port;
                     updated.user = incoming.user;
                     updated.identity_file = incoming.identity_file;
+                    if updated.jump_host != incoming.jump_host {
+                        // The config names another jump host (or login for it): a login
+                        // set in the app for the old one no longer applies.
+                        updated.jump_user = None;
+                    }
                     updated.jump_host = incoming.jump_host;
                     updated.keepalive_secs = incoming.keepalive_secs;
                     updated.connect_timeout_secs = incoming.connect_timeout_secs;
@@ -460,5 +465,35 @@ mod tests {
         assert_eq!(s2.host, "10.0.0.2");
         assert_eq!(s2.group, "Production");
         assert_eq!(s2.auth, AuthKind::Password);
+    }
+
+    #[test]
+    fn import_keeps_the_jump_host_login_only_for_the_same_jump_host() {
+        let path = temp_path("servers.json");
+        let store = ServerStore::open(&path).unwrap();
+        let imported = |jump: &str| Server {
+            alias: Some("db".into()),
+            host: "10.0.0.5".into(),
+            jump_host: Some(jump.into()),
+            ..Server::default()
+        };
+        store
+            .merge_imported(vec![imported("bastion:2200")])
+            .unwrap();
+        let mut s = store.find("db").unwrap();
+        s.jump_user = Some("ops".into());
+        store.save_server(s.clone()).unwrap();
+
+        store
+            .merge_imported(vec![imported("bastion:2200")])
+            .unwrap();
+        assert_eq!(store.get(&s.id).unwrap().jump_user.as_deref(), Some("ops"));
+
+        store
+            .merge_imported(vec![imported("admin@bastion:2200")])
+            .unwrap();
+        let s = store.get(&s.id).unwrap();
+        assert_eq!(s.jump_host.as_deref(), Some("admin@bastion:2200"));
+        assert_eq!(s.jump_user, None, "the config's login applies again");
     }
 }

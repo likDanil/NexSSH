@@ -40,7 +40,7 @@
     <span class="meta">
       {#if s.jumpHost}
         {@const jump = servers.byId.get(s.jumpHost)?.name ?? s.jumpHost}
-        <span class="tag" title={t('home.jumpHost', { name: jump })}>{t('home.via', { name: jump })}</span>
+        <span class="tag via" title={t('home.jumpHost', { name: jump })}>{t('home.via', { name: jump })}</span>
       {/if}
       <span class="tag">{t(AUTH_LABEL[s.auth])}</span>
     </span>
@@ -227,12 +227,20 @@
     overflow: hidden;
   }
   .tag {
+    flex: none;
     padding: 1px 7px;
     border-radius: 999px;
     border: 1px solid var(--border-soft);
     color: var(--text-2);
     font-size: 11px;
     white-space: nowrap;
+  }
+  /* A long jump host (typed as an address) shrinks; the full one is in the tooltip. */
+  .tag.via {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .when {
     color: var(--text-3);

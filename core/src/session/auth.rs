@@ -26,19 +26,20 @@ use crate::util;
 
 type Agent = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
 
-/// Authenticates `hop` on an established (not yet authenticated) connection.
+/// Authenticates `hop` on an established (not yet authenticated) connection. Its password
+/// may be remembered in the keychain under `password_account`.
 pub(crate) async fn authenticate(
     handle: &mut Handle<ClientHandler>,
     hop: &Server,
+    password_account: Option<&str>,
     ctx: &Arc<SessionCtx>,
 ) -> Result<()> {
-    let persistent = !hop.id.is_empty() && ctx.shared.store.get(&hop.id).is_some();
     let mut auth = Auth {
         handle,
         ctx,
         hop,
         user: hop.effective_user(),
-        persistent,
+        password_account: password_account.map(str::to_string),
         remaining: None,
         failed: Vec::new(),
         rsa_hash: None,
@@ -69,8 +70,8 @@ struct Auth<'a> {
     ctx: &'a Arc<SessionCtx>,
     hop: &'a Server,
     user: String,
-    /// Whether this is a saved server (passwords can be remembered).
-    persistent: bool,
+    /// Where its password is remembered: saved servers and their jump hosts have one.
+    password_account: Option<String>,
     /// Methods the server allows to continue with; `None` until it told us.
     remaining: Option<MethodSet>,
     failed: Vec<String>,
@@ -340,17 +341,17 @@ impl Auth<'_> {
         if let Some(p) = lock(&self.ctx.cache).passwords.get(&self.cache_key()) {
             return Some(p.clone());
         }
-        if self.persistent {
-            let account = Secrets::password_account(&self.hop.id);
-            if let Ok(Some(p)) = self.ctx.shared.secrets.get_async(account).await {
-                return Some(p);
-            }
+        if let Some(account) = &self.password_account
+            && let Ok(Some(p)) = self.ctx.shared.secrets.get_async(account.clone()).await
+        {
+            return Some(p);
         }
         None
     }
 
     async fn ask_password(&self, error: Option<String>) -> Result<(Zeroizing<String>, bool)> {
-        let can_remember = self.persistent && self.ctx.shared.secrets.available_async().await;
+        let can_remember =
+            self.password_account.is_some() && self.ctx.shared.secrets.available_async().await;
         let reply = self
             .ctx
             .ask(Prompt::Password {
@@ -369,8 +370,7 @@ impl Auth<'_> {
     }
 
     async fn keep_password(&self, password: Zeroizing<String>, remember: bool) {
-        if remember {
-            let account = Secrets::password_account(&self.hop.id);
+        if remember && let Some(account) = self.password_account.clone() {
             match self
                 .ctx
                 .shared
