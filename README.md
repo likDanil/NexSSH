@@ -143,7 +143,9 @@ Releases are built by GitHub Actions ([release.yml](.github/workflows/release.ym
 
 * push a tag — `git tag v0.2.0 && git push origin v0.2.0`, or
 * **Actions → Release → Run workflow**: enter a version, or leave it empty to release the
-  next patch version. *Dry run* builds the installer without publishing.
+  version in `Cargo.toml` if it is newer than the latest release (raise it there for a new
+  minor or major version), otherwise the next patch version. *Dry run* builds the installer
+  without publishing.
 
 The workflow writes the version into `Cargo.toml`, builds the NSIS installer on Windows and
 publishes a GitHub release with `NexSSH_<version>_x64-setup.exe` and `SHA256SUMS.txt`.

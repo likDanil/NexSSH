@@ -142,8 +142,10 @@ cargo test -p nexssh-core --test sshd --test sftp
 Релизы собирает GitHub Actions ([release.yml](.github/workflows/release.yml)):
 
 * запушить тег — `git tag v0.2.0 && git push origin v0.2.0`, или
-* **Actions → Release → Run workflow**: указать версию или оставить поле пустым —
-  тогда выйдет следующая патч-версия. *Dry run* собирает установщик без публикации.
+* **Actions → Release → Run workflow**: указать версию или оставить поле пустым — тогда
+  выйдет версия из `Cargo.toml`, если она новее последнего релиза (её поднимают там для новой
+  минорной или мажорной версии), иначе следующая патч-версия. *Dry run* собирает установщик
+  без публикации.
 
 Workflow подставляет версию в `Cargo.toml`, собирает NSIS-установщик на Windows и публикует
 релиз с `NexSSH_<версия>_x64-setup.exe` и `SHA256SUMS.txt`.

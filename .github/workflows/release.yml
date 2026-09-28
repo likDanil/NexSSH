@@ -4,8 +4,10 @@ name: Release
 #
 #   * push a tag:   git tag v0.2.0 && git push origin v0.2.0
 #   * or run this workflow from the Actions tab: enter a version, or leave it
-#     empty to bump the patch number of the latest release. "Dry run" only builds
-#     the installer and attaches it to the workflow run.
+#     empty for the version in Cargo.toml when that is newer than the latest
+#     release (raised there for a minor or major release), else the next patch
+#     version. "Dry run" only builds the installer and attaches it to the
+#     workflow run.
 #
 # Branch pushes that change the release setup (this file, the bundle config or
 # the icons) run as a dry run, so a broken installer build shows up before a
@@ -33,7 +35,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version, e.g. 0.2.0 (empty = next patch version)'
+        description: 'Version, e.g. 0.2.0 (empty = the one in Cargo.toml if newer than the latest release, else the next patch)'
         required: false
         type: string
       dry_run:
@@ -93,12 +95,17 @@ jobs:
           elif [[ -n "${INPUT_VERSION:-}" ]]; then
             version="${INPUT_VERSION#v}"
           else
+            current="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
             latest="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)"
+            latest="${latest#v}"
             if [[ -z "$latest" ]]; then
-              # First release: use the version already in Cargo.toml.
-              version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+              # First release.
+              version="$current"
+            elif [[ "$current" != "$latest" && "$(printf '%s\n' "$latest" "$current" | sort -V | tail -n1)" == "$current" ]]; then
+              # Cargo.toml was raised for this release (a new minor or major version).
+              version="$current"
             else
-              IFS=. read -r major minor patch <<< "${latest#v}"
+              IFS=. read -r major minor patch <<< "$latest"
               version="$major.$minor.$((patch + 1))"
             fi
           fi
