@@ -157,8 +157,8 @@ With them the installer is signed and the release gets a `latest.json`, which in
 read from `releases/latest/download/latest.json`. The matching public key is
 `plugins.updater.pubkey` in [tauri.conf.json](desktop/tauri.conf.json); a new key pair
 (`npm run tauri signer generate`) needs a new public key there, and apps built with the old
-key will not accept updates signed with the new one. Without the secrets the release is
-still published, just not offered as an update.
+key will not accept updates signed with the new one. Without the secrets a release stops
+right away (installed apps could not see it); dry runs still build, unsigned.
 
 ## Roadmap
 

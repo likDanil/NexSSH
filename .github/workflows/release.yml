@@ -14,10 +14,12 @@ name: Release
 # The version from the tag/input is written into Cargo.toml for the build, so the
 # app, the installer name and the release always agree.
 #
-# In-app updates: with the TAURI_SIGNING_PRIVATE_KEY (and _PASSWORD) secrets set, the
-# installer is signed and the release gets a latest.json that installed apps read from
+# In-app updates: the TAURI_SIGNING_PRIVATE_KEY (and _PASSWORD) secrets sign the
+# installer, and the release gets a latest.json that installed apps read from
 # https://github.com/<repo>/releases/latest/download/latest.json. The matching public key
-# is in desktop/tauri.conf.json (plugins.updater.pubkey).
+# is in desktop/tauri.conf.json (plugins.updater.pubkey). A release without them would be
+# invisible to installed apps, so publishing stops right away when the key is missing;
+# dry runs still build (unsigned).
 
 on:
   push:
@@ -70,6 +72,7 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_TYPE" == "tag" ]]; then
@@ -106,6 +109,10 @@ jobs:
           fi
           if $publish && ! $is_tag && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          if $publish && [[ "$HAS_SIGNING_KEY" != "true" ]]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set, so installed apps could not update to this release. Add it and TAURI_SIGNING_PRIVATE_KEY_PASSWORD under Settings > Secrets and variables > Actions > Secrets, then run the release again."
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -153,7 +160,8 @@ jobs:
             # Also writes <installer>.sig for in-app updates.
             npm run tauri build -- --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":true}}'
           else
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: this release will not be offered as an in-app update"
+            # Only dry runs get here: publishing needs the key (see "Resolve version").
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without the update signature"
             npm run tauri build -- --bundles nsis
           fi
 
@@ -204,8 +212,8 @@ jobs:
           set -euo pipefail
           exe="$(ls dist/*-setup.exe)"
           if [[ ! -f "$exe.sig" ]]; then
-            echo "::warning::No signature: skipping latest.json (installed apps will not see this release)"
-            exit 0
+            echo "::error::The installer was not signed, so there is no latest.json: installed apps will not see this release"
+            exit 1
           fi
           name="$(basename "$exe")"
           url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$name"

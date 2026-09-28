@@ -73,9 +73,14 @@ pub async fn update_check(
     app: AppHandle,
     updates: State<'_, Updates>,
 ) -> CmdResult<Option<UpdateInfo>> {
-    let found = async { updater(&app)?.check().await.map_err(|e| e.to_string()) }
-        .await
-        .map_err(|e| CmdError::from(i18n::update_check_failed(e)))?;
+    let updater = updater(&app).map_err(|e| CmdError::from(i18n::update_check_failed(e)))?;
+    let found = match updater.check().await {
+        Ok(found) => found,
+        // The latest release has no latest.json (e.g. it was published without the signing
+        // key): there is nothing this app could install, so it has the newest version.
+        Err(tauri_plugin_updater::Error::ReleaseNotFound) => None,
+        Err(e) => return Err(CmdError::from(i18n::update_check_failed(e))),
+    };
     let info = found.as_ref().map(|u| UpdateInfo {
         version: u.version.clone(),
         current_version: u.current_version.clone(),
