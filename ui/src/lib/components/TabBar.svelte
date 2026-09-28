@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { closeTab, keys, quickConnect, sessionMenu, toggleSidebar } from '../actions';
+  import { closeTab, keys, quickConnect, sessionMenu, toggleFiles, toggleSidebar } from '../actions';
   import { t } from '../i18n.svelte';
   import { currentOs } from '../platform';
   import { app } from '../state/app.svelte';
+  import { files } from '../state/files.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
   import Icon from './Icon.svelte';
   import WindowControls from './WindowControls.svelte';
 
   const windows = $derived(app.info?.os === 'windows' || (!app.info && currentOs() === 'windows'));
+  // Dragging or double-click maximizing makes no sense in full screen.
+  const dragRegion = $derived(app.fullscreen ? 'false' : '');
 
   let dragFrom = $state<number | null>(null);
   let dropAt = $state<number | null>(null);
@@ -55,7 +58,7 @@
   }
 </script>
 
-<header class="bar" data-tauri-drag-region>
+<header class="bar" data-tauri-drag-region={dragRegion}>
   {#if app.settings.sidebarHidden}
     <button
       class="icon-btn"
@@ -67,7 +70,7 @@
     </button>
   {/if}
 
-  <div class="tabs" role="tablist" data-tauri-drag-region>
+  <div class="tabs" role="tablist" data-tauri-drag-region={dragRegion}>
     {#each sessions.tabs as tab, i (tab.key)}
       <div
         class="tab"
@@ -125,6 +128,16 @@
           <Icon name="refresh" size={15} />
         </button>
       {/if}
+      <button
+        class="icon-btn"
+        class:on={files.open}
+        title="{t('session.files')} ({keys.files()})"
+        aria-label={t('session.files')}
+        aria-pressed={files.open}
+        onclick={toggleFiles}
+      >
+        <Icon name="folder" size={15} />
+      </button>
       <button class="icon-btn" title={t('tabs.sessionActions')} aria-label={t('tabs.sessionActions')} onclick={moreMenu}>
         <Icon name="more" size={16} />
       </button>

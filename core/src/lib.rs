@@ -7,6 +7,7 @@
 //! * [`keys`] — local private key discovery and loading
 //! * [`session`] — interactive SSH sessions (jump hosts, auth, PTY, reconnect)
 //! * [`forward`] — local/remote/dynamic port forwarding
+//! * [`sftp`] — files over SFTP on a session's connection
 //! * [`i18n`] — user-facing messages and their translations
 //!
 //! The crate has no dependency on Tauri or any GUI toolkit: a front-end creates a
@@ -20,6 +21,7 @@ pub mod known_hosts;
 pub mod model;
 pub mod secrets;
 pub mod session;
+pub mod sftp;
 pub mod ssh_config;
 pub mod store;
 mod util;

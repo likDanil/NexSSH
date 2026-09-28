@@ -10,11 +10,13 @@
   import { toasts } from '../state/toasts.svelte';
   import Icon from './Icon.svelte';
   import ServerRow from './ServerRow.svelte';
+  import UpdateCard from './UpdateCard.svelte';
 
   let query = $state('');
   let searchEl: HTMLInputElement;
 
   const collapsed = $derived(new Set(app.settings.collapsedGroups));
+  const dragRegion = $derived(app.fullscreen ? 'false' : '');
 
   const visible: ServerGroup[] = $derived.by(() => {
     const q = query.trim();
@@ -118,9 +120,9 @@
 </script>
 
 <aside class="sidebar" style:width="{width}px">
-  <div class="brand" data-tauri-drag-region>
+  <div class="brand" data-tauri-drag-region={dragRegion}>
     <img src={logo} alt="" class="logo" draggable="false" />
-    <span class="title" data-tauri-drag-region>NexSSH</span>
+    <span class="title" data-tauri-drag-region={dragRegion}>NexSSH</span>
   </div>
 
   <label class="search">
@@ -183,6 +185,8 @@
       {/if}
     {/each}
   </div>
+
+  <UpdateCard />
 
   <div class="footer">
     <button class="add" onclick={() => addServer()}>

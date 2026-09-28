@@ -33,6 +33,12 @@
 * `known_hosts` support (hashed entries, wildcards) with a clear warning when a host key changes.
 * Jump hosts (including chains), keepalive, connection timeouts, custom ports.
 * Port forwarding: local (`-L`), remote (`-R`) and SOCKS5 (`-D`), optionally saved per server.
+* **Files over SFTP** next to the terminal, on the same connection (no second login):
+  browse, upload (button or drag & drop), download files and whole folders into
+  *Downloads*, rename, delete, create folders; transfers show progress and can be cancelled.
+* **In-app updates** (Windows): NexSSH finds a new release by itself; *Download* fetches it
+  in the background and *Install* updates silently — no installer windows — and restarts.
+  Updates are signed and verified before they run.
 * Command palette and quick connect: <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>, type `user@host:port`.
 * Themes: Light, Graphite, Black, Navy — or follow the system.
 * Languages: English and Russian (follows the system by default, switch in Settings or the palette).
@@ -48,7 +54,9 @@
 **Windows 10/11:** download `NexSSH_<version>_x64-setup.exe` from
 [Releases](https://github.com/likDanil/NexSSH/releases). It installs for the current user
 (no admin rights) and installs the WebView2 runtime if it is missing. Builds are not code
-signed yet, so SmartScreen may ask for confirmation (*More info → Run anyway*).
+signed yet, so SmartScreen may ask for confirmation (*More info → Run anyway*). Later
+versions arrive through the app itself (*Settings → About*, or the card in the sidebar);
+version 0.1.0 predates in-app updates, so install the next version over it once by hand.
 
 **macOS / Linux:** build from source for now (see below).
 
@@ -64,6 +72,7 @@ signed yet, so SmartScreen may ask for confirmation (*More info → Run anyway*)
 | Reconnect | <kbd>Enter</kbd> in a closed session, <kbd>Ctrl+Shift+R</kbd> | <kbd>Enter</kbd>, <kbd>⌘R</kbd> |
 | Copy / paste | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+Shift+V</kbd> (<kbd>Ctrl+C</kbd> copies a selection) | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> |
 | Toggle sidebar | <kbd>Ctrl+Shift+B</kbd> | <kbd>⌘B</kbd> |
+| Files (SFTP) | <kbd>Ctrl+Shift+E</kbd> | <kbd>⌘⇧E</kbd> |
 | Full screen | <kbd>F11</kbd> | <kbd>⌃⌘F</kbd> |
 | Settings | <kbd>Ctrl+,</kbd> | <kbd>⌘,</kbd> |
 
@@ -107,7 +116,7 @@ The integration tests connect to real OpenSSH servers. On Linux they can be star
 ```sh
 sudo scripts/test-sshd.sh                  # 127.0.0.1:2222 (password/keys), :2223 (keyboard-interactive)
 eval "$(sudo scripts/test-sshd.sh env)"
-cargo test -p nexssh-core --test sshd
+cargo test -p nexssh-core --test sshd --test sftp
 ```
 
 Useful environment variables:
@@ -117,6 +126,7 @@ Useful environment variables:
 | `NEXSSH_DATA_DIR` | Use another data folder (portable setups, testing). |
 | `NEXSSH_LOG` | Log level: `error`, `warn`, `info`, `debug`, `trace`. |
 | `NEXSSH_UI_OS` | Preview another platform's window chrome (`windows`, `macos`, `linux`). |
+| `NEXSSH_UPDATE_URL` | Read updates from another `latest.json` (testing; `http://` only in debug builds). |
 
 **Data folder:** `%APPDATA%\NexSSH` (Windows), `~/Library/Application Support/NexSSH` (macOS),
 `~/.config/nexssh` (Linux). It holds `servers.json`, `settings.json` and `known_hosts` —
@@ -135,12 +145,27 @@ publishes a GitHub release with `NexSSH_<version>_x64-setup.exe` and `SHA256SUMS
 Branch pushes that change the release setup (the workflow, `tauri.conf.json`, icons) run it as
 a dry run: the installer is built and attached to the workflow run, nothing is published.
 
+**In-app updates** need the updater signing key as repository secrets
+(*Settings → Secrets and variables → Actions*):
+
+| Secret | Value |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | the private key (contents of the `.key` file) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | its password |
+
+With them the installer is signed and the release gets a `latest.json`, which installed apps
+read from `releases/latest/download/latest.json`. The matching public key is
+`plugins.updater.pubkey` in [tauri.conf.json](desktop/tauri.conf.json); a new key pair
+(`npm run tauri signer generate`) needs a new public key there, and apps built with the old
+key will not accept updates signed with the new one. Without the secrets the release is
+still published, just not offered as an update.
+
 ## Roadmap
 
-* SFTP drawer (upload/download, drag & drop)
 * Split terminals
 * Snippets and command history
-* macOS and Linux installers, auto-update, code signing
+* Uploading whole folders over SFTP
+* macOS and Linux installers, code signing
 * Settings sync
 
 ## License

@@ -453,6 +453,64 @@ messages! {
         ru: "Сервер сохранён, но пароль сохранить не удалось ({error}). Его спросят при подключении.",
     }
 
+    // ---- files (SFTP) ----------------------------------------------------------------
+
+    fn sftp_unavailable(error: impl Display) {
+        en: "SFTP is not available on this server: {error}",
+        ru: "SFTP на этом сервере недоступен: {error}",
+    }
+    fn sftp_no_such_file(path: &str) {
+        en: "{path}: no such file or folder",
+        ru: "{path}: файл или папка не найдены",
+    }
+    fn sftp_permission_denied(path: &str) {
+        en: "{path}: permission denied",
+        ru: "{path}: нет доступа",
+    }
+    fn sftp_exists(path: &str) {
+        en: "{path} already exists",
+        ru: "{path} уже существует",
+    }
+    fn sftp_failed(path: &str, error: impl Display) {
+        en: "{path}: {error}",
+        ru: "{path}: {error}",
+    }
+    fn local_write_failed(path: &str, error: impl Display) {
+        en: "cannot write {path}: {error}",
+        ru: "не удалось записать {path}: {error}",
+    }
+    fn reveal_failed(error: impl Display) {
+        en: "could not open the file manager: {error}",
+        ru: "не удалось открыть файловый менеджер: {error}",
+    }
+
+    // ---- application updates ---------------------------------------------------------
+
+    fn update_check_failed(error: impl Display) {
+        en: "could not check for updates: {error}",
+        ru: "не удалось проверить обновления: {error}",
+    }
+    fn update_download_failed(error: impl Display) {
+        en: "could not download the update: {error}",
+        ru: "не удалось скачать обновление: {error}",
+    }
+    fn update_install_failed(error: impl Display) {
+        en: "could not install the update: {error}",
+        ru: "не удалось установить обновление: {error}",
+    }
+    fn update_missing() {
+        en: "there is no update to download; check for updates first",
+        ru: "нет обновления для загрузки; сначала проверьте обновления",
+    }
+    fn update_not_installable() {
+        en: "this copy of NexSSH cannot install updates itself; download the new version from the releases page",
+        ru: "эта копия NexSSH не может обновиться сама; скачайте новую версию со страницы релизов",
+    }
+    fn update_not_downloaded() {
+        en: "the update has not been downloaded yet",
+        ru: "обновление ещё не скачано",
+    }
+
     // ---- files and storage -----------------------------------------------------------
 
     fn not_found(what: &str) {

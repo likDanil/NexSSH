@@ -23,6 +23,10 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 240,
   sidebarHidden: false,
   collapsedGroups: [],
+  filesShowHidden: false,
+  filesWidth: 380,
+  autoUpdateCheck: true,
+  lastVersion: '',
 };
 
 export interface MenuItem {
@@ -54,6 +58,8 @@ export interface ConfirmState {
   danger: boolean;
   /** When set, the dialog shows a text field with this initial value. */
   input?: string;
+  /** The field holds a file name: it opens with the name selected, not the extension. */
+  fileName?: boolean;
   resolve: (value: string | null) => void;
 }
 
@@ -89,6 +95,7 @@ class AppState {
   async init() {
     darkQuery.addEventListener('change', (e) => (this.systemDark = e.matches));
     window.addEventListener('languagechange', () => (this.systemLanguage = systemLanguage()));
+    this.#watchFullscreen();
     try {
       const info = await api.appInfo();
       setOs(info.os);
@@ -161,8 +168,14 @@ class AppState {
   }
 
   /** Asks for a line of text; `null` when cancelled. */
-  prompt(title: string, message: string, initial: string, confirmLabel = t('common.save')): Promise<string | null> {
-    return this.#ask({ title, message, confirmLabel, danger: false, input: initial });
+  prompt(
+    title: string,
+    message: string,
+    initial: string,
+    confirmLabel = t('common.save'),
+    fileName = false,
+  ): Promise<string | null> {
+    return this.#ask({ title, message, confirmLabel, danger: false, input: initial, fileName });
   }
 
   #ask(state: Omit<ConfirmState, 'resolve'>): Promise<string | null> {
@@ -179,10 +192,25 @@ class AppState {
   }
 
   async toggleFullscreen() {
-    const win = getCurrentWindow();
-    const next = !(await win.isFullscreen());
-    await win.setFullscreen(next);
+    const next = !(await getCurrentWindow().isFullscreen());
+    await api.setFullscreen(next);
     this.fullscreen = next;
+  }
+
+  #fullscreenTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Full screen can also end outside the app (e.g. a system shortcut). */
+  #watchFullscreen() {
+    const win = getCurrentWindow();
+    void win.onResized(() => {
+      clearTimeout(this.#fullscreenTimer);
+      this.#fullscreenTimer = setTimeout(() => {
+        win
+          .isFullscreen()
+          .then((f) => (this.fullscreen = f))
+          .catch(() => {});
+      }, 150);
+    });
   }
 }
 

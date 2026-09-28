@@ -11,6 +11,17 @@
   // svelte-ignore state_referenced_locally
   let value = $state(request.input ?? '');
 
+  let selected = false;
+
+  /** Selects the text when the field first gets focus, so typing replaces it. */
+  function selectText(e: FocusEvent) {
+    if (selected) return;
+    selected = true;
+    const input = e.currentTarget as HTMLInputElement;
+    const dot = request.fileName ? input.value.lastIndexOf('.') : -1;
+    input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+  }
+
   function submit(e?: Event) {
     e?.preventDefault();
     if (request.input !== undefined) {
@@ -28,7 +39,7 @@
     {#if request.message}<p>{request.message}</p>{/if}
     {#if request.input !== undefined}
       <!-- svelte-ignore a11y_autofocus -->
-      <input class="input" bind:value autofocus spellcheck="false" />
+      <input class="input" bind:value autofocus spellcheck="false" onfocus={selectText} />
     {/if}
     <div class="actions">
       <button type="button" class="btn" onclick={() => request.resolve(null)}>{t('common.cancel')}</button>

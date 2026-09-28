@@ -5,6 +5,7 @@
   import { isMac, shortcut } from '../platform';
   import { app } from '../state/app.svelte';
   import { toasts } from '../state/toasts.svelte';
+  import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
   import type { Settings } from '../types';
   import Modal from './Modal.svelte';
@@ -42,6 +43,28 @@
     { id: 'underline', label: 'settings.cursorUnderline' },
   ];
 
+  const updateStatus = $derived.by(() => {
+    const version = updates.info?.version ?? '';
+    switch (updates.status) {
+      case 'checking':
+        return t('update.checking');
+      case 'upToDate':
+        return t('update.upToDate');
+      case 'available':
+        return t('update.available', { version });
+      case 'downloading':
+        return updates.progress == null
+          ? t('update.downloadingUnknown')
+          : t('update.downloading', { percent: Math.round(updates.progress * 100) });
+      case 'ready':
+        return t('update.ready', { version });
+      case 'installing':
+        return t('update.installing');
+      default:
+        return t(app.settings.autoUpdateCheck ? 'update.idle' : 'update.idleManual');
+    }
+  });
+
   const shortcuts: [MessageKey, string][] = $derived([
     ['shortcut.palette', isMac() ? keys.palette() : `${keys.palette()} · ${shortcut('Ctrl', 'Shift', 'K')}`],
     ['shortcut.newSession', keys.newSession()],
@@ -52,6 +75,7 @@
     ],
     ['shortcut.goToTab', shortcut('Mod', '1…9')],
     ['shortcut.reconnect', keys.reconnect()],
+    ['shortcut.files', keys.files()],
     ['shortcut.sidebar', keys.sidebar()],
     ['shortcut.fullscreen', keys.fullscreen()],
     ['shortcut.settings', keys.settings()],
@@ -199,6 +223,36 @@
         <button class="btn" onclick={copyPath}>{t('settings.copyPath')}</button>
       </div>
       <p class="path mono">{app.info?.dataDir ?? ''}</p>
+      {#if updates.supported}
+        <div class="row">
+          <span>
+            {t('update.title')}
+            <small>{updateStatus}</small>
+          </span>
+          {#if updates.status === 'available'}
+            <button class="btn" onclick={() => updates.download()}>{t('update.download')}</button>
+          {:else if updates.status === 'ready'}
+            <button class="btn primary" onclick={() => updates.install()}>{t('update.install')}</button>
+          {:else}
+            <button
+              class="btn"
+              disabled={updates.status === 'checking' || updates.status === 'downloading' || updates.status === 'installing'}
+              onclick={() => updates.check(true)}
+            >
+              {t('update.check')}
+            </button>
+          {/if}
+        </div>
+        <label class="row">
+          <span>{t('update.auto')}</span>
+          <input
+            type="checkbox"
+            class="toggle"
+            checked={s.autoUpdateCheck}
+            onchange={(e) => app.update({ autoUpdateCheck: e.currentTarget.checked })}
+          />
+        </label>
+      {/if}
       <div class="row">
         <span>{t('settings.keychain')}</span>
         <span class:ok={!app.keychainIssue} class:bad={!!app.keychainIssue}>

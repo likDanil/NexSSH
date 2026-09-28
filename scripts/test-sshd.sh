@@ -68,6 +68,7 @@ HostKey $DIR/ssh_host_rsa_key
 AllowUsers $USER_NAME
 AllowTcpForwarding yes
 PermitTTY yes
+Subsystem sftp internal-sftp
 LogLevel VERBOSE
 CONF
 }

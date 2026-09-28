@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { closeTab, openSettings, quickConnect, toggleFullscreen, toggleSidebar } from './lib/actions';
+  import { closeTab, openSettings, quickConnect, toggleFiles, toggleFullscreen, toggleSidebar } from './lib/actions';
   import CommandPalette from './lib/components/CommandPalette.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import ContextMenu from './lib/components/ContextMenu.svelte';
+  import FilesDrawer from './lib/components/FilesDrawer.svelte';
   import ForwardsDialog from './lib/components/ForwardsDialog.svelte';
   import Home from './lib/components/Home.svelte';
   import ServerEditor from './lib/components/ServerEditor.svelte';
@@ -13,6 +14,7 @@
   import Toasts from './lib/components/Toasts.svelte';
   import { isMac } from './lib/platform';
   import { app } from './lib/state/app.svelte';
+  import { files } from './lib/state/files.svelte';
   import { sessions } from './lib/state/sessions.svelte';
 
   function inTerminal(e: KeyboardEvent): boolean {
@@ -88,6 +90,13 @@
       return;
     }
 
+    // Files drawer: Mod+Shift+E everywhere.
+    if (shift && key === 'e') {
+      consume();
+      toggleFiles();
+      return;
+    }
+
     // On Windows/Linux the remaining shortcuts need Shift.
     if (!mac && !shift) return;
     switch (key) {
@@ -124,11 +133,16 @@
   <main>
     <TabBar />
     <div class="surface">
-      {#each sessions.tabs as tab (tab.key)}
-        <TerminalPane {tab} active={tab.key === sessions.activeKey} />
-      {/each}
-      {#if !sessions.active}
-        <Home />
+      <div class="terminals">
+        {#each sessions.tabs as tab (tab.key)}
+          <TerminalPane {tab} active={tab.key === sessions.activeKey} />
+        {/each}
+        {#if !sessions.active}
+          <Home />
+        {/if}
+      </div>
+      {#if files.open && sessions.active}
+        <FilesDrawer tab={sessions.active} />
       {/if}
     </div>
   </main>
@@ -155,6 +169,7 @@
   }
   .surface {
     position: relative;
+    display: flex;
     flex: 1;
     min-height: 0;
     margin: 0 6px 6px;
@@ -162,5 +177,10 @@
     border: 1px solid var(--border);
     background: var(--surface);
     overflow: hidden;
+  }
+  .terminals {
+    position: relative;
+    flex: 1;
+    min-width: 0;
   }
 </style>

@@ -10,7 +10,9 @@ repository.workspace = true
 
 [dependencies]
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
-tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros", "io-util"] }
+# SFTP client over an existing SSH channel (same author as russh).
+russh-sftp = "3"
+tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros", "io-util", "fs"] }
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true

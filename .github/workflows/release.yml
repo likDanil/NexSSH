@@ -13,6 +13,11 @@ name: Release
 #
 # The version from the tag/input is written into Cargo.toml for the build, so the
 # app, the installer name and the release always agree.
+#
+# In-app updates: with the TAURI_SIGNING_PRIVATE_KEY (and _PASSWORD) secrets set, the
+# installer is signed and the release gets a latest.json that installed apps read from
+# https://github.com/<repo>/releases/latest/download/latest.json. The matching public key
+# is in desktop/tauri.conf.json (plugins.updater.pubkey).
 
 on:
   push:
@@ -139,13 +144,25 @@ jobs:
       - run: npm ci
 
       - name: Build
-        run: npm run tauri build -- --bundles nsis
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            # Also writes <installer>.sig for in-app updates.
+            npm run tauri build -- --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: this release will not be offered as an in-app update"
+            npm run tauri build -- --bundles nsis
+          fi
 
       - name: Collect installer
         shell: bash
         run: |
           mkdir -p dist
           cp target/release/bundle/nsis/*-setup.exe dist/
+          cp target/release/bundle/nsis/*-setup.exe.sig dist/ 2>/dev/null || true
           cd dist
           sha256sum *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
@@ -177,3 +194,31 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "NexSSH $TAG" \
             --generate-notes
+
+      - name: Publish the in-app update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          exe="$(ls dist/*-setup.exe)"
+          if [[ ! -f "$exe.sig" ]]; then
+            echo "::warning::No signature: skipping latest.json (installed apps will not see this release)"
+            exit 0
+          fi
+          name="$(basename "$exe")"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$name"
+          notes="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body)"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$notes" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$(cat "$exe.sig")" \
+            --arg url "$url" \
+            '{version: $version, notes: $notes, pub_date: $date, platforms: {
+                "windows-x86_64": {signature: $signature, url: $url},
+                "windows-x86_64-nsis": {signature: $signature, url: $url}
+              }}' > latest.json
+          cat latest.json
+          gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY"

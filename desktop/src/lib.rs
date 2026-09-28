@@ -3,7 +3,9 @@
 mod commands;
 mod logger;
 mod settings;
+mod sftp;
 mod sink;
+mod updates;
 
 use std::sync::Mutex;
 
@@ -16,6 +18,9 @@ use settings::{Settings, theme_background};
 pub fn run() {
     logger::init();
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default())
+        .manage(sftp::Transfers::default())
         .setup(|app| {
             let data_dir = nexssh_core::default_data_dir()
                 .ok_or("cannot determine the configuration directory")?;
@@ -25,6 +30,7 @@ pub fn run() {
             app.manage(AppState {
                 core,
                 settings: Mutex::new(settings),
+                restore_maximized: Default::default(),
             });
             create_main_window(app, Color(r, g, b, 255))?;
             Ok(())
@@ -33,6 +39,7 @@ pub fn run() {
             commands::app_info,
             commands::app_ready,
             commands::app_set_language,
+            commands::window_set_fullscreen,
             commands::keychain_status,
             commands::settings_get,
             commands::settings_set,
@@ -55,6 +62,21 @@ pub fn run() {
             commands::prompt_answer,
             commands::forward_add,
             commands::forward_remove,
+            sftp::sftp_home,
+            sftp::sftp_resolve,
+            sftp::sftp_list,
+            sftp::sftp_mkdir,
+            sftp::sftp_rename,
+            sftp::sftp_remove,
+            sftp::sftp_download,
+            sftp::sftp_upload_begin,
+            sftp::sftp_upload_chunk,
+            sftp::sftp_upload_end,
+            sftp::sftp_cancel,
+            sftp::reveal_download,
+            updates::update_check,
+            updates::update_download,
+            updates::update_install,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start NexSSH");
