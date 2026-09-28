@@ -279,6 +279,34 @@ pub async fn pick_key_file(
     Ok(Some(nexssh_core::contract_tilde(&private_key_for(&path))))
 }
 
+/// The system folder dialog, opened in `start`; `None` when cancelled.
+pub(crate) async fn choose_folder(
+    window: &tauri::WebviewWindow,
+    title: String,
+    start: std::path::PathBuf,
+) -> CmdResult<Option<std::path::PathBuf>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let dialog = window
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_title(title)
+        .set_directory(start);
+    // The dialog runs on the main thread; wait for its answer here.
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    dialog.pick_folder(move |picked| {
+        let _ = tx.try_send(picked);
+    });
+    let Some(picked) = rx.recv().await.flatten() else {
+        return Ok(None);
+    };
+    picked
+        .into_path()
+        .map(Some)
+        .map_err(|e| CmdError::from(e.to_string()))
+}
+
 /// A picked `.pub` file stands for the private key next to it.
 fn private_key_for(path: &std::path::Path) -> std::path::PathBuf {
     if path.extension().is_some_and(|e| e == "pub") {

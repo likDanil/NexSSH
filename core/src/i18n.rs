@@ -479,6 +479,10 @@ messages! {
         en: "cannot write {path}: {error}",
         ru: "не удалось записать {path}: {error}",
     }
+    fn local_read_failed(path: &str, error: impl Display) {
+        en: "cannot read {path}: {error}",
+        ru: "не удалось прочитать {path}: {error}",
+    }
     fn reveal_failed(error: impl Display) {
         en: "could not open the file manager: {error}",
         ru: "не удалось открыть файловый менеджер: {error}",

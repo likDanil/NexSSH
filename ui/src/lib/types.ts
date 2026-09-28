@@ -91,6 +91,8 @@ export interface ImportReport {
   skipped: string[];
 }
 
+export type FilesSort = 'name' | 'size' | 'modified';
+
 export type ThemeId = 'system' | 'light' | 'graphite' | 'black' | 'navy';
 export type ResolvedTheme = Exclude<ThemeId, 'system'>;
 
@@ -112,9 +114,11 @@ export interface Settings {
   sidebarWidth: number;
   sidebarHidden: boolean;
   collapsedGroups: string[];
-  /** Files drawer: show dotfiles, and its width. */
+  /** Files drawer: show dotfiles, its width and sort order (folders always come first). */
   filesShowHidden: boolean;
   filesWidth: number;
+  filesSort: FilesSort;
+  filesSortDesc: boolean;
   /** Look for a new version at start-up and every few hours. */
   autoUpdateCheck: boolean;
   /** The version that last ran, to say "updated to …" once after an update. */
@@ -142,6 +146,8 @@ export interface SftpEntry {
   modified?: number;
   /** `rwxr-xr-x` */
   permissions?: string;
+  /** The permission bits, e.g. `0o755`. */
+  mode?: number;
 }
 
 export interface TransferProgress {
@@ -152,6 +158,21 @@ export interface TransferProgress {
 export interface Downloaded {
   path: string;
   name: string;
+}
+
+/** A local file or folder chosen for upload: picked in a dialog, or dropped (Linux). */
+export interface PickedUpload {
+  path: string;
+  name: string;
+  folder: boolean;
+}
+
+/** Files dropped on the window, passed on by the backend (Linux). */
+export interface DroppedFiles {
+  items: PickedUpload[];
+  /** Where they were dropped, in CSS pixels. */
+  x: number;
+  y: number;
 }
 
 export interface UpdateInfo {

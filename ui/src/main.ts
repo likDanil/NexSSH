@@ -20,3 +20,13 @@ document.addEventListener('contextmenu', (e) => {
   const t = e.target as HTMLElement;
   if (!t.closest('input, textarea')) e.preventDefault();
 });
+
+// A file or link dropped where nothing takes it would open in the webview in place of the app.
+for (const type of ['dragover', 'drop'] as const) {
+  window.addEventListener(type, (e) => {
+    const types = e.dataTransfer?.types ?? [];
+    if (e.defaultPrevented || !(types.includes('Files') || types.includes('text/uri-list'))) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+  });
+}

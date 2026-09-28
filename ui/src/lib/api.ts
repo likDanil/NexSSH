@@ -8,6 +8,7 @@ import type {
   ForwardSpec,
   ImportReport,
   KeyInfo,
+  PickedUpload,
   PromptReply,
   Server,
   SessionEvent,
@@ -61,11 +62,34 @@ export const api = {
   sftpResolve: (sessionId: number, path: string) => invoke<string>('sftp_resolve', { sessionId, path }),
   sftpList: (sessionId: number, path: string) => invoke<SftpEntry[]>('sftp_list', { sessionId, path }),
   sftpMkdir: (sessionId: number, path: string) => invoke<void>('sftp_mkdir', { sessionId, path }),
+  /** Creates the folder unless it exists (folder uploads merge into existing ones). */
+  sftpEnsureDir: (sessionId: number, path: string) => invoke<void>('sftp_ensure_dir', { sessionId, path }),
+  /** An empty file; never replaces one. */
+  sftpNewFile: (sessionId: number, path: string) => invoke<void>('sftp_new_file', { sessionId, path }),
+  sftpChmod: (sessionId: number, path: string, mode: number, recursive: boolean) =>
+    invoke<void>('sftp_chmod', { sessionId, path, mode, recursive }),
   sftpRename: (sessionId: number, from: string, to: string) => invoke<void>('sftp_rename', { sessionId, from, to }),
   sftpRemove: (sessionId: number, path: string) => invoke<void>('sftp_remove', { sessionId, path }),
-  /** Saves into the Downloads folder. */
-  sftpDownload: (sessionId: number, path: string, transferId: number, onProgress: Channel<TransferProgress>) =>
-    invoke<Downloaded>('sftp_download', { sessionId, path, transferId, onProgress }),
+  /** The system folder dialog for "Download to…"; `null` when cancelled. */
+  sftpPickDestination: (title: string) => invoke<string | null>('sftp_pick_destination', { title }),
+  /** Saves into `dest` (a folder from `sftpPickDestination`), or into Downloads when `null`. */
+  sftpDownload: (
+    sessionId: number,
+    path: string,
+    dest: string | null,
+    transferId: number,
+    onProgress: Channel<TransferProgress>,
+  ) => invoke<Downloaded>('sftp_download', { sessionId, path, dest, transferId, onProgress }),
+  /** The system folder dialog for an upload; `null` when cancelled. */
+  sftpPickUpload: (title: string) => invoke<PickedUpload | null>('sftp_pick_upload', { title }),
+  /** Uploads a folder from `sftpPickUpload` into `dir`; returns the remote path. */
+  sftpUploadPath: (
+    sessionId: number,
+    path: string,
+    dir: string,
+    transferId: number,
+    onProgress: Channel<TransferProgress>,
+  ) => invoke<string>('sftp_upload_path', { sessionId, path, dir, transferId, onProgress }),
   sftpUploadBegin: (sessionId: number, path: string, transferId: number) =>
     invoke<void>('sftp_upload_begin', { sessionId, path, transferId }),
   /** Raw bytes, no JSON encoding. */
