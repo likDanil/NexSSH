@@ -1,6 +1,8 @@
 // Mirrors of the Rust types (serde, camelCase). Keep in sync with core/src/model.rs,
 // core/src/session/mod.rs and desktop/src/commands.rs.
 
+import type { LanguageSetting } from './i18n.svelte';
+
 export type AuthKind = 'auto' | 'password' | 'key' | 'agent';
 export type ForwardKind = 'local' | 'remote' | 'dynamic';
 
@@ -69,7 +71,7 @@ export interface ForwardInfo {
 }
 
 export type SessionEvent =
-  | { type: 'status'; status: SessionStatus; message?: string }
+  | { type: 'status'; status: SessionStatus; message?: string; failed: boolean }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
   | { type: 'prompt'; id: number; prompt: Prompt }
   | { type: 'promptClosed'; id: number }
@@ -94,6 +96,7 @@ export type ResolvedTheme = Exclude<ThemeId, 'system'>;
 
 /** UI preferences, stored by the backend in settings.json. */
 export interface Settings {
+  language: LanguageSetting;
   theme: ThemeId;
   fontFamily: string;
   fontSize: number;

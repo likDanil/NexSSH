@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, errorMessage } from '../api';
+  import { t, type MessageKey } from '../i18n.svelte';
   import { app } from '../state/app.svelte';
   import { servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
@@ -19,11 +20,12 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
 
-  const KINDS: { id: ForwardKind; label: string; hint: string }[] = [
-    { id: 'local', label: 'Local', hint: 'Opens a port on this computer that leads to a host reachable from the server (ssh -L).' },
-    { id: 'remote', label: 'Remote', hint: 'Opens a port on the server that leads back to a host reachable from this computer (ssh -R).' },
-    { id: 'dynamic', label: 'SOCKS', hint: 'A local SOCKS5 proxy: point a browser or tool at it to browse through the server (ssh -D).' },
+  const KINDS: { id: ForwardKind; label: MessageKey; hint: MessageKey }[] = [
+    { id: 'local', label: 'forward.local', hint: 'forward.local.hint' },
+    { id: 'remote', label: 'forward.remote', hint: 'forward.remote.hint' },
+    { id: 'dynamic', label: 'forward.dynamic', hint: 'forward.dynamic.hint' },
   ];
+  const kindHint = $derived(KINDS.find((k) => k.id === kind)?.hint);
 
   const port = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN);
   const valid = $derived(
@@ -67,7 +69,12 @@
   }
 </script>
 
-<Modal title="Port forwarding" subtitle={tab ? `${tab.title} · ${tab.subtitle}` : ''} width={540} onclose={() => (app.forwardsOpen = false)}>
+<Modal
+  title={t('forwards.title')}
+  subtitle={tab ? `${tab.title} · ${tab.subtitle}` : ''}
+  width={540}
+  onclose={() => (app.forwardsOpen = false)}
+>
   {#if tab}
     {#if tab.forwards.length}
       <div class="list">
@@ -75,46 +82,49 @@
           <div class="item">
             <span class="kind">{f.spec.kind === 'dynamic' ? 'SOCKS' : f.spec.kind === 'local' ? 'L' : 'R'}</span>
             <span class="desc mono">{f.description}</span>
-            {#if f.saved}<span class="saved">saved</span>{/if}
-            <button class="icon-btn small" title="Stop" aria-label="Stop" onclick={() => remove(f.id)}>
+            {#if f.saved}<span class="saved">{t('forwards.saved')}</span>{/if}
+            <button class="icon-btn small" title={t('forwards.stop')} aria-label={t('forwards.stop')} onclick={() => remove(f.id)}>
               <Icon name="x" size={13} />
             </button>
           </div>
         {/each}
       </div>
     {:else}
-      <p class="empty">No active forwards in this session.</p>
+      <p class="empty">{t('forwards.empty')}</p>
     {/if}
 
     <form class="add" onsubmit={add}>
       <div class="segmented">
         {#each KINDS as k (k.id)}
-          <button type="button" class:on={kind === k.id} onclick={() => (kind = k.id)}>{k.label}</button>
+          <button type="button" class:on={kind === k.id} onclick={() => (kind = k.id)}>{t(k.label)}</button>
         {/each}
       </div>
-      <p class="hint">{KINDS.find((k) => k.id === kind)?.hint}</p>
+      <p class="hint">{kindHint ? t(kindHint) : ''}</p>
       <div class="inputs">
         <label class="field">
-          <span>{kind === 'remote' ? 'Server port' : 'Local port'}</span>
+          <span>{t(kind === 'remote' ? 'forwards.serverPort' : 'forwards.localPort')}</span>
           <input class="input" bind:value={bindPort} inputmode="numeric" placeholder={kind === 'dynamic' ? '1080' : '8080'} />
         </label>
         {#if kind !== 'dynamic'}
           <span class="arrow">→</span>
           <label class="field grow">
-            <span>{kind === 'local' ? 'Destination (from the server)' : 'Destination (from this computer)'}</span>
+            <span>{t(kind === 'local' ? 'forwards.destFromServer' : 'forwards.destFromHere')}</span>
             <input class="input" bind:value={targetHost} spellcheck="false" />
           </label>
           <label class="field">
-            <span>Port</span>
+            <span>{t('forwards.port')}</span>
             <input class="input" bind:value={targetPort} inputmode="numeric" placeholder="5432" />
           </label>
         {/if}
       </div>
       <div class="bottom">
         {#if serverName}
-          <label class="check"><input type="checkbox" bind:checked={save} /> Also start on every connection to {serverName}</label>
+          <label class="check">
+            <input type="checkbox" bind:checked={save} />
+            {t('forwards.saveFor', { name: serverName })}
+          </label>
         {/if}
-        <button class="btn primary" type="submit" disabled={!valid || busy}>Start</button>
+        <button class="btn primary" type="submit" disabled={!valid || busy}>{t('forwards.start')}</button>
       </div>
       {#if error}<p class="error">{error}</p>{/if}
     </form>

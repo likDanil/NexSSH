@@ -7,12 +7,14 @@
 //! * [`keys`] — local private key discovery and loading
 //! * [`session`] — interactive SSH sessions (jump hosts, auth, PTY, reconnect)
 //! * [`forward`] — local/remote/dynamic port forwarding
+//! * [`i18n`] — user-facing messages and their translations
 //!
 //! The crate has no dependency on Tauri or any GUI toolkit: a front-end creates a
 //! [`Core`], opens sessions with an [`EventSink`] and answers [`Prompt`]s.
 
 pub mod error;
 pub mod forward;
+pub mod i18n;
 pub mod keys;
 pub mod known_hosts;
 pub mod model;
@@ -102,11 +104,12 @@ impl Core {
     pub fn import_ssh_config(&self, path: Option<&Path>, group: &str) -> Result<ImportReport> {
         let path = match path {
             Some(p) => p.to_path_buf(),
-            None => ssh_config::default_path()
-                .ok_or_else(|| Error::NotFound("home directory".into()))?,
+            None => {
+                ssh_config::default_path().ok_or_else(|| Error::NotFound(i18n::home_not_found()))?
+            }
         };
         if !path.is_file() {
-            return Err(Error::NotFound(contract_tilde(&path)));
+            return Err(Error::NotFound(i18n::not_found(&contract_tilde(&path))));
         }
         let hosts = ssh_config::load(&path)?;
         let found = hosts.len();

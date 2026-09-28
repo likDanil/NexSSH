@@ -1,6 +1,7 @@
 // Saved servers (loaded from and written through the backend store).
 
 import { api, errorMessage } from '../api';
+import { t, tn } from '../i18n.svelte';
 import type { ImportReport, Server, StoreData } from '../types';
 import { toasts } from './toasts.svelte';
 
@@ -9,7 +10,10 @@ export interface ServerGroup {
   servers: Server[];
 }
 
-export const SUGGESTED_GROUPS = ['Production', 'Development', 'Personal'];
+/** Group names offered in the server editor (in the interface language). */
+export function suggestedGroups(): string[] {
+  return [t('group.production'), t('group.development'), t('group.personal')];
+}
 
 export function destination(s: Pick<Server, 'user' | 'host' | 'port'>): string {
   const host = s.host.includes(':') ? `[${s.host}]` : s.host;
@@ -55,7 +59,7 @@ class ServersState {
     try {
       this.data = await api.servers();
     } catch (e) {
-      toasts.error(`Could not load servers: ${errorMessage(e)}`);
+      toasts.error(t('server.loadFailed', { error: errorMessage(e) }));
     } finally {
       this.loaded = true;
     }
@@ -74,7 +78,13 @@ class ServersState {
   }
 
   async duplicate(server: Server) {
-    const copy: Server = { ...$state.snapshot(server), id: '', name: `${server.name} copy`, alias: undefined, lastUsed: undefined };
+    const copy: Server = {
+      ...$state.snapshot(server),
+      id: '',
+      name: t('server.copyName', { name: server.name }),
+      alias: undefined,
+      lastUsed: undefined,
+    };
     await this.save(copy);
   }
 
@@ -92,19 +102,19 @@ class ServersState {
       await this.load();
       const { added, updated } = report.summary;
       if (report.found === 0) {
-        toasts.show(`No hosts found in ${report.path}`);
+        toasts.show(t('import.none', { path: report.path }));
       } else if (added + updated === 0) {
-        toasts.show(`Everything from ${report.path} is already here`);
+        toasts.show(t('import.upToDate', { path: report.path }));
       } else {
         const parts = [];
-        if (added) parts.push(`${added} added`);
-        if (updated) parts.push(`${updated} updated`);
-        toasts.show(`Imported from ${report.path}: ${parts.join(', ')}`, 'success');
+        if (added) parts.push(tn('import.added', added));
+        if (updated) parts.push(tn('import.updated', updated));
+        toasts.show(t('import.done', { path: report.path, summary: parts.join(', ') }), 'success');
       }
-      if (report.skipped.length) toasts.show(`Skipped ${report.skipped.join('; ')}`);
+      if (report.skipped.length) toasts.show(t('import.skipped', { list: report.skipped.join('; ') }));
       return report;
     } catch (e) {
-      toasts.error(`Import failed: ${errorMessage(e)}`);
+      toasts.error(t('import.failed', { error: errorMessage(e) }));
       return null;
     }
   }

@@ -1,24 +1,21 @@
 <script lang="ts">
   import logo from '../../assets/logo.png';
   import { addServer, connect, editServer, importSshConfig, keys, quickConnect, serverMenu } from '../actions';
+  import { t, timeAgo, tn, type MessageKey } from '../i18n.svelte';
   import { destination, servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
   import type { AuthKind, Server } from '../types';
   import Icon from './Icon.svelte';
+  import Rich from './Rich.svelte';
 
-  const AUTH_LABEL: Record<AuthKind, string> = { auto: 'Auto', password: 'Password', key: 'Key', agent: 'Agent' };
+  const AUTH_LABEL: Record<AuthKind, MessageKey> = {
+    auto: 'auth.auto',
+    password: 'auth.password',
+    key: 'auth.key',
+    agent: 'auth.agent',
+  };
 
   const empty = $derived(servers.loaded && servers.data.servers.length === 0);
-
-  function ago(ts?: number): string {
-    if (!ts) return '';
-    const s = Math.max(0, Date.now() / 1000 - ts);
-    if (s < 60) return 'just now';
-    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-    if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`;
-    return new Date(ts * 1000).toLocaleDateString();
-  }
 
   function menu(e: MouseEvent, s: Server) {
     e.preventDefault();
@@ -43,16 +40,21 @@
     <span class="meta">
       {#if s.jumpHost}
         {@const jump = servers.byId.get(s.jumpHost)?.name ?? s.jumpHost}
-        <span class="tag" title="Jump host: {jump}">via {jump}</span>
+        <span class="tag" title={t('home.jumpHost', { name: jump })}>{t('home.via', { name: jump })}</span>
       {/if}
-      <span class="tag">{AUTH_LABEL[s.auth]}</span>
+      <span class="tag">{t(AUTH_LABEL[s.auth])}</span>
     </span>
-    <span class="when">{ago(s.lastUsed)}</span>
+    <span class="when">{timeAgo(s.lastUsed)}</span>
     <span class="acts">
-      <button class="icon-btn small" title="Edit" aria-label="Edit" onclick={(e) => (e.stopPropagation(), editServer(s))}>
+      <button
+        class="icon-btn small"
+        title={t('common.edit')}
+        aria-label={t('common.edit')}
+        onclick={(e) => (e.stopPropagation(), editServer(s))}
+      >
         <Icon name="edit" size={14} />
       </button>
-      <button class="icon-btn small" title="More" aria-label="More" onclick={(e) => menu(e, s)}>
+      <button class="icon-btn small" title={t('common.more')} aria-label={t('common.more')} onclick={(e) => menu(e, s)}>
         <Icon name="more" size={14} />
       </button>
     </span>
@@ -63,45 +65,48 @@
   {#if empty}
     <div class="welcome">
       <img src={logo} alt="" class="logo" />
-      <h1>Welcome to NexSSH</h1>
-      <p>Add your first server, or import the hosts you already have in <code>~/.ssh/config</code>.</p>
+      <h1>{t('home.welcome')}</h1>
+      <p><Rich key="home.welcomeBody" params={{ file: '~/.ssh/config' }} tags={{ file: 'code' }} /></p>
       <div class="cta">
-        <button class="btn primary" onclick={() => addServer()}><Icon name="plus" size={14} /> Add server</button>
-        <button class="btn" onclick={importSshConfig}><Icon name="import" size={14} /> Import ~/.ssh/config</button>
-        <button class="btn ghost" onclick={quickConnect}><Icon name="zap" size={14} /> Quick connect</button>
+        <button class="btn primary" onclick={() => addServer()}><Icon name="plus" size={14} /> {t('home.addServer')}</button>
+        <button class="btn" onclick={importSshConfig}><Icon name="import" size={14} /> {t('home.importConfig')}</button>
+        <button class="btn ghost" onclick={quickConnect}><Icon name="zap" size={14} /> {t('home.quickConnect')}</button>
       </div>
-      <p class="hint">Press <kbd>{keys.palette()}</kbd> anytime to search servers and run commands.</p>
+      <p class="hint"><Rich key="home.paletteHint" params={{ keys: keys.palette() }} tags={{ keys: 'kbd' }} /></p>
     </div>
   {:else if servers.loaded}
     <div class="page">
       <header>
         <div>
-          <h1>Servers</h1>
-          <p>{servers.data.servers.length} saved · click to connect, right-click for more</p>
+          <h1>{t('home.title')}</h1>
+          <p>{tn('home.summary', servers.data.servers.length)}</p>
         </div>
         <div class="head-actions">
-          <button class="btn ghost" onclick={importSshConfig}><Icon name="import" size={14} /> Import</button>
-          <button class="btn" onclick={() => addServer()}><Icon name="plus" size={14} /> Add Server</button>
+          <button class="btn ghost" onclick={importSshConfig}><Icon name="import" size={14} /> {t('home.import')}</button>
+          <button class="btn" onclick={() => addServer()}><Icon name="plus" size={14} /> {t('sidebar.addServer')}</button>
         </div>
       </header>
 
       {#if servers.recent.length}
         <section>
-          <h2>Recent</h2>
+          <h2>{t('home.recent')}</h2>
           {#each servers.recent as s (s.id)}{@render row(s)}{/each}
         </section>
       {/if}
 
       {#each servers.groups as group (group.name)}
         <section>
-          <h2>{group.name || 'Other'}</h2>
+          <h2>{group.name || t('group.other')}</h2>
           {#each group.servers as s (s.id)}{@render row(s)}{/each}
         </section>
       {/each}
 
       <p class="hint">
-        <kbd>{keys.palette()}</kbd> command palette · <kbd>{keys.newSession()}</kbd> new session ·
-        <kbd>{keys.settings()}</kbd> settings
+        <Rich
+          key="home.shortcuts"
+          params={{ palette: keys.palette(), newSession: keys.newSession(), settings: keys.settings() }}
+          tags={{ palette: 'kbd', newSession: 'kbd', settings: 'kbd' }}
+        />
       </p>
     </div>
   {/if}
@@ -151,10 +156,10 @@
     color: var(--text-3);
     font-size: 12px;
   }
-  .hint kbd {
+  .hint :global(kbd) {
     margin: 0 2px;
   }
-  code {
+  .home :global(code) {
     font-family: var(--font-mono);
     font-size: 12px;
   }

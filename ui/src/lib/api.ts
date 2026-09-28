@@ -23,6 +23,8 @@ export interface OpenTarget {
 export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   appReady: () => invoke<void>('app_ready'),
+  /** Language of backend messages (errors, connection progress). */
+  setLanguage: (lang: string) => invoke<void>('app_set_language', { lang }),
   keychainStatus: () => invoke<string | null>('keychain_status'),
   saveSettings: (settings: Settings) => invoke<void>('settings_set', { settings }),
 
@@ -53,10 +55,11 @@ export const api = {
     invoke<void>('forward_remove', { sessionId, forwardId }),
 };
 
+/** An error as a sentence: backend messages are fragments ("cannot connect to …") so they
+ * can be nested; shown on their own they start with a capital letter. */
 export function errorMessage(e: unknown): string {
-  if (typeof e === 'string') return e;
-  if (e instanceof Error) return e.message;
-  return String(e);
+  const text = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 export { Channel };

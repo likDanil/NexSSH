@@ -35,6 +35,7 @@
 * Port forwarding: local (`-L`), remote (`-R`) and SOCKS5 (`-D`), optionally saved per server.
 * Command palette and quick connect: <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>, type `user@host:port`.
 * Themes: Light, Graphite, Black, Navy — or follow the system.
+* Languages: English and Russian (follows the system by default, switch in Settings or the palette).
 
 ![Command palette](docs/screenshots/command-palette.png)
 

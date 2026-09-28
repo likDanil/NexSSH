@@ -7,7 +7,7 @@ use serde::Serialize;
 use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
-use crate::util;
+use crate::{i18n, util};
 
 /// Default identities tried in automatic mode, in order (like OpenSSH, minus
 /// hardware-backed and deprecated types).
@@ -45,17 +45,14 @@ pub struct KeyFile {
 
 impl KeyFile {
     pub fn read(path: &Path) -> Result<KeyFile> {
-        let text = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
-            Error::invalid(format!(
-                "cannot read key {}: {e}",
-                util::contract_tilde(path)
-            ))
-        })?);
+        let text =
+            Zeroizing::new(std::fs::read_to_string(path).map_err(|e| {
+                Error::invalid(i18n::key_unreadable(&util::contract_tilde(path), e))
+            })?);
         let trimmed = text.trim_start();
         let (public, encrypted) = if trimmed.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----") {
-            let key = PrivateKey::from_openssh(trimmed).map_err(|e| {
-                Error::invalid(format!("invalid key {}: {e}", util::contract_tilde(path)))
-            })?;
+            let key = PrivateKey::from_openssh(trimmed)
+                .map_err(|e| Error::invalid(i18n::key_invalid(&util::contract_tilde(path), e)))?;
             (Some(key.public_key().clone()), key.is_encrypted())
         } else if trimmed.starts_with("PuTTY-User-Key-File-") {
             let encrypted = !trimmed.contains("Encryption: none");
@@ -72,9 +69,9 @@ impl KeyFile {
                 Ok(key) => (Some(key.public_key().clone()), false),
                 Err(russh::keys::Error::KeyIsEncrypted) => (sibling_public_key(path), true),
                 Err(e) => {
-                    return Err(Error::invalid(format!(
-                        "unsupported key {}: {e}",
-                        util::contract_tilde(path)
+                    return Err(Error::invalid(i18n::key_unsupported(
+                        &util::contract_tilde(path),
+                        e,
                     )));
                 }
             }
@@ -171,7 +168,7 @@ pub fn list_local_keys() -> Vec<KeyInfo> {
                     public.algorithm().to_string(),
                     Some(public.fingerprint(HashAlg::Sha256).to_string()),
                 ),
-                None => ("private key".to_string(), None),
+                None => (i18n::private_key(), None),
             };
             Some(KeyInfo {
                 path: key.display_path(),

@@ -9,6 +9,7 @@ use russh::keys::{HashAlg, PublicKey, PublicKeyOrCertificate};
 
 use super::{LogLevel, Prompt, PromptReply, SessionCtx, lock};
 use crate::error::Error;
+use crate::i18n;
 use crate::known_hosts::HostKeyStatus;
 
 /// State of one SSH connection shared between the handler (running inside russh's
@@ -88,10 +89,7 @@ impl client::Handler for ClientHandler {
         let check = known_hosts.check(&self.host, self.port, &key);
         match check {
             HostKeyStatus::Trusted => Ok(true),
-            HostKeyStatus::Revoked => Err(Error::HostKey(format!(
-                "the key presented by {} is marked as revoked",
-                self.host
-            ))),
+            HostKeyStatus::Revoked => Err(Error::HostKey(i18n::host_key_revoked(&self.host))),
             HostKeyStatus::Unknown | HostKeyStatus::Changed { .. } => {
                 let changed = matches!(check, HostKeyStatus::Changed { .. });
                 let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
@@ -111,24 +109,20 @@ impl client::Handler for ClientHandler {
                         remember,
                     }) => {
                         if remember && let Err(e) = known_hosts.learn(&self.host, self.port, &key) {
-                            self.ctx
-                                .log(LogLevel::Warn, format!("Could not save host key: {e}"));
+                            self.ctx.log(LogLevel::Warn, i18n::host_key_save_failed(e));
                         }
                         if changed {
                             self.ctx.log(
                                 LogLevel::Warn,
-                                format!(
-                                    "Accepted a changed host key for {} ({fingerprint})",
-                                    self.host
-                                ),
+                                i18n::host_key_changed_accepted(&self.host, &fingerprint),
                             );
                         }
                         Ok(true)
                     }
                     _ => Err(Error::HostKey(if changed {
-                        "the host key has changed and was not accepted".into()
+                        i18n::host_key_changed_rejected()
                     } else {
-                        "the host key was not accepted".into()
+                        i18n::host_key_rejected()
                     })),
                 }
             }
@@ -177,9 +171,9 @@ impl client::Handler for ClientHandler {
         match reason {
             DisconnectReason::ReceivedDisconnect(info) => {
                 let msg = if info.message.trim().is_empty() {
-                    format!("closed by server ({:?})", info.reason_code)
+                    i18n::closed_by_server_code(format!("{:?}", info.reason_code))
                 } else {
-                    format!("closed by server: {}", info.message.trim())
+                    i18n::closed_by_server(info.message.trim())
                 };
                 self.state.set_reason(msg);
                 Ok(())

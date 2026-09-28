@@ -2,11 +2,13 @@
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from '../api';
+import { i18n, resolveLanguage, systemLanguage, t, type Lang } from '../i18n.svelte';
 import { setOs } from '../platform';
 import { isDarkTheme, resolveTheme } from '../themes';
 import type { AppInfo, ResolvedTheme, Server, Settings } from '../types';
 
 export const DEFAULT_SETTINGS: Settings = {
+  language: 'system',
   theme: 'light',
   fontFamily: '',
   fontSize: 13,
@@ -62,6 +64,8 @@ class AppState {
   settings = $state<Settings>({ ...DEFAULT_SETTINGS });
   systemDark = $state(darkQuery.matches);
   theme: ResolvedTheme = $derived(resolveTheme(this.settings.theme, this.systemDark));
+  systemLanguage = $state<Lang>(systemLanguage());
+  language: Lang = $derived(resolveLanguage(this.settings.language, this.systemLanguage));
   keychainIssue = $state<string | null>(null);
   fullscreen = $state(false);
 
@@ -84,9 +88,7 @@ class AppState {
 
   async init() {
     darkQuery.addEventListener('change', (e) => (this.systemDark = e.matches));
-    $effect.root(() => {
-      $effect(() => applyTheme(this.theme));
-    });
+    window.addEventListener('languagechange', () => (this.systemLanguage = systemLanguage()));
     try {
       const info = await api.appInfo();
       setOs(info.os);
@@ -95,10 +97,34 @@ class AppState {
     } catch (e) {
       console.error('app_info failed', e);
     }
+    // Before anything renders or asks the backend for messages.
+    await this.#applyLanguage(this.language);
+    $effect.root(() => {
+      $effect(() => applyTheme(this.theme));
+      $effect(() => void this.#applyLanguage(this.language));
+    });
+    this.refreshKeychainStatus();
+  }
+
+  refreshKeychainStatus() {
     api
       .keychainStatus()
       .then((issue) => (this.keychainIssue = issue))
       .catch(() => {});
+  }
+
+  #appliedLanguage: Lang | null = null;
+
+  /** Switches the interface and the backend's messages to `lang`. */
+  async #applyLanguage(lang: Lang) {
+    i18n.lang = lang;
+    document.documentElement.lang = lang;
+    if (this.#appliedLanguage === lang) return;
+    const first = this.#appliedLanguage === null;
+    this.#appliedLanguage = lang;
+    await api.setLanguage(lang).catch(() => {});
+    // The keychain problem (if any) is described by the backend in its language.
+    if (!first && this.keychainIssue) this.refreshKeychainStatus();
   }
 
   /** Updates settings and persists them (debounced). */
@@ -130,12 +156,12 @@ class AppState {
   }
 
   /** In-app confirmation (native confirm() is not available in every webview). */
-  async confirm(title: string, message: string, confirmLabel = 'OK', danger = false): Promise<boolean> {
+  async confirm(title: string, message: string, confirmLabel = t('common.ok'), danger = false): Promise<boolean> {
     return (await this.#ask({ title, message, confirmLabel, danger })) !== null;
   }
 
   /** Asks for a line of text; `null` when cancelled. */
-  prompt(title: string, message: string, initial: string, confirmLabel = 'Save'): Promise<string | null> {
+  prompt(title: string, message: string, initial: string, confirmLabel = t('common.save')): Promise<string | null> {
     return this.#ask({ title, message, confirmLabel, danger: false, input: initial });
   }
 

@@ -3,6 +3,7 @@
   import { addServer, connect, importSshConfig, keys, openSettings, quickConnect, showHome } from '../actions';
   import { errorMessage } from '../api';
   import { fuzzyBest } from '../fuzzy';
+  import { t } from '../i18n.svelte';
   import { app } from '../state/app.svelte';
   import { servers, type ServerGroup } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
@@ -62,12 +63,12 @@
     e.preventDefault();
     if (!name) return;
     app.showMenu(e.clientX, e.clientY, [
-      { label: 'Add server to group', icon: 'plus', action: () => addServer({ group: name }) },
+      { label: t('group.addServer'), icon: 'plus', action: () => addServer({ group: name }) },
       {
-        label: 'Rename group…',
+        label: t('group.rename'),
         icon: 'edit',
         action: async () => {
-          const next = await app.prompt('Rename group', '', name);
+          const next = await app.prompt(t('group.renameTitle'), '', name);
           if (next && next !== name) {
             servers.renameGroup(name, next).catch((err) => toasts.error(errorMessage(err)));
           }
@@ -75,14 +76,14 @@
       },
       'separator',
       {
-        label: 'Delete group',
+        label: t('group.delete'),
         icon: 'trash',
         danger: true,
         action: async () => {
           const ok = await app.confirm(
-            `Delete group ${name}?`,
-            'Servers in this group are kept and become ungrouped.',
-            'Delete group',
+            t('group.deleteTitle', { name }),
+            t('group.deleteMessage'),
+            t('group.delete'),
             true,
           );
           if (ok) servers.deleteGroup(name).catch((err) => toasts.error(errorMessage(err)));
@@ -127,13 +128,13 @@
     <input
       bind:this={searchEl}
       bind:value={query}
-      placeholder="Search servers"
+      placeholder={t('sidebar.search')}
       spellcheck="false"
       autocomplete="off"
       onkeydown={onSearchKey}
     />
     {#if query}
-      <button class="icon-btn small" aria-label="Clear search" onclick={() => (query = '')}>
+      <button class="icon-btn small" aria-label={t('sidebar.clearSearch')} onclick={() => (query = '')}>
         <Icon name="x" size={12} />
       </button>
     {/if}
@@ -141,14 +142,14 @@
 
   <nav>
     <button class:on={!sessions.active} onclick={showHome}>
-      <Icon name="server" size={15} /> <span>Servers</span>
+      <Icon name="server" size={15} /> <span>{t('nav.servers')}</span>
     </button>
     <button onclick={quickConnect}>
-      <Icon name="zap" size={15} /> <span>Quick Connect</span>
+      <Icon name="zap" size={15} /> <span>{t('nav.quickConnect')}</span>
       <kbd>{keys.palette()}</kbd>
     </button>
     <button onclick={openSettings}>
-      <Icon name="settings" size={15} /> <span>Settings</span>
+      <Icon name="settings" size={15} /> <span>{t('nav.settings')}</span>
     </button>
   </nav>
 
@@ -164,7 +165,7 @@
             aria-expanded={!isCollapsed}
           >
             <span class="chev" class:closed={isCollapsed}><Icon name="chevronDown" size={12} stroke={2} /></span>
-            <span class="gname">{group.name || 'Other'}</span>
+            <span class="gname">{group.name || t('group.other')}</span>
             <span class="count">{group.servers.length}</span>
           </button>
         {/if}
@@ -176,18 +177,18 @@
       </div>
     {:else}
       {#if query}
-        <p class="note">No servers match “{query}”.</p>
+        <p class="note">{t('sidebar.noMatches', { query })}</p>
       {:else if empty}
-        <p class="note">No servers yet.</p>
+        <p class="note">{t('sidebar.empty')}</p>
       {/if}
     {/each}
   </div>
 
   <div class="footer">
     <button class="add" onclick={() => addServer()}>
-      <Icon name="plus" size={15} /> Add Server
+      <Icon name="plus" size={15} /> {t('sidebar.addServer')}
     </button>
-    <button class="icon-btn" title="Import from ~/.ssh/config" aria-label="Import from ~/.ssh/config" onclick={importSshConfig}>
+    <button class="icon-btn" title={t('sidebar.import')} aria-label={t('sidebar.import')} onclick={importSshConfig}>
       <Icon name="import" size={15} />
     </button>
   </div>
@@ -279,6 +280,10 @@
   }
   nav button span {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   nav button :global(svg) {
     color: var(--text-2);

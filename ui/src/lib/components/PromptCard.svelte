@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { t } from '../i18n.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
   import type { Prompt, PromptReply } from '../types';
   import Icon from './Icon.svelte';
+  import Rich from './Rich.svelte';
 
   interface Props {
     tab: Tab;
@@ -92,39 +94,42 @@
   <form class="card" class:warn={p.kind === 'hostKey' && p.check.status === 'changed'} bind:this={form} onsubmit={submit} {onkeydown}>
     {#if p.kind === 'hostKey'}
       {#if p.check.status === 'changed'}
-        <div class="head danger"><Icon name="alert" size={18} /><h3>Host key has changed</h3></div>
+        <div class="head danger"><Icon name="alert" size={18} /><h3>{t('prompt.changed.title')}</h3></div>
         <p>
-          The key presented by <b>{target(p.host, p.port)}</b> differs from the one recorded in
-          <code>{p.check.file}</code> (line {p.check.line}). Someone could be intercepting the connection, or the
-          server was reinstalled.
+          <Rich
+            key="prompt.changed.body"
+            params={{ host: target(p.host, p.port), file: p.check.file, line: p.check.line }}
+            tags={{ host: 'b', file: 'code' }}
+          />
         </p>
-        <div class="fp"><span>Recorded</span><code>{p.check.knownFingerprint}</code></div>
-        <div class="fp"><span>Presented · {keyType(p.keyType)}</span><code>{p.fingerprint}</code></div>
+        <div class="fp"><span>{t('prompt.changed.recorded')}</span><code>{p.check.knownFingerprint}</code></div>
+        <div class="fp">
+          <span>{t('prompt.changed.presented', { type: keyType(p.keyType) })}</span><code>{p.fingerprint}</code>
+        </div>
         <div class="buttons">
           <button type="button" class="btn danger" onclick={() => reply({ kind: 'hostKey', accept: true, remember: true })}>
-            Accept new key
+            {t('prompt.changed.accept')}
           </button>
-          <button type="submit" class="btn primary" data-default>Cancel</button>
+          <button type="submit" class="btn primary" data-default>{t('common.cancel')}</button>
         </div>
       {:else}
-        <div class="head"><Icon name="shield" size={18} /><h3>New host</h3></div>
+        <div class="head"><Icon name="shield" size={18} /><h3>{t('prompt.newHost.title')}</h3></div>
         <p>
-          First connection to <b>{target(p.host, p.port)}</b>. Check that the key fingerprint matches the server
-          before trusting it.
+          <Rich key="prompt.newHost.body" params={{ host: target(p.host, p.port) }} tags={{ host: 'b' }} />
         </p>
-        <div class="fp"><span>{keyType(p.keyType)} key</span><code>{p.fingerprint}</code></div>
+        <div class="fp"><span>{t('prompt.newHost.key', { type: keyType(p.keyType) })}</span><code>{p.fingerprint}</code></div>
         <div class="buttons">
-          <button type="button" class="btn ghost" onclick={cancel}>Cancel</button>
+          <button type="button" class="btn ghost" onclick={cancel}>{t('common.cancel')}</button>
           <button type="button" class="btn" onclick={() => reply({ kind: 'hostKey', accept: true, remember: false })}>
-            Connect once
+            {t('prompt.newHost.once')}
           </button>
-          <button type="submit" class="btn primary" data-default>Trust and connect</button>
+          <button type="submit" class="btn primary" data-default>{t('prompt.newHost.trust')}</button>
         </div>
       {/if}
     {:else if p.kind === 'password' || p.kind === 'passphrase'}
       <div class="head">
         <Icon name={p.kind === 'password' ? 'lock' : 'key'} size={18} />
-        <h3>{p.kind === 'password' ? 'Password' : 'Key passphrase'}</h3>
+        <h3>{t(p.kind === 'password' ? 'prompt.password.title' : 'prompt.passphrase.title')}</h3>
       </div>
       <p class="sub">{p.kind === 'password' ? `${p.user}@${p.host}` : p.keyPath}</p>
       <input
@@ -132,7 +137,7 @@
         class:invalid={!!p.error}
         type="password"
         bind:value={secret}
-        placeholder={p.kind === 'password' ? 'Password' : 'Passphrase'}
+        placeholder={t(p.kind === 'password' ? 'prompt.password.placeholder' : 'prompt.passphrase.placeholder')}
         autocomplete="off"
         spellcheck="false"
       />
@@ -140,17 +145,17 @@
       {#if p.canRemember}
         <label class="check remember">
           <input type="checkbox" bind:checked={remember} />
-          Save in the system keychain
+          {t('prompt.remember')}
         </label>
       {/if}
       <div class="buttons">
-        <button type="button" class="btn ghost" onclick={cancel}>Cancel</button>
+        <button type="button" class="btn ghost" onclick={cancel}>{t('common.cancel')}</button>
         <button type="submit" class="btn primary" disabled={!secret}>
-          {p.kind === 'password' ? 'Connect' : 'Unlock'}
+          {t(p.kind === 'password' ? 'prompt.connect' : 'prompt.unlock')}
         </button>
       </div>
     {:else if p.kind === 'keyboardInteractive'}
-      <div class="head"><Icon name="shield" size={18} /><h3>{p.name || 'Verification'}</h3></div>
+      <div class="head"><Icon name="shield" size={18} /><h3>{p.name || t('prompt.verification')}</h3></div>
       <p class="sub">{p.host}</p>
       {#if p.instructions}<p class="pre">{p.instructions}</p>{/if}
       {#each p.prompts as q, i (i)}
@@ -166,8 +171,8 @@
         </label>
       {/each}
       <div class="buttons">
-        <button type="button" class="btn ghost" onclick={cancel}>Cancel</button>
-        <button type="submit" class="btn primary">Continue</button>
+        <button type="button" class="btn ghost" onclick={cancel}>{t('common.cancel')}</button>
+        <button type="submit" class="btn primary">{t('common.continue')}</button>
       </div>
     {/if}
   </form>
@@ -224,7 +229,7 @@
     line-height: 1.5;
     color: var(--text-2);
   }
-  p b {
+  p :global(b) {
     color: var(--text);
     font-weight: 600;
   }
@@ -237,7 +242,8 @@
   .pre {
     white-space: pre-wrap;
   }
-  code {
+  code,
+  p :global(code) {
     font-family: var(--font-mono);
     font-size: 11.5px;
   }
@@ -273,6 +279,7 @@
   }
   .buttons {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: 8px;
     margin-top: 6px;

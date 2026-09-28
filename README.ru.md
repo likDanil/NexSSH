@@ -11,7 +11,7 @@
   <a href="docs/ARCHITECTURE.md">Архитектура</a>
 </p>
 
-![NexSSH с подключённой сессией](docs/screenshots/main-light.png)
+![NexSSH с подключённой сессией](docs/screenshots/main-light-ru.png)
 
 ## Зачем
 
@@ -36,13 +36,14 @@
 * Jump-хосты (в том числе цепочки), keepalive, таймауты подключения, нестандартные порты.
 * Проброс портов: локальный (`-L`), удалённый (`-R`) и SOCKS5 (`-D`), с сохранением для сервера.
 * Командная палитра и быстрое подключение: <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>, ввод `user@host:port`.
-* Темы: Light (светло-серая), Graphite (серая), Black (чёрная), Navy (синяя) или как в системе.
+* Темы: светлая, серая, чёрная, синяя или как в системе.
+* Языки: русский и английский (по умолчанию — как в системе; переключаются в настройках или в палитре).
 
 ![Командная палитра](docs/screenshots/command-palette.png)
 
 ## Темы
 
-![Темы Light, Graphite, Black и Navy](docs/screenshots/themes.png)
+![Светлая, серая, чёрная и синяя темы](docs/screenshots/themes.png)
 
 ## Установка
 

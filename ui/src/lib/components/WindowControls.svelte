@@ -2,6 +2,7 @@
   // Minimize / maximize / close for the custom title bar on Windows.
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
+  import { t } from '../i18n.svelte';
   import Icon from './Icon.svelte';
 
   const win = getCurrentWindow();
@@ -16,13 +17,13 @@
 </script>
 
 <div class="controls">
-  <button aria-label="Minimize" onclick={() => win.minimize()}>
+  <button aria-label={t('window.minimize')} onclick={() => win.minimize()}>
     <Icon name="winMin" size={16} stroke={1.2} />
   </button>
-  <button aria-label={maximized ? 'Restore' : 'Maximize'} onclick={() => win.toggleMaximize()}>
+  <button aria-label={t(maximized ? 'window.restore' : 'window.maximize')} onclick={() => win.toggleMaximize()}>
     <Icon name={maximized ? 'winRestore' : 'winMax'} size={16} stroke={1.2} />
   </button>
-  <button class="close" aria-label="Close" onclick={() => win.close()}>
+  <button class="close" aria-label={t('window.close')} onclick={() => win.close()}>
     <Icon name="winClose" size={16} stroke={1.2} />
   </button>
 </div>

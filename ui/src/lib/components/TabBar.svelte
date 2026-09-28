@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeTab, keys, quickConnect, sessionMenu, toggleSidebar } from '../actions';
+  import { t } from '../i18n.svelte';
   import { currentOs } from '../platform';
   import { app } from '../state/app.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
@@ -56,7 +57,12 @@
 
 <header class="bar" data-tauri-drag-region>
   {#if app.settings.sidebarHidden}
-    <button class="icon-btn" title="Show sidebar ({keys.sidebar()})" aria-label="Show sidebar" onclick={toggleSidebar}>
+    <button
+      class="icon-btn"
+      title="{t('tabs.showSidebar')} ({keys.sidebar()})"
+      aria-label={t('tabs.showSidebar')}
+      onclick={toggleSidebar}
+    >
       <Icon name="sidebar" size={16} />
     </button>
   {/if}
@@ -87,7 +93,7 @@
         <span class="name">{tab.title}</span>
         <button
           class="close"
-          aria-label="Close tab"
+          aria-label={t('session.closeTab')}
           onclick={(e) => {
             e.stopPropagation();
             closeTab(tab);
@@ -97,7 +103,12 @@
         </button>
       </div>
     {/each}
-    <button class="icon-btn new" title="New session ({keys.newSession()})" aria-label="New session" onclick={quickConnect}>
+    <button
+      class="icon-btn new"
+      title="{t('tabs.newSession')} ({keys.newSession()})"
+      aria-label={t('tabs.newSession')}
+      onclick={quickConnect}
+    >
       <Icon name="plus" size={15} />
     </button>
   </div>
@@ -107,14 +118,14 @@
       {#if sessions.active.status === 'disconnected'}
         <button
           class="icon-btn"
-          title="Reconnect ({keys.reconnect()})"
-          aria-label="Reconnect"
+          title="{t('session.reconnect')} ({keys.reconnect()})"
+          aria-label={t('session.reconnect')}
           onclick={() => sessions.active && sessions.reconnect(sessions.active)}
         >
           <Icon name="refresh" size={15} />
         </button>
       {/if}
-      <button class="icon-btn" title="Session actions" aria-label="Session actions" onclick={moreMenu}>
+      <button class="icon-btn" title={t('tabs.sessionActions')} aria-label={t('tabs.sessionActions')} onclick={moreMenu}>
         <Icon name="more" size={16} />
       </button>
     {/if}

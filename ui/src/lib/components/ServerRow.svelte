@@ -1,5 +1,6 @@
 <script lang="ts">
   import { connect, serverMenu } from '../actions';
+  import { t } from '../i18n.svelte';
   import { sessions } from '../state/sessions.svelte';
   import { destination } from '../state/servers.svelte';
   import type { Server } from '../types';
@@ -49,7 +50,7 @@
     <span class="name">{server.name}</span>
     <span class="host">{server.host}</span>
   </span>
-  <button class="icon-btn small more" aria-label="Server actions" onclick={menu}>
+  <button class="icon-btn small more" aria-label={t('server.actions')} onclick={menu}>
     <Icon name="more" size={14} />
   </button>
 </div>

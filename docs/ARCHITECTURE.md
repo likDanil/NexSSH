@@ -29,6 +29,7 @@ NexSSH/
 │   │   ├── ssh_config.rs ~/.ssh/config import
 │   │   ├── keys.rs       private key discovery/loading (OpenSSH, PEM, PKCS#8, PPK)
 │   │   ├── forward.rs    -L / -R / -D (SOCKS5) forwarding
+│   │   ├── i18n.rs       user-facing messages in every language
 │   │   └── session/
 │   │       ├── mod.rs    SessionManager, events, prompts
 │   │       ├── connect.rs TCP + jump host chains + timeouts
@@ -52,6 +53,8 @@ NexSSH/
 │           ├── types.ts  TypeScript mirror of the Rust types
 │           ├── terminal.ts xterm.js wrapper (lazy-loaded chunk)
 │           ├── actions.ts user actions shared by menus, palette, shortcuts
+│           ├── i18n.svelte.ts t(), plurals, language detection
+│           ├── locales/  en.ts (reference), ru.ts
 │           ├── state/    app, servers, sessions, toasts (Svelte runes)
 │           └── components/
 ├── scripts/              test-sshd.sh, icons.py
@@ -70,6 +73,7 @@ NexSSH/
 | `keys` | Finds keys in `~/.ssh`, reads public halves without the passphrase (OpenSSH format or `.pub`). |
 | `session` | One Tokio task per session. See below. |
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
+| `i18n` | Every user-facing message with all its translations; process-wide language set by the app. |
 
 ### Session lifecycle
 
@@ -120,6 +124,7 @@ App.svelte
 ├── SettingsDialog   themes, font, terminal, keyboard, about
 ├── ForwardsDialog   active forwards of the session, add -L / -R / SOCKS
 ├── ConfirmDialog, ContextMenu, Toasts
+└── Rich           a translated message with styled placeholders (<b>, <code>, <kbd>)
 ```
 
 State lives in small rune-based stores (`lib/state/*.svelte.ts`). xterm instances are
@@ -164,7 +169,7 @@ A session (runtime only) is identified by a numeric id and reports:
 
 ```ts
 type SessionEvent =
-  | { type: 'status'; status: 'connecting' | 'connected' | 'disconnected' | 'closed'; message?: string }
+  | { type: 'status'; status: 'connecting' | 'connected' | 'disconnected' | 'closed'; message?: string; failed: boolean }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
   | { type: 'prompt'; id: number; prompt: Prompt }
   | { type: 'promptClosed'; id: number }
@@ -218,6 +223,21 @@ fuzzy-search libraries (30 lines in `fuzzy.ts`), dialog/clipboard/shell plugins
   read-only. A changed key shows a warning with both fingerprints; cancel is the default.
 * The webview runs with a strict CSP (no remote content, no `eval`), and only the window
   permissions needed for the custom title bar are granted.
+
+## Languages
+
+The interface is available in English and Russian; the default follows the system
+(`navigator.languages`, i.e. the Windows display language in WebView2).
+
+* **UI texts** live in `ui/src/lib/locales/*.ts`. English is the reference; a catalog is typed
+  as `Catalog`, so a missing or misspelled key fails `svelte-check`. `t()` reads reactive
+  state: switching the language re-renders the open window instantly, no reload.
+  Plurals use `Intl.PluralRules`, dates and numbers `Intl` formatters — no i18n library.
+* **Backend texts** (connection progress in the terminal, errors, prompt hints) are produced in
+  Rust by `core::i18n`. The UI tells the backend which language to use (`app_set_language`)
+  at start-up and on every change. Keeping them in the core means a CLI would get them too.
+* The UI never parses backend texts: facts it needs travel as data (e.g. `failed` on a
+  `disconnected` status tells a clean exit from a lost connection).
 
 ## Decisions worth knowing
 

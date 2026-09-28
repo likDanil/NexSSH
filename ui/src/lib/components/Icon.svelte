@@ -28,6 +28,7 @@
     check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
     folder: '<path d="M4 7.5A2 2 0 0 1 6 5.5h3.6l2 2H18a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9Z"/>',
     theme: '<circle cx="12" cy="12" r="7.5"/><path d="M12 4.5a7.5 7.5 0 0 1 0 15Z" fill="currentColor" stroke="none"/>',
+    globe: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16"/><path d="M12 4c2.2 2.3 3.3 5 3.3 8s-1.1 5.7-3.3 8c-2.2-2.3-3.3-5-3.3-8s1.1-5.7 3.3-8Z"/>',
     eraser: '<path d="m7 20 11.2-11.2a2 2 0 0 0 0-2.8l-2.2-2.2a2 2 0 0 0-2.8 0L3.8 13.2a2 2 0 0 0 0 2.8L7.8 20H20"/><path d="m9 9 6 6"/>',
     duplicate: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M14 11.5v5M11.5 14h5"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
     enter: '<path d="M19 5v6a3 3 0 0 1-3 3H6"/><path d="m9.5 10.5-3.5 3.5 3.5 3.5"/>',

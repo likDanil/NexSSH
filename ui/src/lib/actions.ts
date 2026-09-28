@@ -1,6 +1,7 @@
 // User actions shared by the sidebar, menus, the command palette and keyboard shortcuts.
 
 import { errorMessage } from './api';
+import { t } from './i18n.svelte';
 import { shortcut } from './platform';
 import { app, type MenuEntry } from './state/app.svelte';
 import { destination, servers } from './state/servers.svelte';
@@ -43,15 +44,15 @@ export function editServer(server: Server) {
 export async function deleteServer(server: Server) {
   const open = sessions.forServer(server.id).length;
   const ok = await app.confirm(
-    `Delete ${server.name}?`,
-    `The server and its saved password will be removed.${open ? ' Open sessions stay connected.' : ''}`,
-    'Delete',
+    t('server.deleteTitle', { name: server.name }),
+    t(open ? 'server.deleteMessageOpen' : 'server.deleteMessage'),
+    t('common.delete'),
     true,
   );
   if (!ok) return;
   try {
     await servers.remove(server.id);
-    toasts.show(`Deleted ${server.name}`);
+    toasts.show(t('server.deleted', { name: server.name }));
   } catch (e) {
     toasts.error(errorMessage(e));
   }
@@ -93,20 +94,20 @@ export function openForwards() {
 
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text).catch(() => {});
-  toasts.show(`Copied ${text}`);
+  toasts.show(t('common.copied', { text }));
 }
 
 export function serverMenu(server: Server, x: number, y: number) {
   const open = sessions.forServer(server.id).length > 0;
   const items: MenuEntry[] = [
-    { label: open ? 'Go to session' : 'Connect', icon: 'terminal', action: () => connect(server) },
-    { label: 'New session', icon: 'plus', action: () => connect(server, true) },
+    { label: t(open ? 'server.goToSession' : 'server.connect'), icon: 'terminal', action: () => connect(server) },
+    { label: t('server.newSession'), icon: 'plus', action: () => connect(server, true) },
     'separator',
-    { label: 'Edit…', icon: 'edit', action: () => editServer(server) },
-    { label: 'Duplicate', icon: 'duplicate', action: () => duplicateServer(server) },
-    { label: 'Copy address', icon: 'copy', action: () => copyText(destination(server)) },
+    { label: t('server.edit'), icon: 'edit', action: () => editServer(server) },
+    { label: t('server.duplicate'), icon: 'duplicate', action: () => duplicateServer(server) },
+    { label: t('server.copyAddress'), icon: 'copy', action: () => copyText(destination(server)) },
     'separator',
-    { label: 'Delete', icon: 'trash', danger: true, action: () => deleteServer(server) },
+    { label: t('common.delete'), icon: 'trash', danger: true, action: () => deleteServer(server) },
   ];
   app.showMenu(x, y, items);
 }
@@ -122,24 +123,29 @@ export function sessionMenu(tab: Tab, x: number, y: number) {
   const connected = tab.status === 'connected';
   const items: MenuEntry[] = [
     tab.status === 'disconnected'
-      ? { label: 'Reconnect', icon: 'refresh', hint: keys.reconnect(), action: () => sessions.reconnect(tab) }
-      : { label: 'Disconnect', icon: 'power', action: () => sessions.disconnect(tab) },
-    { label: 'Duplicate session', icon: 'duplicate', action: () => sessions.duplicate(tab) },
-    { label: 'Port forwarding…', icon: 'forward', disabled: !connected, action: () => openForwards() },
+      ? { label: t('session.reconnect'), icon: 'refresh', hint: keys.reconnect(), action: () => sessions.reconnect(tab) }
+      : { label: t('session.disconnect'), icon: 'power', action: () => sessions.disconnect(tab) },
+    { label: t('session.duplicate'), icon: 'duplicate', action: () => sessions.duplicate(tab) },
+    { label: t('session.forwarding'), icon: 'forward', disabled: !connected, action: () => openForwards() },
     'separator',
-    { label: 'Clear terminal', icon: 'eraser', action: () => sessions.clear(tab) },
-    { label: 'Full screen', icon: 'fullscreen', hint: keys.fullscreen(), action: toggleFullscreen },
+    { label: t('session.clear'), icon: 'eraser', action: () => sessions.clear(tab) },
+    { label: t('session.fullscreen'), icon: 'fullscreen', hint: keys.fullscreen(), action: toggleFullscreen },
   ];
   if (server) {
-    items.push({ label: 'Connection settings…', icon: 'edit', action: () => editServer(server) });
+    items.push({ label: t('session.connectionSettings'), icon: 'edit', action: () => editServer(server) });
   } else {
     items.push({
-      label: 'Save as server…',
+      label: t('session.saveAsServer'),
       icon: 'server',
       action: () => addServer(presetFromDestination(tab.subtitle)),
     });
   }
-  items.push('separator', { label: 'Close tab', icon: 'x', hint: keys.closeTab(), action: () => closeTab(tab) });
+  items.push('separator', {
+    label: t('session.closeTab'),
+    icon: 'x',
+    hint: keys.closeTab(),
+    action: () => closeTab(tab),
+  });
   app.showMenu(x, y, items);
 }
 

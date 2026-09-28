@@ -2,6 +2,7 @@
 // backend is written straight into them (never through reactive state).
 
 import { api, Channel, errorMessage, type OpenTarget, type SessionMessage } from '../api';
+import { t } from '../i18n.svelte';
 import type { ForwardInfo, Prompt, PromptReply, Server, SessionEvent } from '../types';
 import { destination } from './servers.svelte';
 import { toasts } from './toasts.svelte';
@@ -158,7 +159,7 @@ class SessionsState {
       if (current) {
         current.status = 'disconnected';
         current.failed = true;
-        current.message = sentence(errorMessage(e));
+        current.message = errorMessage(e);
       }
       terminal.write(`${RED}${errorMessage(e)}${RESET}\r\n`);
     }
@@ -192,8 +193,8 @@ class SessionsState {
           tab.failed = false;
         } else if (ev.status === 'disconnected') {
           tab.status = 'disconnected';
-          tab.message = sentence(ev.message ?? 'Disconnected');
-          tab.failed = !/^Session ended/.test(tab.message);
+          tab.message = sentence(ev.message ?? t('session.disconnected'));
+          tab.failed = ev.failed;
           tab.prompts = [];
           term?.write(`\r\n${DIM}── ${tab.message} ──${RESET}\r\n`);
         } else if (ev.status === 'closed') {

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 use crate::model::Server;
-use crate::util;
+use crate::{i18n, util};
 
 const FORMAT_VERSION: u32 = 1;
 
@@ -158,7 +158,7 @@ impl ServerStore {
     pub fn rename_group(&self, from: &str, to: &str) -> Result<()> {
         let to = to.trim().to_string();
         if to.is_empty() {
-            return Err(Error::invalid("Group name must not be empty"));
+            return Err(Error::invalid(i18n::group_name_empty()));
         }
         self.mutate(|data| {
             for s in data.servers.iter_mut().filter(|s| s.group == from) {

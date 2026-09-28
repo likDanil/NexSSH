@@ -14,6 +14,7 @@ use tokio::net::TcpStream;
 use super::handler::{ClientHandler, ConnState};
 use super::{LogLevel, SessionCtx, auth};
 use crate::error::{Error, Result};
+use crate::i18n;
 use crate::known_hosts::preferred_host_key_algorithms;
 use crate::model::{Destination, Server};
 use crate::store::ServerStore;
@@ -50,7 +51,7 @@ pub(crate) fn resolve_chain(store: &ServerStore, target: &Server) -> Result<Vec<
     }
     chain.push(target.clone());
     if chain.len() > MAX_HOPS {
-        return Err(Error::invalid("the jump host chain is too long"));
+        return Err(Error::invalid(i18n::jump_chain_too_long()));
     }
     Ok(chain)
 }
@@ -62,9 +63,7 @@ fn expand_jumps(
     depth: usize,
 ) -> Result<()> {
     if depth >= MAX_HOPS {
-        return Err(Error::invalid(
-            "the jump host chain is too long (do two servers use each other as jump host?)",
-        ));
+        return Err(Error::invalid(i18n::jump_chain_loop()));
     }
     for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
         if part.eq_ignore_ascii_case("none") {
@@ -80,7 +79,7 @@ fn expand_jumps(
             None => out.push(Destination::parse(part)?.to_server()),
         }
         if out.len() >= MAX_HOPS {
-            return Err(Error::invalid("the jump host chain is too long"));
+            return Err(Error::invalid(i18n::jump_chain_too_long()));
         }
     }
     Ok(())
@@ -92,10 +91,11 @@ pub(crate) async fn establish(ctx: &Arc<SessionCtx>, target: &Server) -> Result<
     let mut handles: Vec<Arc<Handle<ClientHandler>>> = Vec::with_capacity(chain.len());
     for (i, hop) in chain.iter().enumerate() {
         let is_target = i + 1 == chain.len();
+        let dest = hop.destination();
         let message = match (is_target, i) {
-            (true, 0) => format!("Connecting to {}…", hop.destination()),
-            (true, _) => format!("Connecting to {} through the jump host…", hop.destination()),
-            (false, _) => format!("Connecting to jump host {}…", hop.destination()),
+            (true, 0) => i18n::connecting(&dest),
+            (true, _) => i18n::connecting_through_jump(&dest),
+            (false, _) => i18n::connecting_to_jump(&dest),
         };
         ctx.log(LogLevel::Info, message);
         let via = handles.last().cloned();
@@ -112,7 +112,7 @@ pub(crate) async fn establish(ctx: &Arc<SessionCtx>, target: &Server) -> Result<
                 return Err(if is_target {
                     e
                 } else {
-                    Error::Disconnected(format!("jump host {}: {e}", hop.destination()))
+                    Error::Disconnected(i18n::jump_host_failed(&dest, e))
                 });
             }
         };
@@ -150,9 +150,9 @@ async fn connect_hop(
                 .channel_open_direct_tcpip(hop.host.clone(), u32::from(hop.port), "127.0.0.1", 0)
                 .await
                 .map_err(|e| {
-                    Error::Disconnected(format!(
-                        "the jump host could not reach {}: {e}",
-                        util::host_port(&hop.host, hop.port)
+                    Error::Disconnected(i18n::jump_host_unreachable(
+                        &util::host_port(&hop.host, hop.port),
+                        e,
                     ))
                 })?;
             client::connect_stream(config, channel.into_stream(), handler).await?
@@ -185,10 +185,10 @@ async fn tcp_connect(host: &str, port: u16) -> Result<TcpStream> {
     let target = util::host_port(host, port);
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
         .await
-        .map_err(|e| Error::Disconnected(format!("cannot resolve {host}: {e}")))?
+        .map_err(|e| Error::Disconnected(i18n::cannot_resolve_because(host, e)))?
         .collect();
     if addrs.is_empty() {
-        return Err(Error::Disconnected(format!("cannot resolve {host}")));
+        return Err(Error::Disconnected(i18n::cannot_resolve(host)));
     }
     let mut last_err = None;
     let count = addrs.len();
@@ -201,7 +201,7 @@ async fn tcp_connect(host: &str, port: u16) -> Result<TcpStream> {
                 Ok(r) => r,
                 Err(_) => Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
-                    "timed out",
+                    i18n::attempt_timed_out(),
                 )),
             }
         } else {
@@ -216,9 +216,7 @@ async fn tcp_connect(host: &str, port: u16) -> Result<TcpStream> {
         }
     }
     let err = last_err.map(|e| e.to_string()).unwrap_or_default();
-    Err(Error::Disconnected(format!(
-        "cannot connect to {target}: {err}"
-    )))
+    Err(Error::Disconnected(i18n::cannot_connect(&target, err)))
 }
 
 /// Like `tokio::time::timeout`, but time the user spends answering prompts (host key,

@@ -1,45 +1,50 @@
 use std::fmt;
 
+use crate::i18n;
+
 /// Result type used across the core crate.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Errors produced by the core. Messages are written to be shown to users as-is.
+/// Errors produced by the core. Messages are written to be shown to users as-is, in the
+/// current [`i18n`] language.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
     Io(#[from] std::io::Error),
 
-    #[error("invalid data: {0}")]
+    #[error("{}", i18n::invalid_data(.0))]
     Json(#[from] serde_json::Error),
 
     #[error("{}", ssh_error_message(.0))]
     Ssh(#[from] russh::Error),
 
-    #[error("key error: {0}")]
+    #[error("{}", i18n::key_error(.0))]
     Key(#[from] russh::keys::Error),
 
-    #[error("system keychain: {0}")]
+    #[error("{}", i18n::keychain_error(.0))]
     Secret(String),
 
     #[error("{0}")]
     Invalid(String),
 
-    #[error("{0} not found")]
+    /// A complete message, e.g. from [`i18n::session_not_found`].
+    #[error("{0}")]
     NotFound(String),
 
-    #[error("connection timed out after {0}s")]
+    #[error("{}", i18n::timed_out_after(*.0))]
     Timeout(u32),
 
-    #[error("authentication failed ({0})")]
+    #[error("{}", i18n::auth_failed(.0))]
     AuthFailed(String),
 
-    #[error("host key verification failed: {0}")]
+    #[error("{}", i18n::host_key_failed(.0))]
     HostKey(String),
 
-    #[error("cancelled")]
+    #[error("{}", i18n::cancelled())]
     Cancelled,
 
-    #[error("connection closed: {0}")]
+    /// A complete message describing why the connection ended or could not be made.
+    #[error("{0}")]
     Disconnected(String),
 }
 
@@ -53,13 +58,13 @@ impl Error {
 fn ssh_error_message(err: &russh::Error) -> String {
     use russh::Error as E;
     match err {
-        E::ConnectionTimeout => "connection timed out".into(),
-        E::KeepaliveTimeout => "server stopped responding (keepalive timeout)".into(),
-        E::InactivityTimeout => "connection closed after inactivity".into(),
-        E::UnknownKey => "server host key was not accepted".into(),
-        E::Disconnect => "disconnected".into(),
-        E::HUP => "connection closed by remote host".into(),
-        E::NoCommonAlgo { .. } => format!("no algorithm in common with the server ({err})"),
+        E::ConnectionTimeout => i18n::ssh_timeout(),
+        E::KeepaliveTimeout => i18n::ssh_keepalive_timeout(),
+        E::InactivityTimeout => i18n::ssh_inactivity(),
+        E::UnknownKey => i18n::ssh_unknown_key(),
+        E::Disconnect => i18n::ssh_disconnected(),
+        E::HUP => i18n::ssh_hangup(),
+        E::NoCommonAlgo { .. } => i18n::ssh_no_common_algorithm(err),
         E::IO(io) => io.to_string(),
         other => other.to_string(),
     }

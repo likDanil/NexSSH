@@ -11,6 +11,7 @@ use super::connect::{self, Connection};
 use super::{Command, LogLevel, SessionCtx, SessionStatus, lock};
 use crate::error::Error;
 use crate::forward::Forwards;
+use crate::i18n;
 use crate::model::{PtySize, Server};
 
 /// Output is coalesced to keep IPC traffic low under heavy output; a lone chunk
@@ -21,7 +22,10 @@ const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 enum Outcome {
     Closed,
     Reconnect,
-    Lost(String),
+    /// The connection ended normally (shell exit, user disconnect, cancelled login).
+    Ended(String),
+    /// The connection could not be made or was lost.
+    Failed(String),
 }
 
 enum Control {
@@ -43,7 +47,7 @@ pub(crate) async fn run(
     mut rx: mpsc::UnboundedReceiver<Command>,
 ) {
     loop {
-        ctx.status(SessionStatus::Connecting, None);
+        ctx.status(SessionStatus::Connecting);
         let attempt = tokio::select! {
             result = connect::establish(&ctx, &server) => Some(result),
             control = idle(&mut rx, &mut size, true) => match control {
@@ -53,7 +57,7 @@ pub(crate) async fn run(
             },
         };
         let outcome = match attempt {
-            None => Outcome::Lost("Disconnected".into()),
+            None => Outcome::Ended(i18n::disconnected()),
             Some(Ok(conn)) => {
                 if !server.id.is_empty() {
                     let store = Arc::clone(&ctx.shared.store);
@@ -62,26 +66,26 @@ pub(crate) async fn run(
                 }
                 interactive(&ctx, conn, &server, &mut size, &mut rx).await
             }
-            Some(Err(Error::Cancelled)) => Outcome::Lost("Authentication cancelled".into()),
+            Some(Err(Error::Cancelled)) => Outcome::Ended(i18n::auth_cancelled()),
             Some(Err(e)) => {
                 ctx.log(LogLevel::Error, e.to_string());
-                Outcome::Lost(e.to_string())
+                Outcome::Failed(e.to_string())
             }
         };
-        match outcome {
+        let (reason, failed) = match outcome {
             Outcome::Closed => break,
             Outcome::Reconnect => continue,
-            Outcome::Lost(reason) => {
-                ctx.status(SessionStatus::Disconnected, Some(reason));
-                match idle(&mut rx, &mut size, false).await {
-                    Control::Close => break,
-                    Control::Reconnect | Control::Stop => continue,
-                }
-            }
+            Outcome::Ended(reason) => (reason, false),
+            Outcome::Failed(reason) => (reason, true),
+        };
+        ctx.disconnected(reason, failed);
+        match idle(&mut rx, &mut size, false).await {
+            Control::Close => break,
+            Control::Reconnect | Control::Stop => continue,
         }
     }
     lock(&ctx.shared.sessions).remove(&ctx.id);
-    ctx.status(SessionStatus::Closed, None);
+    ctx.status(SessionStatus::Closed);
 }
 
 /// Handles commands while there is no live connection (`connecting`: an attempt is
@@ -100,7 +104,7 @@ async fn idle(
             Some(Command::Resize(s)) => *size = s,
             Some(Command::Write(_)) | Some(Command::RemoveForward(_)) => {}
             Some(Command::AddForward(_, reply)) => {
-                let _ = reply.send(Err(Error::Disconnected("not connected".into())));
+                let _ = reply.send(Err(Error::Disconnected(i18n::not_connected())));
             }
         }
     }
@@ -147,7 +151,7 @@ async fn interactive(
         Ok(c) => c,
         Err(e) => {
             conn.disconnect().await;
-            return Outcome::Lost(format!("could not start a shell: {e}"));
+            return Outcome::Failed(i18n::shell_failed(e));
         }
     };
     let mut forwards = Forwards::new(
@@ -157,15 +161,12 @@ async fn interactive(
     );
     for spec in &server.forwards {
         if let Err(e) = forwards.start(spec.clone(), true).await {
-            ctx.log(
-                LogLevel::Warn,
-                format!("Port forwarding {}: {e}", spec.describe()),
-            );
+            ctx.log(LogLevel::Warn, i18n::forwarding_failed(&spec.describe(), e));
         }
     }
     forwards.publish();
     // Announced after saved forwards are listening, so "connected" means fully ready.
-    ctx.status(SessionStatus::Connected, None);
+    ctx.status(SessionStatus::Connected);
 
     // Writes go through their own task so a full remote window (e.g. a huge paste)
     // never stops us from reading output, which could otherwise deadlock.
@@ -207,8 +208,8 @@ async fn interactive(
                         armed = true;
                     }
                 }
-                Some(ChannelMsg::ExitStatus { exit_status }) => exit = Some(format!("exit code {exit_status}")),
-                Some(ChannelMsg::ExitSignal { signal_name, .. }) => exit = Some(format!("signal {signal_name:?}")),
+                Some(ChannelMsg::ExitStatus { exit_status }) => exit = Some(i18n::exit_code(exit_status)),
+                Some(ChannelMsg::ExitSignal { signal_name, .. }) => exit = Some(i18n::exit_signal(format!("{signal_name:?}"))),
                 Some(ChannelMsg::Close) | None => break None,
                 Some(_) => {}
             },
@@ -228,7 +229,7 @@ async fn interactive(
                     let _ = input_tx.send(Input::Resize(s));
                 }
                 Some(Command::Reconnect) => break Some(Outcome::Reconnect),
-                Some(Command::Disconnect) => break Some(Outcome::Lost("Disconnected".into())),
+                Some(Command::Disconnect) => break Some(Outcome::Ended(i18n::disconnected())),
                 Some(Command::Close) | None => break Some(Outcome::Closed),
                 Some(Command::AddForward(spec, reply)) => {
                     let result = forwards.start(spec, false).await;
@@ -251,16 +252,13 @@ async fn interactive(
 
     let outcome = match requested {
         Some(outcome) => outcome,
-        None => {
-            let reason = match exit {
-                Some(exit) => format!("Session ended ({exit})"),
-                None => match lost_reason(&conn).await {
-                    Some(reason) => format!("Connection lost: {reason}"),
-                    None => "Connection closed".into(),
-                },
-            };
-            Outcome::Lost(reason)
-        }
+        None => match exit {
+            Some(exit) => Outcome::Ended(i18n::session_ended(&exit)),
+            None => match lost_reason(&conn).await {
+                Some(reason) => Outcome::Failed(i18n::connection_lost(&reason)),
+                None => Outcome::Failed(i18n::connection_closed()),
+            },
+        },
     };
     conn.disconnect().await;
     outcome

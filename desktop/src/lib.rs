@@ -32,6 +32,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::app_ready,
+            commands::app_set_language,
             commands::keychain_status,
             commands::settings_get,
             commands::settings_set,

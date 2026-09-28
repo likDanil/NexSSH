@@ -16,12 +16,14 @@
     toggleSidebar,
   } from '../actions';
   import { fuzzyBest, fuzzyScore } from '../fuzzy';
+  import { i18n, LANGUAGES, t, tEn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac } from '../platform';
   import { app } from '../state/app.svelte';
   import { destination, servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
-  import { THEMES } from '../themes';
+  import { THEMES, themeLabel } from '../themes';
   import Icon from './Icon.svelte';
+  import Rich from './Rich.svelte';
 
   interface Item {
     section: string;
@@ -52,27 +54,45 @@
     run: () => void;
   }
 
+  /** An action labelled by `key`; in a translated interface it is also found by its English words. */
+  function action(key: MessageKey, rest: Omit<Action, 'label' | 'keywords'>, keywords?: MessageKey): Action {
+    const words = keywords ? [t(keywords)] : [];
+    if (i18n.lang !== 'en') words.push(tEn(key), keywords ? tEn(keywords) : '');
+    return { label: t(key), keywords: words.join(' '), ...rest };
+  }
+
   function actionList(): Action[] {
+    const languages: { id: LanguageSetting; name: string }[] = [
+      { id: 'system', name: t('settings.languageSystem') },
+      ...LANGUAGES,
+    ];
     const out: Action[] = [
-      {
-        label: 'New session…',
-        icon: 'zap',
-        hint: keys.newSession(),
-        keywords: 'quick connect ssh open',
-        stay: true,
-        run: () => app.openPalette('connect'),
-      },
-      { label: 'Add server…', icon: 'plus', keywords: 'new create host', run: () => addServer() },
-      { label: 'Import ~/.ssh/config', icon: 'import', keywords: 'openssh hosts', run: importSshConfig },
-      { label: 'Show servers', icon: 'server', keywords: 'home list', run: showHome },
-      { label: 'Settings', icon: 'settings', hint: keys.settings(), keywords: 'preferences options font', run: openSettings },
-      { label: 'Toggle sidebar', icon: 'sidebar', hint: keys.sidebar(), run: toggleSidebar },
-      { label: 'Toggle full screen', icon: 'fullscreen', hint: keys.fullscreen(), keywords: 'focus', run: toggleFullscreen },
-      ...THEMES.map((t) => ({
-        label: `Theme: ${t.label}`,
+      action(
+        'palette.newSession',
+        { icon: 'zap', hint: keys.newSession(), stay: true, run: () => app.openPalette('connect') },
+        'palette.newSession.keywords',
+      ),
+      action('palette.addServer', { icon: 'plus', run: () => addServer() }, 'palette.addServer.keywords'),
+      action('palette.import', { icon: 'import', run: importSshConfig }, 'palette.import.keywords'),
+      action('palette.showServers', { icon: 'server', run: showHome }, 'palette.showServers.keywords'),
+      action('palette.settings', { icon: 'settings', hint: keys.settings(), run: openSettings }, 'palette.settings.keywords'),
+      action('palette.toggleSidebar', { icon: 'sidebar', hint: keys.sidebar(), run: toggleSidebar }),
+      action(
+        'palette.toggleFullscreen',
+        { icon: 'fullscreen', hint: keys.fullscreen(), run: toggleFullscreen },
+        'palette.toggleFullscreen.keywords',
+      ),
+      ...THEMES.map((th) => ({
+        label: t('palette.theme', { name: themeLabel(th.id) }),
         icon: 'theme',
-        keywords: 'appearance color dark light',
-        run: () => app.update({ theme: t.id }),
+        keywords: `${t('palette.theme.keywords')} ${i18n.lang !== 'en' ? tEn('palette.theme', { name: th.id }) : ''}`,
+        run: () => app.update({ theme: th.id }),
+      })),
+      ...languages.map((l) => ({
+        label: t('palette.language', { name: l.name }),
+        icon: 'globe',
+        keywords: `${t('palette.language.keywords')} ${tEn('palette.language', { name: l.id })}`,
+        run: () => app.update({ language: l.id }),
       })),
     ];
     const tab = sessions.active;
@@ -80,18 +100,18 @@
       const server = tab.serverId ? servers.byId.get(tab.serverId) : undefined;
       out.unshift(
         tab.status === 'disconnected'
-          ? { label: 'Reconnect', icon: 'refresh', hint: keys.reconnect(), run: () => sessions.reconnect(tab) }
-          : { label: 'Disconnect', icon: 'power', keywords: 'close connection', run: () => sessions.disconnect(tab) },
+          ? action('session.reconnect', { icon: 'refresh', hint: keys.reconnect(), run: () => sessions.reconnect(tab) })
+          : action('session.disconnect', { icon: 'power', run: () => sessions.disconnect(tab) }, 'palette.disconnect.keywords'),
       );
       if (tab.status === 'connected') {
-        out.push({ label: 'Port forwarding…', icon: 'forward', keywords: 'tunnel socks proxy -L -R -D', run: openForwards });
+        out.push(action('session.forwarding', { icon: 'forward', run: openForwards }, 'palette.forwarding.keywords'));
       }
       out.push(
-        { label: 'Duplicate session', icon: 'duplicate', keywords: 'clone new tab', run: () => sessions.duplicate(tab) },
-        { label: 'Clear terminal', icon: 'eraser', keywords: 'reset screen', run: () => sessions.clear(tab) },
-        { label: 'Close tab', icon: 'x', hint: keys.closeTab(), run: () => closeTab(tab) },
+        action('session.duplicate', { icon: 'duplicate', run: () => sessions.duplicate(tab) }, 'palette.duplicate.keywords'),
+        action('session.clear', { icon: 'eraser', run: () => sessions.clear(tab) }, 'palette.clear.keywords'),
+        action('session.closeTab', { icon: 'x', hint: keys.closeTab(), run: () => closeTab(tab) }),
       );
-      if (server) out.push({ label: 'Edit connection settings…', icon: 'edit', run: () => editServer(server) });
+      if (server) out.push(action('palette.editConnection', { icon: 'edit', run: () => editServer(server) }));
     }
     return out;
   }
@@ -102,16 +122,16 @@
 
     if (q && (mode === 'connect' || looksLikeDestination(q))) {
       out.push({
-        section: 'Connect',
-        label: `Connect to ${q}`,
+        section: t('palette.sectionConnect'),
+        label: t('palette.connectTo', { dest: q }),
         icon: 'zap',
         hint: '↵',
         score: 3e6,
         run: () => sessions.openDestination(q),
       });
       out.push({
-        section: 'Connect',
-        label: `Save ${q} as a server…`,
+        section: t('palette.sectionConnect'),
+        label: t('palette.saveAs', { dest: q }),
         icon: 'plus',
         score: 3e6 - 1,
         run: () => addServer(presetFromDestination(q)),
@@ -127,7 +147,7 @@
       if (score <= 0) continue;
       const status = sessions.serverStatus(s.id);
       serverItems.push({
-        section: 'Servers',
+        section: t('palette.sectionServers'),
         label: s.name,
         detail: destination(s),
         icon: 'server',
@@ -141,18 +161,18 @@
 
     if (mode === 'commands') {
       const tabs: Item[] = [];
-      for (const t of sessions.tabs) {
-        const score = q ? fuzzyBest(q, t.title, t.subtitle) : 1;
-        if (score <= 0 || t.key === sessions.activeKey) continue;
+      for (const tb of sessions.tabs) {
+        const score = q ? fuzzyBest(q, tb.title, tb.subtitle) : 1;
+        if (score <= 0 || tb.key === sessions.activeKey) continue;
         tabs.push({
-          section: 'Open tabs',
-          label: t.title,
-          detail: t.subtitle,
+          section: t('palette.sectionTabs'),
+          label: tb.title,
+          detail: tb.subtitle,
           icon: 'terminal',
-          dot: t.status,
+          dot: tb.status,
           score: 1e6 + score,
           run: () => {
-            sessions.activeKey = t.key;
+            sessions.activeKey = tb.key;
           },
         });
       }
@@ -163,7 +183,15 @@
       for (const a of actionList()) {
         const score = q ? Math.max(fuzzyScore(q, a.label), fuzzyScore(q, a.keywords ?? '') * 0.6) : 1;
         if (score <= 0) continue;
-        acts.push({ section: 'Actions', label: a.label, icon: a.icon, hint: a.hint, stay: a.stay, score, run: a.run });
+        acts.push({
+          section: t('palette.sectionActions'),
+          label: a.label,
+          icon: a.icon,
+          hint: a.hint,
+          stay: a.stay,
+          score,
+          run: a.run,
+        });
       }
       if (q) acts.sort((a, b) => b.score - a.score);
       out.push(...acts);
@@ -226,17 +254,17 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={(e) => e.target === e.currentTarget && close()}>
-  <div class="palette" role="dialog" aria-label="Command palette">
+  <div class="palette" role="dialog" aria-label={t('palette.label')}>
     <div class="searchbar">
       {#if mode === 'connect'}
-        <span class="chip"><Icon name="zap" size={13} /> Connect</span>
+        <span class="chip"><Icon name="zap" size={13} /> {t('palette.chip')}</span>
       {:else}
         <Icon name="search" size={16} />
       {/if}
       <input
         bind:this={input}
         bind:value={app.palette.query}
-        placeholder={mode === 'connect' ? 'user@host:port or a server name' : 'Search servers and commands…'}
+        placeholder={t(mode === 'connect' ? 'palette.placeholderConnect' : 'palette.placeholderCommands')}
         spellcheck="false"
         autocomplete="off"
         {onkeydown}
@@ -268,16 +296,20 @@
         </button>
       {:else}
         <div class="none">
-          {#if mode === 'connect'}Type a destination such as <code>deploy@10.0.0.5:2222</code>{:else}No matches{/if}
+          {#if mode === 'connect'}
+            <Rich key="palette.typeDestination" params={{ example: 'deploy@10.0.0.5:2222' }} tags={{ example: 'code' }} />
+          {:else}
+            {t('palette.noMatches')}
+          {/if}
         </div>
       {/each}
     </div>
 
     <div class="foot">
-      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
-      <span><kbd>↵</kbd> open</span>
-      <span><kbd>{isMac() ? '⌘↵' : 'Ctrl+↵'}</kbd> new tab</span>
-      <span><kbd>esc</kbd> close</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> {t('palette.navigate')}</span>
+      <span><kbd>↵</kbd> {t('palette.open')}</span>
+      <span><kbd>{isMac() ? '⌘↵' : 'Ctrl+↵'}</kbd> {t('palette.newTab')}</span>
+      <span><kbd>esc</kbd> {t('palette.close')}</span>
     </div>
   </div>
 </div>
@@ -402,7 +434,7 @@
     text-align: center;
     color: var(--text-2);
   }
-  .none code {
+  .none :global(code) {
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text);

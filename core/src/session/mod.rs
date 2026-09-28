@@ -24,6 +24,7 @@ use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 use crate::forward::ForwardInfo;
+use crate::i18n;
 use crate::known_hosts::{HostKeyStatus, KnownHosts};
 use crate::model::{ForwardSpec, PtySize, Server};
 use crate::secrets::Secrets;
@@ -121,6 +122,9 @@ pub enum SessionEvent {
         status: SessionStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
+        /// For `Disconnected`: the connection failed or was lost, as opposed to ending
+        /// normally (the shell exited, the user disconnected or cancelled the login).
+        failed: bool,
     },
     Log {
         level: LogLevel,
@@ -214,9 +218,9 @@ impl SessionManager {
         let sessions = lock(&self.shared.sessions);
         let tx = sessions
             .get(&id)
-            .ok_or_else(|| Error::NotFound(format!("session {id}")))?;
+            .ok_or_else(|| Error::NotFound(i18n::session_not_found(id)))?;
         tx.send(cmd)
-            .map_err(|_| Error::NotFound(format!("session {id}")))
+            .map_err(|_| Error::NotFound(i18n::session_not_found(id)))
     }
 
     pub fn write(&self, id: SessionId, data: Vec<u8>) -> Result<()> {
@@ -257,7 +261,7 @@ impl SessionManager {
     pub fn answer(&self, prompt_id: u64, reply: PromptReply) -> Result<()> {
         let tx = lock(&self.shared.prompts)
             .remove(&prompt_id)
-            .ok_or_else(|| Error::NotFound("prompt".into()))?;
+            .ok_or_else(|| Error::NotFound(i18n::prompt_not_found()))?;
         let _ = tx.send(reply);
         Ok(())
     }
@@ -267,7 +271,7 @@ impl SessionManager {
         let (tx, rx) = oneshot::channel();
         self.send(id, Command::AddForward(spec, tx))?;
         rx.await
-            .map_err(|_| Error::Disconnected("session ended".into()))?
+            .map_err(|_| Error::Disconnected(i18n::session_ended_early()))?
     }
 
     pub fn remove_forward(&self, id: SessionId, forward_id: u64) -> Result<()> {
@@ -303,8 +307,21 @@ impl SessionCtx {
         self.sink.event(event);
     }
 
-    pub fn status(&self, status: SessionStatus, message: Option<String>) {
-        self.event(SessionEvent::Status { status, message });
+    pub fn status(&self, status: SessionStatus) {
+        self.event(SessionEvent::Status {
+            status,
+            message: None,
+            failed: false,
+        });
+    }
+
+    /// Reports that the connection ended; the session stays reconnectable.
+    pub fn disconnected(&self, message: String, failed: bool) {
+        self.event(SessionEvent::Status {
+            status: SessionStatus::Disconnected,
+            message: Some(message),
+            failed,
+        });
     }
 
     pub fn log(&self, level: LogLevel, message: impl Into<String>) {

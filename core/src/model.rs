@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::util;
+use crate::{i18n, util};
 
 pub const DEFAULT_PORT: u16 = 22;
 pub const DEFAULT_KEEPALIVE_SECS: u32 = 30;
@@ -64,14 +64,14 @@ impl ForwardSpec {
             };
         }
         if self.bind_port == 0 && self.kind != ForwardKind::Remote {
-            return Err(Error::invalid("Forwarding needs a local port"));
+            return Err(Error::invalid(i18n::forward_needs_local_port()));
         }
         if self.kind != ForwardKind::Dynamic {
             if self.target_host.is_empty() {
-                return Err(Error::invalid("Forwarding needs a destination host"));
+                return Err(Error::invalid(i18n::forward_needs_target_host()));
             }
             if self.target_port == 0 {
-                return Err(Error::invalid("Forwarding needs a destination port"));
+                return Err(Error::invalid(i18n::forward_needs_target_port()));
             }
         }
         Ok(())
@@ -82,9 +82,9 @@ impl ForwardSpec {
         let bind = util::host_port(&self.bind_host, self.bind_port);
         let target = util::host_port(&self.target_host, self.target_port);
         match self.kind {
-            ForwardKind::Local => format!("{bind} → {target}"),
-            ForwardKind::Remote => format!("remote {bind} → {target}"),
-            ForwardKind::Dynamic => format!("SOCKS {bind}"),
+            ForwardKind::Local => i18n::forward_local(&bind, &target),
+            ForwardKind::Remote => i18n::forward_remote(&bind, &target),
+            ForwardKind::Dynamic => i18n::forward_dynamic(&bind),
         }
     }
 }
@@ -168,24 +168,22 @@ impl Server {
         trim_opt(&mut self.alias);
 
         if self.host.is_empty() {
-            return Err(Error::invalid("Host is required"));
+            return Err(Error::invalid(i18n::host_required()));
         }
         if self.host.chars().any(char::is_whitespace) {
-            return Err(Error::invalid("Host must not contain spaces"));
+            return Err(Error::invalid(i18n::host_has_spaces()));
         }
         if self.port == 0 {
-            return Err(Error::invalid("Port must be between 1 and 65535"));
+            return Err(Error::invalid(i18n::port_out_of_range()));
         }
         if self.user.chars().any(char::is_whitespace) {
-            return Err(Error::invalid("Username must not contain spaces"));
+            return Err(Error::invalid(i18n::user_has_spaces()));
         }
         if self.name.is_empty() {
             self.name = self.host.clone();
         }
         if self.auth == AuthKind::Key && self.identity_file.is_none() {
-            return Err(Error::invalid(
-                "Choose a private key file for key authentication",
-            ));
+            return Err(Error::invalid(i18n::key_file_required()));
         }
         if let Some(t) = self.connect_timeout_secs {
             self.connect_timeout_secs = Some(t.clamp(1, 600));
@@ -251,10 +249,10 @@ impl Destination {
         let s = input.trim();
         let s = s.strip_prefix("ssh://").unwrap_or(s).trim_end_matches('/');
         if s.is_empty() {
-            return Err(Error::invalid("Enter a host, e.g. user@example.com:22"));
+            return Err(Error::invalid(i18n::destination_required()));
         }
         if s.chars().any(char::is_whitespace) {
-            return Err(Error::invalid("Destination must not contain spaces"));
+            return Err(Error::invalid(i18n::destination_has_spaces()));
         }
         let (user, hostport) = match s.rsplit_once('@') {
             Some((u, h)) if !u.is_empty() => (Some(u.to_string()), h),
@@ -264,11 +262,11 @@ impl Destination {
         let (host, port) = if let Some(rest) = hostport.strip_prefix('[') {
             let (h, after) = rest
                 .split_once(']')
-                .ok_or_else(|| Error::invalid("Missing ']' in IPv6 address"))?;
+                .ok_or_else(|| Error::invalid(i18n::ipv6_missing_bracket()))?;
             let port = match after.strip_prefix(':') {
                 Some(p) => Some(parse_port(p)?),
                 None if after.is_empty() => None,
-                None => return Err(Error::invalid("Unexpected text after ']'")),
+                None => return Err(Error::invalid(i18n::ipv6_trailing_text())),
             };
             (h.to_string(), port)
         } else if hostport.matches(':').count() == 1 {
@@ -279,7 +277,7 @@ impl Destination {
             (hostport.to_string(), None)
         };
         if host.is_empty() {
-            return Err(Error::invalid("Host is required"));
+            return Err(Error::invalid(i18n::host_required()));
         }
         Ok(Destination { user, host, port })
     }
@@ -299,7 +297,7 @@ impl Destination {
 fn parse_port(p: &str) -> Result<u16> {
     match p.parse::<u16>() {
         Ok(port) if port > 0 => Ok(port),
-        _ => Err(Error::invalid(format!("Invalid port '{p}'"))),
+        _ => Err(Error::invalid(i18n::invalid_port(p))),
     }
 }
 

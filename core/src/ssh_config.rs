@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Result;
 use crate::model::{AuthKind, ForwardKind, ForwardSpec, Server};
-use crate::util;
+use crate::{i18n, util};
 
 const MAX_INCLUDE_DEPTH: usize = 16;
 
@@ -389,7 +389,7 @@ pub fn to_servers(configs: Vec<HostConfig>, group: &str) -> ImportResult {
         {
             result
                 .skipped
-                .push(format!("{}: ProxyCommand is not supported", cfg.alias));
+                .push(i18n::proxy_command_unsupported(&cfg.alias));
             continue;
         }
         let host = expand_tokens(

@@ -1,198 +1,17 @@
 //! Integration tests against real OpenSSH servers started by `scripts/test-sshd.sh`.
 //! They are skipped (pass trivially) unless `NEXSSH_TEST_HOST` is set.
 
-use std::path::PathBuf;
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use nexssh_core::known_hosts::KnownHosts;
+use common::{Session, core, env, server};
 use nexssh_core::secrets::Secrets;
 use nexssh_core::{
-    AuthKind, Core, EventSink, ForwardKind, ForwardSpec, Prompt, PromptReply, PtySize, Server,
-    SessionEvent, SessionId, SessionStatus,
+    AuthKind, ForwardKind, ForwardSpec, Prompt, PromptReply, PtySize, SessionStatus,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
-
-struct Env {
-    host: String,
-    port: u16,
-    kbd_port: u16,
-    user: String,
-    password: String,
-    key: String,
-    enc_key: String,
-    rsa_key: String,
-    passphrase: String,
-}
-
-fn env() -> Option<Env> {
-    let var = |k: &str| std::env::var(k).ok();
-    Some(Env {
-        host: var("NEXSSH_TEST_HOST")?,
-        port: var("NEXSSH_TEST_PORT")?.parse().ok()?,
-        kbd_port: var("NEXSSH_TEST_KBD_PORT")?.parse().ok()?,
-        user: var("NEXSSH_TEST_USER")?,
-        password: var("NEXSSH_TEST_PASSWORD")?,
-        key: var("NEXSSH_TEST_KEY")?,
-        enc_key: var("NEXSSH_TEST_ENC_KEY")?,
-        rsa_key: var("NEXSSH_TEST_RSA_KEY")?,
-        passphrase: var("NEXSSH_TEST_PASSPHRASE")?,
-    })
-}
-
-enum Ev {
-    Event(SessionEvent),
-    Output(Vec<u8>),
-}
-
-struct Sink(mpsc::UnboundedSender<Ev>);
-
-impl EventSink for Sink {
-    fn event(&self, event: SessionEvent) {
-        let _ = self.0.send(Ev::Event(event));
-    }
-    fn output(&self, data: Vec<u8>) {
-        let _ = self.0.send(Ev::Output(data));
-    }
-}
-
-fn temp_dir() -> PathBuf {
-    let n: u64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
-    let dir = std::env::temp_dir().join(format!("nexssh-it-{n}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// A core isolated from the user's ~/.ssh/known_hosts and OS keychain.
-fn core() -> Core {
-    let dir = temp_dir();
-    let kh = KnownHosts::new(dir.join("known_hosts"), None);
-    Core::with_options(&dir, Secrets::in_memory(), Some(kh)).unwrap()
-}
-
-struct Session {
-    core: Arc<Core>,
-    id: SessionId,
-    rx: mpsc::UnboundedReceiver<Ev>,
-    output: String,
-    log: Vec<String>,
-}
-
-impl Session {
-    fn open(core: Arc<Core>, server: Server) -> Session {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let id = core
-            .sessions
-            .open(server, PtySize::new(100, 30), Arc::new(Sink(tx)));
-        Session {
-            core,
-            id,
-            rx,
-            output: String::new(),
-            log: Vec::new(),
-        }
-    }
-
-    async fn next_event(&mut self) -> SessionEvent {
-        loop {
-            let ev = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
-                .await
-                .unwrap_or_else(|_| {
-                    panic!("timed out; log: {:?}; output: {}", self.log, self.output)
-                })
-                .expect("session event stream ended");
-            match ev {
-                Ev::Output(data) => self.output.push_str(&String::from_utf8_lossy(&data)),
-                Ev::Event(SessionEvent::Log { message, .. }) => self.log.push(message),
-                Ev::Event(SessionEvent::Forwards { .. }) => {}
-                Ev::Event(SessionEvent::PromptClosed { .. }) => {}
-                Ev::Event(SessionEvent::Status {
-                    status: SessionStatus::Connecting,
-                    ..
-                }) => {}
-                Ev::Event(e) => return e,
-            }
-        }
-    }
-
-    async fn expect_prompt(&mut self) -> (u64, Prompt) {
-        match self.next_event().await {
-            SessionEvent::Prompt { id, prompt } => (id, prompt),
-            other => panic!("expected a prompt, got {other:?}; log: {:?}", self.log),
-        }
-    }
-
-    async fn expect_status(&mut self, want: SessionStatus) -> Option<String> {
-        loop {
-            match self.next_event().await {
-                SessionEvent::Status { status, message } if status == want => return message,
-                SessionEvent::Status {
-                    status: SessionStatus::Connecting,
-                    ..
-                } => {}
-                other => panic!("expected {want:?}, got {other:?}; log: {:?}", self.log),
-            }
-        }
-    }
-
-    fn answer(&self, id: u64, reply: PromptReply) {
-        self.core.sessions.answer(id, reply).unwrap();
-    }
-
-    async fn accept_host_key(&mut self) {
-        let (id, prompt) = self.expect_prompt().await;
-        assert!(matches!(prompt, Prompt::HostKey { .. }), "got {prompt:?}");
-        self.answer(
-            id,
-            PromptReply::HostKey {
-                accept: true,
-                remember: true,
-            },
-        );
-    }
-
-    fn write(&self, text: &str) {
-        self.core
-            .sessions
-            .write(self.id, text.as_bytes().to_vec())
-            .unwrap();
-    }
-
-    async fn wait_output(&mut self, needle: &str) {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-        while !self.output.contains(needle) {
-            let ev = tokio::time::timeout_at(deadline, self.rx.recv())
-                .await
-                .unwrap_or_else(|_| panic!("'{needle}' not seen; output: {}", self.output))
-                .unwrap();
-            match ev {
-                Ev::Output(data) => self.output.push_str(&String::from_utf8_lossy(&data)),
-                Ev::Event(SessionEvent::Log { message, .. }) => self.log.push(message),
-                Ev::Event(_) => {}
-            }
-        }
-    }
-
-    async fn close(mut self) {
-        self.core.sessions.close(self.id);
-        self.expect_status(SessionStatus::Closed).await;
-    }
-}
-
-fn server(env: &Env, auth: AuthKind) -> Server {
-    Server {
-        name: "test".into(),
-        host: env.host.clone(),
-        port: env.port,
-        user: env.user.clone(),
-        auth,
-        ..Server::default()
-    }
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn password_shell_resize_exit_and_reconnect() {
@@ -246,8 +65,10 @@ async fn password_shell_resize_exit_and_reconnect() {
 
     // Exiting the shell leaves the session reconnectable.
     s.write("exit 3\n");
-    let reason = s.expect_status(SessionStatus::Disconnected).await.unwrap();
+    let (reason, failed) = s.expect_status_full(SessionStatus::Disconnected).await;
+    let reason = reason.unwrap();
     assert!(reason.contains("exit code 3"), "{reason}");
+    assert!(!failed, "a shell exit is not a failure");
 
     // Reconnect: host key is remembered and the password comes from the keychain,
     // so there are no prompts at all.
@@ -384,8 +205,10 @@ async fn rejected_host_key_fails_cleanly() {
             remember: false,
         },
     );
-    let reason = s.expect_status(SessionStatus::Disconnected).await.unwrap();
+    let (reason, failed) = s.expect_status_full(SessionStatus::Disconnected).await;
+    let reason = reason.unwrap();
     assert!(reason.contains("host key"), "{reason}");
+    assert!(failed, "a rejected host key is a failure");
     s.close().await;
 }
 
@@ -538,8 +361,9 @@ async fn disconnect_keeps_session_reconnectable() {
     s.expect_status(SessionStatus::Connected).await;
 
     core.sessions.disconnect(s.id).unwrap();
-    let reason = s.expect_status(SessionStatus::Disconnected).await.unwrap();
-    assert_eq!(reason, "Disconnected");
+    let (reason, failed) = s.expect_status_full(SessionStatus::Disconnected).await;
+    assert_eq!(reason.as_deref(), Some("Disconnected"));
+    assert!(!failed, "disconnecting on purpose is not a failure");
     // Input while disconnected is ignored, the session is still there.
     s.write("echo ignored\n");
     core.sessions.reconnect(s.id).unwrap();

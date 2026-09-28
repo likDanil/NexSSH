@@ -1,20 +1,24 @@
 import type { ITheme } from '@xterm/xterm';
+import { t } from './i18n.svelte';
 import type { ResolvedTheme, ThemeId } from './types';
 
 export interface ThemeMeta {
   id: ThemeId;
-  label: string;
   /** Colors for the preview card in Settings: frame, surface, text, accent. */
   preview: [string, string, string, string];
 }
 
 export const THEMES: ThemeMeta[] = [
-  { id: 'system', label: 'System', preview: ['#eceef1', '#2a2d31', '#8a919c', '#5cb887'] },
-  { id: 'light', label: 'Light', preview: ['#eceef1', '#f7f8f9', '#3f4650', '#5cb887'] },
-  { id: 'graphite', label: 'Graphite', preview: ['#222428', '#2a2d31', '#d6d9de', '#5cb887'] },
-  { id: 'black', label: 'Black', preview: ['#0c0d0f', '#141517', '#d8dbe0', '#5cb887'] },
-  { id: 'navy', label: 'Navy', preview: ['#171c29', '#1d2434', '#d5dce8', '#62c292'] },
+  { id: 'system', preview: ['#eceef1', '#2a2d31', '#8a919c', '#5cb887'] },
+  { id: 'light', preview: ['#eceef1', '#f7f8f9', '#3f4650', '#5cb887'] },
+  { id: 'graphite', preview: ['#222428', '#2a2d31', '#d6d9de', '#5cb887'] },
+  { id: 'black', preview: ['#0c0d0f', '#141517', '#d8dbe0', '#5cb887'] },
+  { id: 'navy', preview: ['#171c29', '#1d2434', '#d5dce8', '#62c292'] },
 ];
+
+export function themeLabel(id: ThemeId): string {
+  return t(`theme.${id}`);
+}
 
 /** `system` follows the OS: Light by day, Graphite at night. */
 export function resolveTheme(id: ThemeId, systemDark: boolean): ResolvedTheme {

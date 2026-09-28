@@ -1,10 +1,12 @@
 <script lang="ts">
   import logo from '../../assets/logo.png';
   import { keys } from '../actions';
+  import { LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
   import { app } from '../state/app.svelte';
   import { toasts } from '../state/toasts.svelte';
-  import { THEMES } from '../themes';
+  import { THEMES, themeLabel } from '../themes';
+  import type { Settings } from '../types';
   import Modal from './Modal.svelte';
 
   type Section = 'appearance' | 'terminal' | 'keyboard' | 'about';
@@ -19,72 +21,101 @@
   async function copyPath() {
     if (!app.info) return;
     await navigator.clipboard.writeText(app.info.dataDir).catch(() => {});
-    toasts.show('Path copied');
+    toasts.show(t('settings.pathCopied'));
   }
 
-  const shortcuts = $derived([
-    ['Command palette', isMac() ? keys.palette() : `${keys.palette()} · ${shortcut('Ctrl', 'Shift', 'K')}`],
-    ['New session', keys.newSession()],
-    ['Close tab', keys.closeTab()],
-    ['Next / previous tab', isMac() ? `${shortcut('Mod', 'Shift', ']')} · ${shortcut('Mod', 'Shift', '[')}` : 'Ctrl+Tab · Ctrl+Shift+Tab'],
-    ['Go to tab 1–9', shortcut('Mod', '1…9')],
-    ['Reconnect', keys.reconnect()],
-    ['Toggle sidebar', keys.sidebar()],
-    ['Full screen', keys.fullscreen()],
-    ['Settings', keys.settings()],
-    ['Copy / paste', isMac() ? '⌘C · ⌘V' : 'Ctrl+Shift+C · Ctrl+Shift+V'],
+  const SECTIONS: { id: Section; label: MessageKey }[] = [
+    { id: 'appearance', label: 'settings.appearance' },
+    { id: 'terminal', label: 'settings.terminal' },
+    { id: 'keyboard', label: 'settings.keyboard' },
+    { id: 'about', label: 'settings.about' },
+  ];
+
+  const languages: { id: LanguageSetting; name: string }[] = $derived([
+    { id: 'system', name: t('settings.languageSystem') },
+    ...LANGUAGES,
+  ]);
+
+  const CURSORS: { id: Settings['cursorStyle']; label: MessageKey }[] = [
+    { id: 'bar', label: 'settings.cursorBar' },
+    { id: 'block', label: 'settings.cursorBlock' },
+    { id: 'underline', label: 'settings.cursorUnderline' },
+  ];
+
+  const shortcuts: [MessageKey, string][] = $derived([
+    ['shortcut.palette', isMac() ? keys.palette() : `${keys.palette()} · ${shortcut('Ctrl', 'Shift', 'K')}`],
+    ['shortcut.newSession', keys.newSession()],
+    ['shortcut.closeTab', keys.closeTab()],
+    [
+      'shortcut.nextPrevTab',
+      isMac() ? `${shortcut('Mod', 'Shift', ']')} · ${shortcut('Mod', 'Shift', '[')}` : 'Ctrl+Tab · Ctrl+Shift+Tab',
+    ],
+    ['shortcut.goToTab', shortcut('Mod', '1…9')],
+    ['shortcut.reconnect', keys.reconnect()],
+    ['shortcut.sidebar', keys.sidebar()],
+    ['shortcut.fullscreen', keys.fullscreen()],
+    ['shortcut.settings', keys.settings()],
+    ['shortcut.copyPaste', isMac() ? '⌘C · ⌘V' : 'Ctrl+Shift+C · Ctrl+Shift+V'],
   ]);
 </script>
 
-<Modal title="Settings" width={600} onclose={() => (app.settingsOpen = false)}>
+<Modal title={t('settings.title')} width={600} onclose={() => (app.settingsOpen = false)}>
   <div class="tabs segmented">
-    <button class:on={section === 'appearance'} onclick={() => (section = 'appearance')}>Appearance</button>
-    <button class:on={section === 'terminal'} onclick={() => (section = 'terminal')}>Terminal</button>
-    <button class:on={section === 'keyboard'} onclick={() => (section = 'keyboard')}>Keyboard</button>
-    <button class:on={section === 'about'} onclick={() => (section = 'about')}>About</button>
+    {#each SECTIONS as sec (sec.id)}
+      <button class:on={section === sec.id} onclick={() => (section = sec.id)}>{t(sec.label)}</button>
+    {/each}
   </div>
 
   {#if section === 'appearance'}
-    <span class="label block">Theme</span>
+    <div class="row lang">
+      <span>{t('settings.language')}</span>
+      <div class="segmented">
+        {#each languages as l (l.id)}
+          <button class:on={s.language === l.id} onclick={() => app.update({ language: l.id })}>{l.name}</button>
+        {/each}
+      </div>
+    </div>
+
+    <span class="label block">{t('settings.theme')}</span>
     <div class="themes">
-      {#each THEMES as t (t.id)}
-        <button class="theme" class:on={s.theme === t.id} onclick={() => app.update({ theme: t.id })}>
-          <span class="preview" style:background={t.preview[0]}>
-            {#if t.id === 'system'}
+      {#each THEMES as th (th.id)}
+        <button class="theme" class:on={s.theme === th.id} onclick={() => app.update({ theme: th.id })}>
+          <span class="preview" style:background={th.preview[0]}>
+            {#if th.id === 'system'}
               <span class="half" style:background="#2a2d31"></span>
             {/if}
-            <span class="surface" style:background={t.preview[1]}>
-              <span class="line" style:background={t.preview[3]} style:width="38%"></span>
-              <span class="line" style:background={t.preview[2]} style:width="62%"></span>
-              <span class="line" style:background={t.preview[2]} style:width="48%"></span>
+            <span class="surface" style:background={th.preview[1]}>
+              <span class="line" style:background={th.preview[3]} style:width="38%"></span>
+              <span class="line" style:background={th.preview[2]} style:width="62%"></span>
+              <span class="line" style:background={th.preview[2]} style:width="48%"></span>
             </span>
           </span>
-          <span class="tname">{t.label}</span>
+          <span class="tname">{themeLabel(th.id)}</span>
         </button>
       {/each}
     </div>
 
     <div class="rows">
       <label class="row">
-        <span>Font</span>
+        <span>{t('settings.font')}</span>
         <input
           class="input"
           value={s.fontFamily}
-          placeholder="JetBrains Mono (built in)"
+          placeholder={t('settings.fontPlaceholder')}
           spellcheck="false"
           onchange={(e) => app.update({ fontFamily: e.currentTarget.value })}
         />
       </label>
       <div class="row">
-        <span>Font size</span>
+        <span>{t('settings.fontSize')}</span>
         <div class="stepper">
-          <button class="btn" onclick={() => fontSize(-1)} aria-label="Smaller">−</button>
+          <button class="btn" onclick={() => fontSize(-1)} aria-label={t('settings.smaller')}>−</button>
           <span class="value">{s.fontSize}</span>
-          <button class="btn" onclick={() => fontSize(1)} aria-label="Larger">+</button>
+          <button class="btn" onclick={() => fontSize(1)} aria-label={t('settings.larger')}>+</button>
         </div>
       </div>
       <label class="row">
-        <span>Line height</span>
+        <span>{t('settings.lineHeight')}</span>
         <select class="input narrow" value={String(s.lineHeight)} onchange={(e) => app.update({ lineHeight: Number(e.currentTarget.value) })}>
           {#each [1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5] as lh (lh)}<option value={String(lh)}>{lh}</option>{/each}
         </select>
@@ -93,38 +124,48 @@
   {:else if section === 'terminal'}
     <div class="rows">
       <div class="row">
-        <span>Cursor</span>
+        <span>{t('settings.cursor')}</span>
         <div class="segmented">
-          {#each ['bar', 'block', 'underline'] as const as c (c)}
-            <button class:on={s.cursorStyle === c} onclick={() => app.update({ cursorStyle: c })}>{c[0].toUpperCase() + c.slice(1)}</button>
+          {#each CURSORS as c (c.id)}
+            <button class:on={s.cursorStyle === c.id} onclick={() => app.update({ cursorStyle: c.id })}>{t(c.label)}</button>
           {/each}
         </div>
       </div>
       <label class="row">
-        <span>Blinking cursor</span>
+        <span>{t('settings.cursorBlink')}</span>
         <input type="checkbox" class="toggle" checked={s.cursorBlink} onchange={(e) => app.update({ cursorBlink: e.currentTarget.checked })} />
       </label>
       <label class="row">
-        <span>Scrollback</span>
-        <select class="input narrow" value={String(s.scrollback)} onchange={(e) => app.update({ scrollback: Number(e.currentTarget.value) })}>
-          {#each [1000, 5000, 10000, 50000, 100000] as n (n)}<option value={String(n)}>{n.toLocaleString()} lines</option>{/each}
+        <span>{t('settings.scrollback')}</span>
+        <select
+          class="input narrow"
+          value={String(s.scrollback)}
+          onchange={(e) => app.update({ scrollback: Number(e.currentTarget.value) })}
+        >
+          {#each [1000, 5000, 10000, 50000, 100000] as n (n)}
+            <option value={String(n)}>{tn('settings.scrollbackLines', n)}</option>
+          {/each}
         </select>
       </label>
       <label class="row">
-        <span>Copy on select</span>
+        <span>{t('settings.copyOnSelect')}</span>
         <input type="checkbox" class="toggle" checked={s.copyOnSelect} onchange={(e) => app.update({ copyOnSelect: e.currentTarget.checked })} />
       </label>
       <div class="row">
-        <span>Right click</span>
+        <span>{t('settings.rightClick')}</span>
         <div class="segmented">
-          <button class:on={!s.rightClickPaste} onclick={() => app.update({ rightClickPaste: false })}>Menu</button>
-          <button class:on={s.rightClickPaste} onclick={() => app.update({ rightClickPaste: true })}>Copy / Paste</button>
+          <button class:on={!s.rightClickPaste} onclick={() => app.update({ rightClickPaste: false })}>
+            {t('settings.rightClickMenu')}
+          </button>
+          <button class:on={s.rightClickPaste} onclick={() => app.update({ rightClickPaste: true })}>
+            {t('settings.rightClickCopyPaste')}
+          </button>
         </div>
       </div>
       <label class="row">
         <span>
-          GPU rendering
-          <small>WebGL renderer: lower CPU usage on heavy output.</small>
+          {t('settings.gpu')}
+          <small>{t('settings.gpuHint')}</small>
         </span>
         <input type="checkbox" class="toggle" checked={s.gpuAcceleration} onchange={(e) => app.update({ gpuAcceleration: e.currentTarget.checked })} />
       </label>
@@ -133,15 +174,15 @@
     {#if !isMac()}
       <label class="row top">
         <span>
-          Ctrl+K opens the palette inside the terminal
-          <small>Off by default: in the shell Ctrl+K deletes to the end of the line (and cuts in nano). Ctrl+Shift+K always opens the palette.</small>
+          {t('settings.ctrlK')}
+          <small>{t('settings.ctrlKHint')}</small>
         </span>
         <input type="checkbox" class="toggle" checked={s.ctrlKInTerminal} onchange={(e) => app.update({ ctrlKInTerminal: e.currentTarget.checked })} />
       </label>
     {/if}
     <div class="shortcuts">
       {#each shortcuts as [label, keysText] (label)}
-        <div class="sc"><span>{label}</span><kbd>{keysText}</kbd></div>
+        <div class="sc"><span>{t(label)}</span><kbd>{keysText}</kbd></div>
       {/each}
     </div>
   {:else}
@@ -149,23 +190,23 @@
       <img src={logo} alt="" />
       <div>
         <h3>NexSSH</h3>
-        <p>Version {app.info?.version ?? '—'} · a fast, minimal SSH client</p>
+        <p>{t('settings.version', { version: app.info?.version ?? '—' })}</p>
       </div>
     </div>
     <div class="rows">
       <div class="row top">
-        <span>Data folder <small>servers.json, settings.json and known_hosts (no secrets).</small></span>
-        <button class="btn" onclick={copyPath}>Copy path</button>
+        <span>{t('settings.dataFolder')} <small>{t('settings.dataFolderHint')}</small></span>
+        <button class="btn" onclick={copyPath}>{t('settings.copyPath')}</button>
       </div>
       <p class="path mono">{app.info?.dataDir ?? ''}</p>
       <div class="row">
-        <span>System keychain</span>
+        <span>{t('settings.keychain')}</span>
         <span class:ok={!app.keychainIssue} class:bad={!!app.keychainIssue}>
-          {app.keychainIssue ? `Unavailable — ${app.keychainIssue}` : 'Available'}
+          {app.keychainIssue ? t('settings.keychainBad', { reason: app.keychainIssue }) : t('settings.keychainOk')}
         </span>
       </div>
     </div>
-    <p class="foot">Open source under the MIT license · github.com/likDanil/NexSSH</p>
+    <p class="foot">{t('settings.license')}</p>
   {/if}
 </Modal>
 
@@ -248,6 +289,9 @@
   .row.top {
     align-items: flex-start;
   }
+  .row.lang {
+    margin-bottom: 14px;
+  }
   .row > span:first-child {
     display: flex;
     flex-direction: column;
@@ -309,9 +353,8 @@
     transform: translateX(14px);
   }
   .shortcuts {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2px 18px;
+    display: flex;
+    flex-direction: column;
     margin-top: 10px;
   }
   .sc {
@@ -321,6 +364,9 @@
     gap: 10px;
     min-height: 34px;
     border-bottom: 1px solid var(--border-soft);
+  }
+  .sc:last-child {
+    border-bottom: 0;
   }
   .sc kbd {
     white-space: nowrap;

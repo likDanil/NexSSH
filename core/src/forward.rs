@@ -13,6 +13,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 use crate::error::{Error, Result};
+use crate::i18n;
 use crate::model::{ForwardKind, ForwardSpec};
 use crate::session::handler::{ClientHandler, ConnState};
 use crate::session::{LogLevel, SessionCtx, SessionEvent};
@@ -70,7 +71,7 @@ impl Forwards {
             ForwardKind::Local | ForwardKind::Dynamic => {
                 let listener = TcpListener::bind((spec.bind_host.as_str(), spec.bind_port))
                     .await
-                    .map_err(|e| Error::invalid(format!("cannot listen on {bind}: {e}")))?;
+                    .map_err(|e| Error::invalid(i18n::cannot_listen(&bind, e)))?;
                 let task = tokio::spawn(accept_loop(
                     listener,
                     Arc::clone(&self.handle),
@@ -89,9 +90,7 @@ impl Forwards {
                     .handle
                     .tcpip_forward(spec.bind_host.clone(), u32::from(spec.bind_port))
                     .await
-                    .map_err(|e| {
-                        Error::invalid(format!("the server refused to listen on {bind}: {e}"))
-                    })?;
+                    .map_err(|e| Error::invalid(i18n::server_refused_listen(&bind, e)))?;
                 let bound = if spec.bind_port == 0 {
                     port
                 } else {
@@ -114,10 +113,8 @@ impl Forwards {
                 }
             }
         };
-        self.ctx.log(
-            LogLevel::Info,
-            format!("Forwarding {}", active.spec.describe()),
-        );
+        self.ctx
+            .log(LogLevel::Info, i18n::forwarding(&active.spec.describe()));
         self.active.push(active);
         Ok(())
     }

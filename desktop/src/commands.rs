@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use nexssh_core::i18n::{self, Lang};
 use nexssh_core::keys::KeyInfo;
 use nexssh_core::secrets::Secrets;
 use nexssh_core::{
@@ -82,6 +83,14 @@ pub fn app_ready(state: State<'_, AppState>) {
     state.core.sessions.close_all();
 }
 
+/// Language of messages produced by the backend (errors, connection progress).
+/// The UI resolves "system" to a concrete language and calls this at start-up and on
+/// every change; unknown tags fall back to English.
+#[tauri::command]
+pub fn app_set_language(lang: String) {
+    i18n::set_language(Lang::from_tag(&lang).unwrap_or_default());
+}
+
 /// `None` when passwords can be saved, otherwise why not.
 #[tauri::command]
 pub async fn keychain_status(state: State<'_, AppState>) -> CmdResult<Option<String>> {
@@ -145,9 +154,7 @@ pub async fn server_save(
             .unwrap_or_else(|e| Err(nexssh_core::Error::Secret(e.0))),
         None => Ok(()),
     };
-    let warning = result.err().map(|e| {
-        format!("Saved, but the password could not be stored ({e}). You will be asked for it when connecting.")
-    });
+    let warning = result.err().map(i18n::password_not_stored);
     Ok(SaveResult {
         server: saved,
         warning,
@@ -230,13 +237,13 @@ pub async fn session_open(
     let server = match (target.server_id, target.destination) {
         (Some(id), _) => match store.get(&id) {
             Some(s) => s,
-            None => return err("This server no longer exists"),
+            None => return err(i18n::server_missing()),
         },
         (None, Some(dest)) => match store.find(dest.trim()) {
             Some(s) => s,
             None => Destination::parse(&dest)?.to_server(),
         },
-        (None, None) => return err("Nothing to connect to"),
+        (None, None) => return err(i18n::nothing_to_connect()),
     };
     let sink = Arc::new(ChannelSink::new(on_event));
     Ok(state

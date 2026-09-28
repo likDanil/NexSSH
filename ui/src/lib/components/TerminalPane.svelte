@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { closeTab, sessionMenu } from '../actions';
+  import { t } from '../i18n.svelte';
   import { app, type MenuEntry } from '../state/app.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
   import type { TermSettings, TermView } from '../terminal';
@@ -98,14 +99,14 @@
       return;
     }
     const items: MenuEntry[] = [
-      { label: 'Copy', icon: 'copy', disabled: !v.term.hasSelection(), action: () => void v.copy() },
-      { label: 'Paste', icon: 'paste', action: () => void v.paste().then(() => v.focus()) },
-      { label: 'Select all', action: () => v.term.selectAll() },
+      { label: t('terminal.copy'), icon: 'copy', disabled: !v.term.hasSelection(), action: () => void v.copy() },
+      { label: t('terminal.paste'), icon: 'paste', action: () => void v.paste().then(() => v.focus()) },
+      { label: t('terminal.selectAll'), action: () => v.term.selectAll() },
       'separator',
-      { label: 'Clear terminal', icon: 'eraser', action: () => v.clear() },
+      { label: t('session.clear'), icon: 'eraser', action: () => v.clear() },
     ];
     items.push('separator', {
-      label: 'Session…',
+      label: t('session.menu'),
       icon: 'more',
       action: () => sessionMenu(tab, e.clientX, e.clientY),
     });
@@ -130,9 +131,9 @@
     <div class="banner" class:failed={tab.failed}>
       <span class="msg" title={tab.message ?? ''}>{tab.message}</span>
       <button class="btn" onclick={() => sessions.reconnect(tab)}>
-        <Icon name="refresh" size={14} /> Reconnect <kbd>Enter</kbd>
+        <Icon name="refresh" size={14} /> {t('session.reconnect')} <kbd>Enter</kbd>
       </button>
-      <button class="icon-btn small" title="Close tab" aria-label="Close tab" onclick={() => closeTab(tab)}>
+      <button class="icon-btn small" title={t('session.closeTab')} aria-label={t('session.closeTab')} onclick={() => closeTab(tab)}>
         <Icon name="x" size={13} />
       </button>
     </div>

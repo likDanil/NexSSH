@@ -18,6 +18,7 @@ use zeroize::Zeroizing;
 use super::handler::ClientHandler;
 use super::{KbdPrompt, LogLevel, Prompt, PromptReply, SessionCtx, lock};
 use crate::error::{Error, Result};
+use crate::i18n;
 use crate::keys::{self, KeyFile, UnlockError};
 use crate::model::{AuthKind, Server};
 use crate::secrets::Secrets;
@@ -57,15 +58,9 @@ pub(crate) async fn authenticate(
     if done {
         Ok(())
     } else if auth.failed.is_empty() {
-        Err(Error::AuthFailed(format!(
-            "no usable method; server offers: {}",
-            auth.offered()
-        )))
+        Err(Error::AuthFailed(i18n::auth_no_method(&auth.offered())))
     } else {
-        Err(Error::AuthFailed(format!(
-            "tried {}",
-            auth.failed.join(", ")
-        )))
+        Err(Error::AuthFailed(i18n::auth_tried(&auth.failed.join(", "))))
     }
 }
 
@@ -94,7 +89,7 @@ impl Auth<'_> {
                 .map(|m| <&str>::from(m).to_string())
                 .collect::<Vec<_>>()
                 .join(", "),
-            _ => "nothing".into(),
+            _ => i18n::auth_nothing_offered(),
         }
     }
 
@@ -102,10 +97,8 @@ impl Auth<'_> {
     fn record(&mut self, result: AuthResult, what: &str) -> bool {
         match result {
             AuthResult::Success => {
-                self.ctx.log(
-                    LogLevel::Info,
-                    format!("Authenticated as {} ({what})", self.user),
-                );
+                self.ctx
+                    .log(LogLevel::Info, i18n::authenticated(&self.user, what));
                 true
             }
             AuthResult::Failure {
@@ -113,10 +106,7 @@ impl Auth<'_> {
                 partial_success,
             } => {
                 if partial_success {
-                    self.ctx.log(
-                        LogLevel::Info,
-                        format!("{what} accepted, the server requires another method"),
-                    );
+                    self.ctx.log(LogLevel::Info, i18n::auth_partial(what));
                 } else {
                     self.failed.push(what.to_string());
                 }
@@ -130,7 +120,7 @@ impl Auth<'_> {
         match self.handle.authenticate_none(&self.user).await? {
             AuthResult::Success => {
                 self.ctx
-                    .log(LogLevel::Info, "Authenticated (no authentication required)");
+                    .log(LogLevel::Info, i18n::authenticated_without_auth());
                 Ok(true)
             }
             AuthResult::Failure {
@@ -210,7 +200,7 @@ impl Auth<'_> {
                     return Ok(false);
                 }
                 Err(_) => {
-                    self.ctx.log(LogLevel::Warn, "SSH agent did not respond");
+                    self.ctx.log(LogLevel::Warn, i18n::agent_no_response());
                     return Ok(false);
                 }
             };
@@ -243,7 +233,7 @@ impl Auth<'_> {
                     } else {
                         None
                     };
-                    let label = format!("agent certificate {comment}");
+                    let label = i18n::method_agent_certificate(comment);
                     let result = self
                         .handle
                         .authenticate_certificate_with(
@@ -263,7 +253,7 @@ impl Auth<'_> {
                     }
                 }
                 // The protocol cannot recover from a failed signature: give up on this connection.
-                Err(e) => return Err(Error::AuthFailed(format!("SSH agent could not sign: {e}"))),
+                Err(e) => return Err(Error::AuthFailed(i18n::agent_sign_failed(e))),
             }
         }
         Ok(false)
@@ -284,7 +274,7 @@ impl Auth<'_> {
                 return Ok(false);
             }
         };
-        let label = format!("key {}", key.display_path());
+        let label = i18n::method_key(&key.display_path());
 
         if !key.encrypted {
             return match key.unlock(None) {
@@ -388,12 +378,8 @@ impl Auth<'_> {
                 .set_async(account, password.clone())
                 .await
             {
-                Ok(()) => self
-                    .ctx
-                    .log(LogLevel::Info, "Password saved to the system keychain"),
-                Err(e) => self
-                    .ctx
-                    .log(LogLevel::Warn, format!("Could not save password: {e}")),
+                Ok(()) => self.ctx.log(LogLevel::Info, i18n::password_saved()),
+                Err(e) => self.ctx.log(LogLevel::Warn, i18n::password_save_failed(e)),
             }
         }
         lock(&self.ctx.cache)
@@ -424,7 +410,7 @@ impl Auth<'_> {
                     .handle
                     .authenticate_password(&self.user, password.as_str())
                     .await?;
-                if self.record(result, "password") {
+                if self.record(result, &i18n::method_password()) {
                     self.keep_password(password, remember).await;
                     return Ok(true);
                 }
@@ -435,7 +421,7 @@ impl Auth<'_> {
             } else {
                 return Ok(false);
             }
-            error = Some("Permission denied, please try again.".into());
+            error = Some(i18n::wrong_password());
         }
         Ok(false)
     }
@@ -458,7 +444,7 @@ impl Auth<'_> {
                 KeyboardInteractiveAuthResponse::Success => {
                     self.ctx.log(
                         LogLevel::Info,
-                        format!("Authenticated as {} (keyboard-interactive)", self.user),
+                        i18n::authenticated(&self.user, &i18n::method_keyboard_interactive()),
                     );
                     if let Some((password, remember)) = typed.take() {
                         self.keep_password(password, remember).await;
@@ -473,7 +459,7 @@ impl Auth<'_> {
                         remaining_methods,
                         partial_success,
                     };
-                    self.record(result, "keyboard-interactive");
+                    self.record(result, &i18n::method_keyboard_interactive());
                     return Ok(false);
                 }
                 KeyboardInteractiveAuthResponse::InfoRequest {
@@ -554,9 +540,9 @@ fn is_password_prompt(prompt: &str) -> bool {
 
 fn agent_label(comment: &str, key: &PublicKey) -> String {
     if comment.trim().is_empty() {
-        format!("agent key {}", key.fingerprint(HashAlg::Sha256))
+        i18n::method_agent_key(key.fingerprint(HashAlg::Sha256))
     } else {
-        format!("agent key {}", comment.trim())
+        i18n::method_agent_key(comment.trim())
     }
 }
 
@@ -633,13 +619,13 @@ async fn unlock_interactive(ctx: &Arc<SessionCtx>, key: &KeyFile) -> Result<Opti
                         .set_async(account.clone(), pass.clone())
                         .await
                 {
-                    ctx.log(LogLevel::Warn, format!("Could not save passphrase: {e}"));
+                    ctx.log(LogLevel::Warn, i18n::passphrase_save_failed(e));
                 }
                 lock(&ctx.cache).passphrases.insert(key.path.clone(), pass);
                 return Ok(Some(k));
             }
             Err(UnlockError::WrongPassphrase) | Err(UnlockError::NeedsPassphrase) => {
-                error = Some("Incorrect passphrase".into());
+                error = Some(i18n::wrong_passphrase());
             }
             Err(UnlockError::Invalid(e)) => return Err(Error::invalid(e)),
         }
