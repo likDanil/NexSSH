@@ -1,0 +1,179 @@
+name: Release
+
+# Publishes a GitHub release with the Windows installer (.exe, NSIS).
+#
+#   * push a tag:   git tag v0.2.0 && git push origin v0.2.0
+#   * or run this workflow from the Actions tab: enter a version, or leave it
+#     empty to bump the patch number of the latest release. "Dry run" only builds
+#     the installer and attaches it to the workflow run.
+#
+# Branch pushes that change the release setup (this file, the bundle config or
+# the icons) run as a dry run, so a broken installer build shows up before a
+# release does.
+#
+# The version from the tag/input is written into Cargo.toml for the build, so the
+# app, the installer name and the release always agree.
+
+on:
+  push:
+    tags: ['v*.*.*']
+    # Dry run on branches (path filters do not apply to tags).
+    branches: ['**']
+    paths:
+      - .github/workflows/release.yml
+      - desktop/tauri.conf.json
+      - desktop/icons/**
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, e.g. 0.2.0 (empty = next patch version)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Dry run: build the installer without publishing a release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  # Publishing runs are queued one at a time; branch dry runs replace each other.
+  group: ${{ github.ref_type == 'branch' && github.event_name == 'push' && format('release-check-{0}', github.ref) || 'release' }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' && github.event_name == 'push' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: resolve
+        name: Resolve version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+            is_tag=true
+          else
+            is_tag=false
+          fi
+          if $is_tag; then
+            publish=true
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${DRY_RUN:-false}" != "true" ]]; then
+            publish=true
+          else
+            publish=false
+          fi
+
+          if $is_tag; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${INPUT_VERSION:-}" ]]; then
+            version="${INPUT_VERSION#v}"
+          else
+            latest="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)"
+            if [[ -z "$latest" ]]; then
+              # First release: use the version already in Cargo.toml.
+              version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+            else
+              IFS=. read -r major minor patch <<< "${latest#v}"
+              version="$major.$minor.$((patch + 1))"
+            fi
+          fi
+          # Windows installers need a plain numeric version.
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$version' is not a version like 1.2.3"
+            exit 1
+          fi
+          if $publish && ! $is_tag && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          if $publish; then
+            echo "Releasing NexSSH $version" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Dry run: building the NexSSH $version installer without publishing" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  windows:
+    name: Build Windows installer
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          sed -i '0,/^version = ".*"/s//version = "${{ needs.version.outputs.version }}"/' Cargo.toml
+          grep -m1 '^version = ' Cargo.toml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Collect installer
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/bundle/nsis/*-setup.exe dist/
+          cd dist
+          sha256sum *.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NexSSH-${{ needs.version.outputs.version }}-windows-x64
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [version, windows]
+    if: ${{ needs.version.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: NexSSH-${{ needs.version.outputs.version }}-windows-x64
+          path: dist
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "NexSSH $TAG" \
+            --generate-notes

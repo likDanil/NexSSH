@@ -1,0 +1,414 @@
+<script lang="ts">
+  import logo from '../../assets/logo.png';
+  import { keys } from '../actions';
+  import { LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
+  import { isMac, shortcut } from '../platform';
+  import { app } from '../state/app.svelte';
+  import { toasts } from '../state/toasts.svelte';
+  import { THEMES, themeLabel } from '../themes';
+  import type { Settings } from '../types';
+  import Modal from './Modal.svelte';
+
+  type Section = 'appearance' | 'terminal' | 'keyboard' | 'about';
+  let section = $state<Section>('appearance');
+
+  const s = $derived(app.settings);
+
+  function fontSize(delta: number) {
+    app.update({ fontSize: Math.min(28, Math.max(9, s.fontSize + delta)) });
+  }
+
+  async function copyPath() {
+    if (!app.info) return;
+    await navigator.clipboard.writeText(app.info.dataDir).catch(() => {});
+    toasts.show(t('settings.pathCopied'));
+  }
+
+  const SECTIONS: { id: Section; label: MessageKey }[] = [
+    { id: 'appearance', label: 'settings.appearance' },
+    { id: 'terminal', label: 'settings.terminal' },
+    { id: 'keyboard', label: 'settings.keyboard' },
+    { id: 'about', label: 'settings.about' },
+  ];
+
+  const languages: { id: LanguageSetting; name: string }[] = $derived([
+    { id: 'system', name: t('settings.languageSystem') },
+    ...LANGUAGES,
+  ]);
+
+  const CURSORS: { id: Settings['cursorStyle']; label: MessageKey }[] = [
+    { id: 'bar', label: 'settings.cursorBar' },
+    { id: 'block', label: 'settings.cursorBlock' },
+    { id: 'underline', label: 'settings.cursorUnderline' },
+  ];
+
+  const shortcuts: [MessageKey, string][] = $derived([
+    ['shortcut.palette', isMac() ? keys.palette() : `${keys.palette()} · ${shortcut('Ctrl', 'Shift', 'K')}`],
+    ['shortcut.newSession', keys.newSession()],
+    ['shortcut.closeTab', keys.closeTab()],
+    [
+      'shortcut.nextPrevTab',
+      isMac() ? `${shortcut('Mod', 'Shift', ']')} · ${shortcut('Mod', 'Shift', '[')}` : 'Ctrl+Tab · Ctrl+Shift+Tab',
+    ],
+    ['shortcut.goToTab', shortcut('Mod', '1…9')],
+    ['shortcut.reconnect', keys.reconnect()],
+    ['shortcut.sidebar', keys.sidebar()],
+    ['shortcut.fullscreen', keys.fullscreen()],
+    ['shortcut.settings', keys.settings()],
+    ['shortcut.copyPaste', isMac() ? '⌘C · ⌘V' : 'Ctrl+Shift+C · Ctrl+Shift+V'],
+  ]);
+</script>
+
+<Modal title={t('settings.title')} width={600} onclose={() => (app.settingsOpen = false)}>
+  <div class="tabs segmented">
+    {#each SECTIONS as sec (sec.id)}
+      <button class:on={section === sec.id} onclick={() => (section = sec.id)}>{t(sec.label)}</button>
+    {/each}
+  </div>
+
+  {#if section === 'appearance'}
+    <div class="row lang">
+      <span>{t('settings.language')}</span>
+      <div class="segmented">
+        {#each languages as l (l.id)}
+          <button class:on={s.language === l.id} onclick={() => app.update({ language: l.id })}>{l.name}</button>
+        {/each}
+      </div>
+    </div>
+
+    <span class="label block">{t('settings.theme')}</span>
+    <div class="themes">
+      {#each THEMES as th (th.id)}
+        <button class="theme" class:on={s.theme === th.id} onclick={() => app.update({ theme: th.id })}>
+          <span class="preview" style:background={th.preview[0]}>
+            {#if th.id === 'system'}
+              <span class="half" style:background="#2a2d31"></span>
+            {/if}
+            <span class="surface" style:background={th.preview[1]}>
+              <span class="line" style:background={th.preview[3]} style:width="38%"></span>
+              <span class="line" style:background={th.preview[2]} style:width="62%"></span>
+              <span class="line" style:background={th.preview[2]} style:width="48%"></span>
+            </span>
+          </span>
+          <span class="tname">{themeLabel(th.id)}</span>
+        </button>
+      {/each}
+    </div>
+
+    <div class="rows">
+      <label class="row">
+        <span>{t('settings.font')}</span>
+        <input
+          class="input"
+          value={s.fontFamily}
+          placeholder={t('settings.fontPlaceholder')}
+          spellcheck="false"
+          onchange={(e) => app.update({ fontFamily: e.currentTarget.value })}
+        />
+      </label>
+      <div class="row">
+        <span>{t('settings.fontSize')}</span>
+        <div class="stepper">
+          <button class="btn" onclick={() => fontSize(-1)} aria-label={t('settings.smaller')}>−</button>
+          <span class="value">{s.fontSize}</span>
+          <button class="btn" onclick={() => fontSize(1)} aria-label={t('settings.larger')}>+</button>
+        </div>
+      </div>
+      <label class="row">
+        <span>{t('settings.lineHeight')}</span>
+        <select class="input narrow" value={String(s.lineHeight)} onchange={(e) => app.update({ lineHeight: Number(e.currentTarget.value) })}>
+          {#each [1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5] as lh (lh)}<option value={String(lh)}>{lh}</option>{/each}
+        </select>
+      </label>
+    </div>
+  {:else if section === 'terminal'}
+    <div class="rows">
+      <div class="row">
+        <span>{t('settings.cursor')}</span>
+        <div class="segmented">
+          {#each CURSORS as c (c.id)}
+            <button class:on={s.cursorStyle === c.id} onclick={() => app.update({ cursorStyle: c.id })}>{t(c.label)}</button>
+          {/each}
+        </div>
+      </div>
+      <label class="row">
+        <span>{t('settings.cursorBlink')}</span>
+        <input type="checkbox" class="toggle" checked={s.cursorBlink} onchange={(e) => app.update({ cursorBlink: e.currentTarget.checked })} />
+      </label>
+      <label class="row">
+        <span>{t('settings.scrollback')}</span>
+        <select
+          class="input narrow"
+          value={String(s.scrollback)}
+          onchange={(e) => app.update({ scrollback: Number(e.currentTarget.value) })}
+        >
+          {#each [1000, 5000, 10000, 50000, 100000] as n (n)}
+            <option value={String(n)}>{tn('settings.scrollbackLines', n)}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="row">
+        <span>{t('settings.copyOnSelect')}</span>
+        <input type="checkbox" class="toggle" checked={s.copyOnSelect} onchange={(e) => app.update({ copyOnSelect: e.currentTarget.checked })} />
+      </label>
+      <div class="row">
+        <span>{t('settings.rightClick')}</span>
+        <div class="segmented">
+          <button class:on={!s.rightClickPaste} onclick={() => app.update({ rightClickPaste: false })}>
+            {t('settings.rightClickMenu')}
+          </button>
+          <button class:on={s.rightClickPaste} onclick={() => app.update({ rightClickPaste: true })}>
+            {t('settings.rightClickCopyPaste')}
+          </button>
+        </div>
+      </div>
+      <label class="row">
+        <span>
+          {t('settings.gpu')}
+          <small>{t('settings.gpuHint')}</small>
+        </span>
+        <input type="checkbox" class="toggle" checked={s.gpuAcceleration} onchange={(e) => app.update({ gpuAcceleration: e.currentTarget.checked })} />
+      </label>
+    </div>
+  {:else if section === 'keyboard'}
+    {#if !isMac()}
+      <label class="row top">
+        <span>
+          {t('settings.ctrlK')}
+          <small>{t('settings.ctrlKHint')}</small>
+        </span>
+        <input type="checkbox" class="toggle" checked={s.ctrlKInTerminal} onchange={(e) => app.update({ ctrlKInTerminal: e.currentTarget.checked })} />
+      </label>
+    {/if}
+    <div class="shortcuts">
+      {#each shortcuts as [label, keysText] (label)}
+        <div class="sc"><span>{t(label)}</span><kbd>{keysText}</kbd></div>
+      {/each}
+    </div>
+  {:else}
+    <div class="about">
+      <img src={logo} alt="" />
+      <div>
+        <h3>NexSSH</h3>
+        <p>{t('settings.version', { version: app.info?.version ?? '—' })}</p>
+      </div>
+    </div>
+    <div class="rows">
+      <div class="row top">
+        <span>{t('settings.dataFolder')} <small>{t('settings.dataFolderHint')}</small></span>
+        <button class="btn" onclick={copyPath}>{t('settings.copyPath')}</button>
+      </div>
+      <p class="path mono">{app.info?.dataDir ?? ''}</p>
+      <div class="row">
+        <span>{t('settings.keychain')}</span>
+        <span class:ok={!app.keychainIssue} class:bad={!!app.keychainIssue}>
+          {app.keychainIssue ? t('settings.keychainBad', { reason: app.keychainIssue }) : t('settings.keychainOk')}
+        </span>
+      </div>
+    </div>
+    <p class="foot">{t('settings.license')}</p>
+  {/if}
+</Modal>
+
+<style>
+  .tabs {
+    margin-bottom: 18px;
+  }
+  .block {
+    display: block;
+  }
+  .themes {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin: 8px 0 20px;
+  }
+  .theme {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+  }
+  .preview {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1.35;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    transition: box-shadow 0.12s;
+  }
+  .theme.on .preview {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--text-2);
+  }
+  .theme.on .tname {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .half {
+    position: absolute;
+    inset: 0 0 0 50%;
+  }
+  .surface {
+    position: relative;
+    width: 72%;
+    height: 70%;
+    border-radius: 6px 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 9px 8px;
+  }
+  .line {
+    height: 3px;
+    border-radius: 2px;
+    opacity: 0.85;
+  }
+  .rows {
+    display: flex;
+    flex-direction: column;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 44px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .row.top {
+    align-items: flex-start;
+  }
+  .row.lang {
+    margin-bottom: 14px;
+  }
+  .row > span:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .row small {
+    color: var(--text-2);
+    font-size: 11.5px;
+    line-height: 1.4;
+    max-width: 380px;
+  }
+  .row .input {
+    max-width: 260px;
+  }
+  .narrow {
+    width: 160px;
+  }
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stepper .btn {
+    width: 30px;
+    padding: 0;
+  }
+  .value {
+    min-width: 24px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .toggle {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 34px;
+    height: 20px;
+    margin: 0;
+    border-radius: 999px;
+    background: var(--active);
+    transition: background 0.15s var(--ease);
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s var(--ease);
+  }
+  .toggle:checked {
+    background: var(--green);
+  }
+  .toggle:checked::after {
+    transform: translateX(14px);
+  }
+  .shortcuts {
+    display: flex;
+    flex-direction: column;
+    margin-top: 10px;
+  }
+  .sc {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 34px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .sc:last-child {
+    border-bottom: 0;
+  }
+  .sc kbd {
+    white-space: nowrap;
+  }
+  .about {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+  .about img {
+    width: 44px;
+    filter: var(--logo-filter);
+  }
+  .about h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+  .about p {
+    margin: 2px 0 0;
+    color: var(--text-2);
+  }
+  .path {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .ok {
+    color: var(--green);
+  }
+  .bad {
+    color: var(--amber);
+    text-align: right;
+  }
+  .foot {
+    margin: 16px 0 0;
+    color: var(--text-3);
+    font-size: 12px;
+  }
+</style>
