@@ -281,6 +281,11 @@ The interface is available in English and Russian; the default follows the syste
   *Download* in the background, then *Install*, which closes the sessions, runs the installer
   silently (`installMode: quiet`: no windows, no UAC prompt since it installs per user) and
   restarts NexSSH. A check runs 5 s after start-up and every 6 hours (can be turned off).
+* **One running copy.** Starting NexSSH again (say, the desktop shortcut clicked twice) brings
+  the running window to the front, restored if minimized, instead of opening a second copy;
+  two copies would also overwrite each other's `servers.json` and `settings.json`. The
+  single-instance plugin (a named mutex on Windows, D-Bus on Linux) is registered first, so
+  the second process exits before it creates anything.
 * **One SFTP channel per connection,** opened lazily: sessions that never open the files
   drawer cost nothing, and there is no second login or prompt.
 

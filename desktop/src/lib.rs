@@ -18,6 +18,13 @@ use settings::{Settings, theme_background};
 pub fn run() {
     logger::init();
     let app = tauri::Builder::default()
+        // First, so a second launch hands over before creating anything: the running
+        // NexSSH comes to the front instead of a second copy opening next to it (two copies
+        // would also overwrite each other's servers.json and settings.json).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("NexSSH was started again: showing this window");
+            show_main_window(app);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Only its Rust API is used (the key file picker); the webview gets no dialog permissions.
         .plugin(tauri_plugin_dialog::init())
@@ -95,6 +102,15 @@ pub fn run() {
 /// the saved theme before the page paints, and so title bars can differ per platform:
 /// Windows gets a custom title bar drawn by the UI, macOS keeps its traffic lights over
 /// the content, Linux keeps native decorations.
+/// Brings the main window to the front, restored if it was minimized.
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 fn create_main_window(app: &tauri::App, background: Color) -> tauri::Result<()> {
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("NexSSH")
