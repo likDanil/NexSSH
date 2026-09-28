@@ -289,6 +289,14 @@ select:focus-visible {
   height: 22px;
   border-radius: var(--radius-xs);
 }
+.icon-btn.on {
+  background: var(--active);
+  color: var(--text);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
 
 .field {
   display: flex;

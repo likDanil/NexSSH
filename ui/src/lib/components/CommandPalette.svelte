@@ -12,15 +12,17 @@
     openSettings,
     presetFromDestination,
     showHome,
+    toggleFiles,
     toggleFullscreen,
     toggleSidebar,
   } from '../actions';
   import { fuzzyBest, fuzzyScore } from '../fuzzy';
-  import { i18n, LANGUAGES, t, tEn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
+  import { i18n, LANGUAGES, t, tEn, type LanguageSetting, type MessageKey, type Params } from '../i18n.svelte';
   import { isMac } from '../platform';
   import { app } from '../state/app.svelte';
   import { destination, servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
+  import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
   import Icon from './Icon.svelte';
   import Rich from './Rich.svelte';
@@ -55,10 +57,15 @@
   }
 
   /** An action labelled by `key`; in a translated interface it is also found by its English words. */
-  function action(key: MessageKey, rest: Omit<Action, 'label' | 'keywords'>, keywords?: MessageKey): Action {
+  function action(
+    key: MessageKey,
+    rest: Omit<Action, 'label' | 'keywords'>,
+    keywords?: MessageKey,
+    params?: Params,
+  ): Action {
     const words = keywords ? [t(keywords)] : [];
-    if (i18n.lang !== 'en') words.push(tEn(key), keywords ? tEn(keywords) : '');
-    return { label: t(key), keywords: words.join(' '), ...rest };
+    if (i18n.lang !== 'en') words.push(tEn(key, params), keywords ? tEn(keywords) : '');
+    return { label: t(key, params), keywords: words.join(' '), ...rest };
   }
 
   function actionList(): Action[] {
@@ -95,6 +102,17 @@
         run: () => app.update({ language: l.id }),
       })),
     ];
+    if (updates.supported) {
+      const version = updates.info?.version ?? '';
+      if (updates.status === 'available') {
+        const run = () => void updates.download();
+        out.unshift(action('update.downloadVersion', { icon: 'update', run }, 'palette.update.keywords', { version }));
+      } else if (updates.status === 'ready') {
+        const run = () => void updates.install();
+        out.unshift(action('update.installVersion', { icon: 'update', run }, 'palette.update.keywords', { version }));
+      }
+      out.push(action('update.check', { icon: 'update', run: () => void updates.check(true) }, 'palette.update.keywords'));
+    }
     const tab = sessions.active;
     if (tab) {
       const server = tab.serverId ? servers.byId.get(tab.serverId) : undefined;
@@ -107,6 +125,7 @@
         out.push(action('session.forwarding', { icon: 'forward', run: openForwards }, 'palette.forwarding.keywords'));
       }
       out.push(
+        action('session.files', { icon: 'folder', hint: keys.files(), run: toggleFiles }, 'palette.files.keywords'),
         action('session.duplicate', { icon: 'duplicate', run: () => sessions.duplicate(tab) }, 'palette.duplicate.keywords'),
         action('session.clear', { icon: 'eraser', run: () => sessions.clear(tab) }, 'palette.clear.keywords'),
         action('session.closeTab', { icon: 'x', hint: keys.closeTab(), run: () => closeTab(tab) }),

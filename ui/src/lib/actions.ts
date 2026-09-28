@@ -4,6 +4,7 @@ import { errorMessage } from './api';
 import { t } from './i18n.svelte';
 import { shortcut } from './platform';
 import { app, type MenuEntry } from './state/app.svelte';
+import { files } from './state/files.svelte';
 import { destination, servers } from './state/servers.svelte';
 import { sessions, type Tab } from './state/sessions.svelte';
 import { toasts } from './state/toasts.svelte';
@@ -17,6 +18,7 @@ export const keys = {
   sidebar: () => (isMacLike() ? shortcut('Mod', 'B') : shortcut('Mod', 'Shift', 'B')),
   reconnect: () => (isMacLike() ? shortcut('Mod', 'R') : shortcut('Mod', 'Shift', 'R')),
   fullscreen: () => (isMacLike() ? shortcut('Ctrl', 'Mod', 'F') : 'F11'),
+  files: () => shortcut('Mod', 'Shift', 'E'),
 };
 
 function isMacLike() {
@@ -92,6 +94,12 @@ export function openForwards() {
   if (sessions.active) app.forwardsOpen = true;
 }
 
+/** Shows or hides the files (SFTP) drawer next to the terminal. */
+export function toggleFiles() {
+  app.menu = null;
+  files.toggle();
+}
+
 async function copyText(text: string) {
   await navigator.clipboard.writeText(text).catch(() => {});
   toasts.show(t('common.copied', { text }));
@@ -126,6 +134,7 @@ export function sessionMenu(tab: Tab, x: number, y: number) {
       ? { label: t('session.reconnect'), icon: 'refresh', hint: keys.reconnect(), action: () => sessions.reconnect(tab) }
       : { label: t('session.disconnect'), icon: 'power', action: () => sessions.disconnect(tab) },
     { label: t('session.duplicate'), icon: 'duplicate', action: () => sessions.duplicate(tab) },
+    { label: t('session.files'), icon: 'folder', hint: keys.files(), action: toggleFiles },
     { label: t('session.forwarding'), icon: 'forward', disabled: !connected, action: () => openForwards() },
     'separator',
     { label: t('session.clear'), icon: 'eraser', action: () => sessions.clear(tab) },

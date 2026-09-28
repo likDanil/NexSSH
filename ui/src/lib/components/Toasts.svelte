@@ -10,6 +10,15 @@
       {#if toast.kind === 'success'}<span class="mark ok"><Icon name="check" size={14} /></span>{/if}
       {#if toast.kind === 'error'}<span class="mark err"><Icon name="alert" size={14} /></span>{/if}
       <span class="text">{toast.text}</span>
+      {#if toast.action}
+        <button
+          class="action"
+          onclick={() => {
+            toast.action?.run();
+            toasts.dismiss(toast.id);
+          }}>{toast.action.label}</button
+        >
+      {/if}
       <button class="icon-btn small" aria-label={t('common.dismiss')} onclick={() => toasts.dismiss(toast.id)}>
         <Icon name="x" size={13} />
       </button>
@@ -47,6 +56,20 @@
     line-height: 1.35;
     -webkit-user-select: text;
     user-select: text;
+  }
+  .action {
+    flex: none;
+    height: 24px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--hover);
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .action:hover {
+    background: var(--active);
   }
   .mark {
     display: grid;

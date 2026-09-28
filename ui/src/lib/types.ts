@@ -112,6 +112,13 @@ export interface Settings {
   sidebarWidth: number;
   sidebarHidden: boolean;
   collapsedGroups: string[];
+  /** Files drawer: show dotfiles, and its width. */
+  filesShowHidden: boolean;
+  filesWidth: number;
+  /** Look for a new version at start-up and every few hours. */
+  autoUpdateCheck: boolean;
+  /** The version that last ran, to say "updated to …" once after an update. */
+  lastVersion: string;
 }
 
 export interface AppInfo {
@@ -119,4 +126,41 @@ export interface AppInfo {
   os: string;
   dataDir: string;
   settings: Partial<Settings> | null;
+  /** This build can update itself. */
+  updates: boolean;
+}
+
+export type SftpEntryKind = 'dir' | 'file' | 'link' | 'other';
+
+export interface SftpEntry {
+  name: string;
+  kind: SftpEntryKind;
+  /** A symlink to a directory: opens like one. */
+  linkToDir: boolean;
+  size: number;
+  /** Seconds since the epoch. */
+  modified?: number;
+  /** `rwxr-xr-x` */
+  permissions?: string;
+}
+
+export interface TransferProgress {
+  done: number;
+  total: number;
+}
+
+export interface Downloaded {
+  path: string;
+  name: string;
+}
+
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes?: string;
+}
+
+export interface DownloadProgress {
+  downloaded: number;
+  total?: number;
 }

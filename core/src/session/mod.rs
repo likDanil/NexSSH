@@ -18,16 +18,19 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use russh::client::Handle;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use zeroize::Zeroizing;
 
+use self::handler::ClientHandler;
 use crate::error::{Error, Result};
 use crate::forward::ForwardInfo;
 use crate::i18n;
 use crate::known_hosts::{HostKeyStatus, KnownHosts};
 use crate::model::{ForwardSpec, PtySize, Server};
 use crate::secrets::Secrets;
+use crate::sftp::Sftp;
 use crate::store::ServerStore;
 
 pub type SessionId = u64;
@@ -167,6 +170,8 @@ pub(crate) struct Shared {
     pub known_hosts: Arc<KnownHosts>,
     sessions: Mutex<HashMap<SessionId, mpsc::UnboundedSender<Command>>>,
     prompts: Mutex<HashMap<u64, oneshot::Sender<PromptReply>>>,
+    /// Connections of connected sessions, for extra channels such as SFTP.
+    live: Mutex<HashMap<SessionId, Live>>,
     next_session: AtomicU64,
     next_prompt: AtomicU64,
 }
@@ -190,6 +195,7 @@ impl SessionManager {
                 known_hosts,
                 sessions: Mutex::new(HashMap::new()),
                 prompts: Mutex::new(HashMap::new()),
+                live: Mutex::new(HashMap::new()),
                 next_session: AtomicU64::new(1),
                 next_prompt: AtomicU64::new(1),
             }),
@@ -276,6 +282,43 @@ impl SessionManager {
 
     pub fn remove_forward(&self, id: SessionId, forward_id: u64) -> Result<()> {
         self.send(id, Command::RemoveForward(forward_id))
+    }
+
+    /// The SFTP client of a connected session, opened on first use and kept until the
+    /// connection ends (a reconnected session opens a new one).
+    pub async fn sftp(&self, id: SessionId) -> Result<Arc<Sftp>> {
+        let (handle, cell) = {
+            let live = lock(&self.shared.live);
+            let entry = live
+                .get(&id)
+                .ok_or_else(|| Error::Disconnected(i18n::not_connected()))?;
+            (Arc::clone(&entry.handle), Arc::clone(&entry.sftp))
+        };
+        cell.get_or_try_init(|| async { Sftp::open(&handle).await.map(Arc::new) })
+            .await
+            .cloned()
+    }
+}
+
+/// A connected session's SSH connection.
+pub(crate) struct Live {
+    handle: Arc<Handle<ClientHandler>>,
+    sftp: Arc<tokio::sync::OnceCell<Arc<Sftp>>>,
+}
+
+impl Shared {
+    pub(crate) fn set_live(&self, id: SessionId, handle: Arc<Handle<ClientHandler>>) {
+        lock(&self.live).insert(
+            id,
+            Live {
+                handle,
+                sftp: Arc::default(),
+            },
+        );
+    }
+
+    pub(crate) fn clear_live(&self, id: SessionId) {
+        lock(&self.live).remove(&id);
     }
 }
 

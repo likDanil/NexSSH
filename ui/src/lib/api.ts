@@ -3,6 +3,8 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type {
   AppInfo,
+  Downloaded,
+  DownloadProgress,
   ForwardSpec,
   ImportReport,
   KeyInfo,
@@ -10,7 +12,10 @@ import type {
   Server,
   SessionEvent,
   Settings,
+  SftpEntry,
   StoreData,
+  TransferProgress,
+  UpdateInfo,
 } from './types';
 
 export type SessionMessage = SessionEvent | ArrayBuffer;
@@ -25,6 +30,7 @@ export const api = {
   appReady: () => invoke<void>('app_ready'),
   /** Language of backend messages (errors, connection progress). */
   setLanguage: (lang: string) => invoke<void>('app_set_language', { lang }),
+  setFullscreen: (fullscreen: boolean) => invoke<void>('window_set_fullscreen', { fullscreen }),
   keychainStatus: () => invoke<string | null>('keychain_status'),
   saveSettings: (settings: Settings) => invoke<void>('settings_set', { settings }),
 
@@ -48,6 +54,29 @@ export const api = {
   disconnect: (id: number) => invoke<void>('session_disconnect', { id }),
   close: (id: number) => invoke<void>('session_close', { id }),
   answer: (id: number, reply: PromptReply) => invoke<void>('prompt_answer', { id, reply }),
+
+  sftpHome: (sessionId: number) => invoke<string>('sftp_home', { sessionId }),
+  sftpResolve: (sessionId: number, path: string) => invoke<string>('sftp_resolve', { sessionId, path }),
+  sftpList: (sessionId: number, path: string) => invoke<SftpEntry[]>('sftp_list', { sessionId, path }),
+  sftpMkdir: (sessionId: number, path: string) => invoke<void>('sftp_mkdir', { sessionId, path }),
+  sftpRename: (sessionId: number, from: string, to: string) => invoke<void>('sftp_rename', { sessionId, from, to }),
+  sftpRemove: (sessionId: number, path: string) => invoke<void>('sftp_remove', { sessionId, path }),
+  /** Saves into the Downloads folder. */
+  sftpDownload: (sessionId: number, path: string, transferId: number, onProgress: Channel<TransferProgress>) =>
+    invoke<Downloaded>('sftp_download', { sessionId, path, transferId, onProgress }),
+  sftpUploadBegin: (sessionId: number, path: string, transferId: number) =>
+    invoke<void>('sftp_upload_begin', { sessionId, path, transferId }),
+  /** Raw bytes, no JSON encoding. */
+  sftpUploadChunk: (transferId: number, data: ArrayBuffer) =>
+    invoke<void>('sftp_upload_chunk', data, { headers: { 'x-transfer-id': String(transferId) } }),
+  sftpUploadEnd: (transferId: number) => invoke<void>('sftp_upload_end', { transferId }),
+  sftpCancel: (transferId: number) => invoke<void>('sftp_cancel', { transferId }),
+  revealDownload: (path: string) => invoke<void>('reveal_download', { path }),
+
+  updateCheck: () => invoke<UpdateInfo | null>('update_check'),
+  updateDownload: (onProgress: Channel<DownloadProgress>) => invoke<void>('update_download', { onProgress }),
+  /** Runs the installer; on Windows the app exits and the new version starts by itself. */
+  updateInstall: () => invoke<void>('update_install'),
 
   addForward: (sessionId: number, spec: ForwardSpec, saveTo?: string) =>
     invoke<void>('forward_add', { sessionId, spec, saveTo: saveTo ?? null }),

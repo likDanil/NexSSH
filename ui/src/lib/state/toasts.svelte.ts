@@ -1,18 +1,24 @@
 export type ToastKind = 'info' | 'success' | 'error';
 
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Toast {
   id: number;
   kind: ToastKind;
   text: string;
+  action?: ToastAction;
 }
 
 class Toasts {
   items = $state<Toast[]>([]);
   #next = 1;
 
-  show(text: string, kind: ToastKind = 'info', ms = 3600) {
+  show(text: string, kind: ToastKind = 'info', ms = 3600, action?: ToastAction) {
     const id = this.#next++;
-    this.items.push({ id, kind, text });
+    this.items.push({ id, kind, text, action });
     if (this.items.length > 4) this.items.shift();
     setTimeout(() => this.dismiss(id), kind === 'error' ? ms * 1.6 : ms);
   }

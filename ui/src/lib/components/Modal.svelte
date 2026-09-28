@@ -17,7 +17,9 @@
   onMount(() => {
     const previous = document.activeElement as HTMLElement | null;
     // Focus the first field (or the dialog itself) so Esc and Enter work right away.
-    const first = dialog.querySelector<HTMLElement>('[autofocus], input:not([type=hidden]), select, textarea, button');
+    const first =
+      dialog.querySelector<HTMLElement>('[autofocus]') ??
+      dialog.querySelector<HTMLElement>('input:not([type=hidden]), select, textarea, button');
     (first ?? dialog).focus();
     return () => previous?.focus?.();
   });

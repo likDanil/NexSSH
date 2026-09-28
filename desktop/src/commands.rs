@@ -1,5 +1,6 @@
 //! Tauri commands: the whole IPC surface between the webview and the Rust core.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use nexssh_core::i18n::{self, Lang};
@@ -21,6 +22,8 @@ use crate::sink::ChannelSink;
 pub struct AppState {
     pub core: Core,
     pub settings: Mutex<Settings>,
+    /// The window was maximized before entering full screen.
+    pub restore_maximized: AtomicBool,
 }
 
 /// Errors cross the IPC boundary as plain strings, ready to be shown to the user.
@@ -39,7 +42,7 @@ impl Serialize for CmdError {
     }
 }
 
-type CmdResult<T> = Result<T, CmdError>;
+pub type CmdResult<T> = Result<T, CmdError>;
 
 fn err<T>(msg: impl Into<String>) -> CmdResult<T> {
     Err(CmdError(msg.into()))
@@ -58,6 +61,8 @@ pub struct AppInfo {
     os: String,
     data_dir: String,
     settings: Value,
+    /// This build can update itself (see `updates.rs`).
+    updates: bool,
 }
 
 #[tauri::command]
@@ -74,6 +79,7 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         os,
         data_dir: state.core.data_dir.display().to_string(),
         settings,
+        updates: crate::updates::supported(),
     }
 }
 
@@ -96,6 +102,37 @@ pub fn app_set_language(lang: String) {
 pub async fn keychain_status(state: State<'_, AppState>) -> CmdResult<Option<String>> {
     let secrets = Arc::clone(&state.core.secrets);
     blocking(move || secrets.unavailable_reason()).await
+}
+
+/// Enters or leaves full screen.
+///
+/// On Windows a maximized borderless window keeps the monitor's work area as its client
+/// area even in full screen (tao checks "maximized" before "fullscreen" when sizing the
+/// client area), which leaves a strip at the bottom where the taskbar is. So the window
+/// leaves the maximized state first and gets it back when full screen ends.
+#[tauri::command]
+pub async fn window_set_fullscreen(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    fullscreen: bool,
+) -> CmdResult<()> {
+    if window.is_fullscreen()? == fullscreen {
+        return Ok(());
+    }
+    if fullscreen {
+        let maximized = cfg!(windows) && window.is_maximized()?;
+        state.restore_maximized.store(maximized, Ordering::Relaxed);
+        if maximized {
+            window.unmaximize()?;
+        }
+        window.set_fullscreen(true)?;
+    } else {
+        window.set_fullscreen(false)?;
+        if state.restore_maximized.swap(false, Ordering::Relaxed) {
+            window.maximize()?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

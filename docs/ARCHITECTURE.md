@@ -29,6 +29,7 @@ NexSSH/
 │   │   ├── ssh_config.rs ~/.ssh/config import
 │   │   ├── keys.rs       private key discovery/loading (OpenSSH, PEM, PKCS#8, PPK)
 │   │   ├── forward.rs    -L / -R / -D (SOCKS5) forwarding
+│   │   ├── sftp.rs       files over SFTP: list, mkdir, rename, delete, upload, download
 │   │   ├── i18n.rs       user-facing messages in every language
 │   │   └── session/
 │   │       ├── mod.rs    SessionManager, events, prompts
@@ -36,13 +37,15 @@ NexSSH/
 │   │       ├── auth.rs   agent, keys, passwords, keyboard-interactive
 │   │       ├── handler.rs russh callbacks (host key, banner, remote forwards)
 │   │       └── shell.rs  session task: PTY, I/O, reconnect loop
-│   └── tests/sshd.rs     integration tests against a real OpenSSH server
+│   └── tests/            integration tests against a real OpenSSH server (sshd.rs, sftp.rs)
 ├── desktop/              Tauri application ("nexssh" crate)
 │   ├── src/lib.rs        builder, window creation
-│   ├── src/commands.rs   every IPC command
+│   ├── src/commands.rs   IPC commands: servers, settings, sessions, window
+│   ├── src/sftp.rs       IPC commands of the files drawer, transfers
+│   ├── src/updates.rs    in-app updates (check, download, install)
 │   ├── src/sink.rs       EventSink → Tauri Channel
 │   ├── src/settings.rs   settings.json (UI-owned schema)
-│   ├── tauri.conf.json   bundle config (NSIS installer), CSP
+│   ├── tauri.conf.json   bundle config (NSIS installer), updater key, CSP
 │   └── capabilities/     window permissions
 ├── ui/                   Svelte 5 frontend (Vite)
 │   └── src/
@@ -55,7 +58,7 @@ NexSSH/
 │           ├── actions.ts user actions shared by menus, palette, shortcuts
 │           ├── i18n.svelte.ts t(), plurals, language detection
 │           ├── locales/  en.ts (reference), ru.ts
-│           ├── state/    app, servers, sessions, toasts (Svelte runes)
+│           ├── state/    app, servers, sessions, files, updates, toasts (Svelte runes)
 │           └── components/
 ├── scripts/              test-sshd.sh, icons.py
 └── .github/workflows/    ci.yml, release.yml
@@ -73,6 +76,7 @@ NexSSH/
 | `keys` | Finds keys in `~/.ssh`, reads public halves without the passphrase (OpenSSH format or `.pub`). |
 | `session` | One Tokio task per session. See below. |
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
+| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. |
 | `i18n` | Every user-facing message with all its translations; process-wide language set by the app. |
 
 ### Session lifecycle
@@ -115,9 +119,11 @@ the server rejects that attempt and authentication continues with the next metho
 App.svelte
 ├── Sidebar          logo, search, Servers / Quick Connect / Settings, groups, + Add Server, import
 │   └── ServerRow    status dot, name, host
-├── TabBar           tabs (status, title, close), +, ⋯ session menu, WindowControls (Windows)
+│   └── UpdateCard   new version: Download → progress → Install
+├── TabBar           tabs (status, title, close), +, files, ⋯ session menu, WindowControls (Windows)
 ├── TerminalPane ×N  one xterm per tab, kept alive while hidden (display: none)
 │   └── PromptCard   host key / password / passphrase / keyboard-interactive, over the terminal
+├── FilesDrawer      SFTP files of the active tab, right of the terminal (which narrows), transfers
 ├── Home             welcome screen or server overview when no tab is active
 ├── CommandPalette   Ctrl/Cmd+K: servers, tabs, actions, quick connect
 ├── ServerEditor     add/edit server (auth, key picker, jump host, forwards)
@@ -190,6 +196,11 @@ type SessionEvent =
   later keystrokes and pastes are batched, order is guaranteed.
 * **Prompts:** the core emits `Prompt { id, … }` and awaits a oneshot; the UI answers with
   `prompt_answer(id, reply)`. Abandoned prompts emit `promptClosed`.
+* **File transfers:** downloads run in the backend straight into the Downloads folder, with
+  progress on a `Channel` (at most every 100 ms). Uploads come from the webview's `File`
+  objects: `sftp_upload_begin`, then 1 MiB pieces as raw IPC bodies (`ArrayBuffer`, no JSON or
+  base64) with the transfer id in a header, then `sftp_upload_end`. A transfer id chosen by the
+  UI lets `sftp_cancel` stop either kind; a cancelled upload deletes its partial file.
 * **Start-up:** the window is created in Rust with the saved theme's background colour;
   an inline script applies the last theme before first paint; `xterm.js` is a lazy chunk
   loaded with the first session.
@@ -199,6 +210,8 @@ type SessionEvent =
 | Need | Choice | Why |
 | --- | --- | --- |
 | SSH | **russh** (ring backend) | Pure Rust, async (Tokio, like Tauri), actively maintained, used in production (e.g. Warpgate). No OpenSSL/libssh2 C toolchain, trivial Windows builds. Supports agent (incl. Pageant and Windows named pipes), certificates, keyboard-interactive, direct-tcpip, remote forwarding. `ring` instead of the default `aws-lc-rs` avoids CMake/NASM on Windows. |
+| SFTP | **russh-sftp** | The SFTP client of the russh ecosystem: runs on a channel of the existing connection, pipelines reads and writes (fast on high-latency links). |
+| Updates | **tauri-plugin-updater** | Minisign-verified updates from a static `latest.json`; runs the NSIS installer silently. Built with rustls on `ring` (no OpenSSL, no second crypto backend). |
 | Keychain | **keyring-core** + native stores | Windows Credential Manager, macOS Keychain, Secret Service. Linking the stores directly (instead of `keyring`'s all-in-one feature) avoids the zbus async stack. |
 | GUI shell | **Tauri 2** | System webview (WebView2 / WKWebView / WebKitGTK): a few MB installer, no bundled Chromium, far lower RAM than Electron. |
 | UI | **Svelte 5** | Compiles to small vanilla JS; runes give fine-grained reactivity without a virtual DOM. |
@@ -222,7 +235,11 @@ fuzzy-search libraries (30 lines in `fuzzy.ts`), dialog/clipboard/shell plugins
 * Host keys: NexSSH writes only its own `known_hosts`; the user's `~/.ssh/known_hosts` is
   read-only. A changed key shows a warning with both fingerprints; cancel is the default.
 * The webview runs with a strict CSP (no remote content, no `eval`), and only the window
-  permissions needed for the custom title bar are granted.
+  permissions needed for the custom title bar are granted. The updater plugin's own
+  commands are not granted either: the UI can only use NexSSH's commands.
+* Updates run only if their minisign signature matches the public key built into the app
+  (`plugins.updater.pubkey`); the private key exists only as a GitHub Actions secret.
+* "Show in folder" opens only files this run of the app downloaded itself.
 
 ## Languages
 
@@ -252,11 +269,20 @@ The interface is available in English and Russian; the default follows the syste
   setting makes it work inside too. macOS uses `⌘`.
 * **Custom title bar on Windows** (tabs live in the title bar, like Windows Terminal),
   overlay title bar on macOS, native decorations on Linux.
+* **Full screen goes through Rust** (`window_set_fullscreen`). On Windows an undecorated
+  window that is maximized keeps the maximized client area (the work area, taskbar
+  excluded) even in full screen, which left a strip at the bottom. The command un-maximizes
+  before entering full screen and maximizes again on leaving it.
+* **Updates are Windows-only** (the only published installer), in two explicit steps:
+  *Download* in the background, then *Install*, which closes the sessions, runs the installer
+  silently (`installMode: quiet`: no windows, no UAC prompt since it installs per user) and
+  restarts NexSSH. A check runs 5 s after start-up and every 6 hours (can be turned off).
+* **One SFTP channel per connection,** opened lazily: sessions that never open the files
+  drawer cost nothing, and there is no second login or prompt.
 
 ## Extending
 
-* **SFTP:** `russh-sftp` on a new channel of the existing connection (`handle.channel_open_session()`
-  + `request_subsystem("sftp")`); expose it as a drawer over the terminal.
+* **Folder uploads:** walk dropped folders (`webkitGetAsEntry`) and reuse the upload commands.
 * **Snippets / history / sync:** new modules in `core` behind their own stores.
 * **Split panes:** several `TerminalPane`s per tab; sessions are already independent.
 * **Themes:** a theme is a block of CSS variables in `app.css` plus an xterm palette in

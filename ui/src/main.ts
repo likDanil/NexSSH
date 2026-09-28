@@ -4,6 +4,7 @@ import App from './App.svelte';
 import { api } from './lib/api';
 import { app } from './lib/state/app.svelte';
 import { servers } from './lib/state/servers.svelte';
+import { updates } from './lib/state/updates.svelte';
 
 // Sessions of a previous page instance (e.g. after a reload) cannot be reattached.
 void api.appReady().catch(() => {});
@@ -11,6 +12,7 @@ void api.appReady().catch(() => {});
 await Promise.all([app.init(), servers.load()]);
 
 mount(App, { target: document.getElementById('app')! });
+updates.start();
 
 // The default context menu of the webview ("Reload", "Inspect") is not useful here;
 // text fields keep theirs.
