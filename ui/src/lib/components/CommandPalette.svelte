@@ -62,8 +62,8 @@
   }
 
   function actionList(): Action[] {
-    const languages: { id: LanguageSetting; name: string }[] = [
-      { id: 'system', name: t('settings.languageSystem') },
+    const languages: { id: LanguageSetting; name: string; english: string }[] = [
+      { id: 'system', name: t('settings.languageSystem'), english: tEn('settings.languageSystem') },
       ...LANGUAGES,
     ];
     const out: Action[] = [
@@ -91,7 +91,7 @@
       ...languages.map((l) => ({
         label: t('palette.language', { name: l.name }),
         icon: 'globe',
-        keywords: `${t('palette.language.keywords')} ${tEn('palette.language', { name: l.id })}`,
+        keywords: `${t('palette.language.keywords')} ${tEn('palette.language', { name: l.english })}`,
         run: () => app.update({ language: l.id }),
       })),
     ];

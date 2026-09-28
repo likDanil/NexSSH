@@ -12,10 +12,10 @@ import type { PluralForms } from './locales/types';
 export type Lang = 'en' | 'ru';
 export type LanguageSetting = 'system' | Lang;
 
-/** Languages offered in Settings, named in their own language. */
-export const LANGUAGES: { id: Lang; name: string }[] = [
-  { id: 'en', name: 'English' },
-  { id: 'ru', name: 'Русский' },
+/** Languages offered in Settings, named in their own language (and in English, for search). */
+export const LANGUAGES: { id: Lang; name: string; english: string }[] = [
+  { id: 'en', name: 'English', english: 'English' },
+  { id: 'ru', name: 'Русский', english: 'Russian' },
 ];
 
 type En = typeof en;
