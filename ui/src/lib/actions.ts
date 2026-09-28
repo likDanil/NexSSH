@@ -170,5 +170,10 @@ export function presetFromDestination(input: string): Partial<Server> {
 export function looksLikeDestination(q: string): boolean {
   const s = q.trim();
   if (!s || /\s/.test(s)) return false;
-  return /@/.test(s) || /:\d+$/.test(s) || /^[\w-]+(\.[\w-]+)+$/.test(s) || /^\[?[0-9a-f:]+\]?$/i.test(s);
+  return (
+    /@/.test(s) || // user@host
+    /:\d+$/.test(s) || // host:port
+    /^[\w-]+(\.[\w-]+)+$/.test(s) || // example.com, 10.0.0.1
+    /^\[?[0-9a-f]*:[0-9a-f:]+\]?$/i.test(s) // IPv6 (needs a colon; "dead" is not an address)
+  );
 }

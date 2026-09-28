@@ -41,7 +41,10 @@
     <span class="name">{s.name}</span>
     <span class="addr">{destination(s)}</span>
     <span class="meta">
-      {#if s.jumpHost}<span class="tag" title="Jump host: {s.jumpHost}">via {s.jumpHost}</span>{/if}
+      {#if s.jumpHost}
+        {@const jump = servers.byId.get(s.jumpHost)?.name ?? s.jumpHost}
+        <span class="tag" title="Jump host: {jump}">via {jump}</span>
+      {/if}
       <span class="tag">{AUTH_LABEL[s.auth]}</span>
     </span>
     <span class="when">{ago(s.lastUsed)}</span>
