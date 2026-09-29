@@ -318,7 +318,7 @@ messages! {
         en: "could not start a shell: {error}",
         ru: "не удалось запустить командную оболочку: {error}",
     }
-    fn exit_code(code: u32) {
+    fn exit_code(code: impl Display) {
         en: "exit code {code}",
         ru: "код выхода {code}",
     }
@@ -513,6 +513,51 @@ messages! {
     fn update_not_downloaded() {
         en: "the update has not been downloaded yet",
         ru: "обновление ещё не скачано",
+    }
+
+    // ---- local terminals -------------------------------------------------------------
+
+    fn program_not_found(program: &str) {
+        en: "{program} was not found",
+        ru: "не найдено: {program}",
+    }
+    fn local_start_failed(program: &str, error: impl Display) {
+        en: "cannot start {program}: {error}",
+        ru: "не удалось запустить {program}: {error}",
+    }
+    fn command_empty() {
+        en: "no command to start",
+        ru: "не указана команда для запуска",
+    }
+    fn process_exited(how: &str) {
+        en: "Process exited ({how})",
+        ru: "Процесс завершён ({how})",
+    }
+    fn process_ended() {
+        en: "Process ended",
+        ru: "Процесс завершён",
+    }
+    fn process_stopped() {
+        en: "Process stopped",
+        ru: "Процесс остановлен",
+    }
+    fn local_no_forwarding() {
+        en: "port forwarding works in SSH sessions only",
+        ru: "проброс портов работает только в SSH-сеансах",
+    }
+    fn shell_not_installed(id: &str) {
+        en: "the shell {id} is not installed",
+        ru: "оболочка {id} не установлена",
+    }
+    /// The file type filter of the dialog choosing a custom shell (Windows).
+    fn programs_filter() {
+        en: "Programs",
+        ru: "Программы",
+    }
+    /// The item in the context menu of folders in Windows Explorer.
+    fn explorer_menu_label() {
+        en: "Open with NexSSH",
+        ru: "Открыть через NexSSH",
     }
 
     // ---- files and storage -----------------------------------------------------------

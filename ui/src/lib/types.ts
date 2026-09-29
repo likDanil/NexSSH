@@ -80,6 +80,27 @@ export type SessionEvent =
   | { type: 'promptClosed'; id: number }
   | { type: 'forwards'; forwards: ForwardInfo[] };
 
+/** What a local shell is; mirrors `ShellKind` in core/src/local.rs. */
+export type ShellKind = 'pwsh' | 'windowsPowerShell' | 'cmd' | 'wsl' | 'gitBash' | 'unix';
+
+/** A shell found on this computer for local terminals. */
+export interface ShellProfile {
+  /** `pwsh`, `powershell`, `cmd`, `git-bash`, `wsl:<distribution>` or a Unix shell's path. */
+  id: string;
+  kind: ShellKind;
+  /** English name; for WSL the distribution, for Unix shells the file name. */
+  name: string;
+  program: string;
+  args: string[];
+  default: boolean;
+}
+
+export interface LocalShells {
+  shells: ShellProfile[];
+  /** Windows' build number: xterm.js adapts to ConPTY by it. */
+  windowsBuild?: number | null;
+}
+
 export interface KeyInfo {
   path: string;
   keyType: string;
@@ -122,6 +143,12 @@ export interface Settings {
   filesWidth: number;
   filesSort: FilesSort;
   filesSortDesc: boolean;
+  /** Local terminals: '' for the default shell, a shell's id, or 'custom' for `localShellCommand`. */
+  localShell: string;
+  /** The command line of the custom shell. */
+  localShellCommand: string;
+  /** Windows: "Open with NexSSH" in the context menu of folders in Explorer. */
+  explorerMenu: boolean;
   /** Look for a new version at start-up and every few hours. */
   autoUpdateCheck: boolean;
   /** The version that last ran, to say "updated to …" once after an update. */

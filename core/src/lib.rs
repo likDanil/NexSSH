@@ -6,6 +6,7 @@
 //! * [`ssh_config`] — import from `~/.ssh/config`
 //! * [`keys`] — local private key discovery and loading
 //! * [`session`] — interactive SSH sessions (jump hosts, auth, PTY, reconnect)
+//! * [`local`] — shells on this computer, run in local terminals like sessions
 //! * [`forward`] — local/remote/dynamic port forwarding
 //! * [`sftp`] — files over SFTP on a session's connection
 //! * [`i18n`] — user-facing messages and their translations
@@ -18,6 +19,7 @@ pub mod forward;
 pub mod i18n;
 pub mod keys;
 pub mod known_hosts;
+pub mod local;
 pub mod model;
 pub mod secrets;
 pub mod session;
@@ -30,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use error::{Error, Result};
+pub use local::{LocalCommand, ShellKind, ShellProfile};
 pub use model::{AuthKind, Destination, ForwardKind, ForwardSpec, PtySize, Server};
 pub use session::{
     EventSink, KbdPrompt, LogLevel, Prompt, PromptReply, SessionEvent, SessionId, SessionManager,

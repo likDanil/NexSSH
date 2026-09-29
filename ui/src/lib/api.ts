@@ -1,6 +1,7 @@
 // Typed wrappers around Tauri IPC. This is the only module that talks to the backend.
 
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type {
   AppInfo,
   Downloaded,
@@ -8,6 +9,7 @@ import type {
   ForwardSpec,
   ImportReport,
   KeyInfo,
+  LocalShells,
   PickedUpload,
   PromptReply,
   Server,
@@ -30,9 +32,19 @@ export interface ServerSecrets {
   clearJumpPassword?: boolean;
 }
 
+/** A local terminal: a shell of `localShells`, or a command line, started in `cwd`. */
+export interface LocalTarget {
+  /** The default shell when neither this nor `command` is set. */
+  profile?: string;
+  command?: string;
+  /** The home folder when not set. */
+  cwd?: string;
+}
+
 export interface OpenTarget {
   serverId?: string;
   destination?: string;
+  local?: LocalTarget;
 }
 
 export const api = {
@@ -73,6 +85,19 @@ export const api = {
   disconnect: (id: number) => invoke<void>('session_disconnect', { id }),
   close: (id: number) => invoke<void>('session_close', { id }),
   answer: (id: number, reply: PromptReply) => invoke<void>('prompt_answer', { id, reply }),
+
+  localShells: () => invoke<LocalShells>('local_shells'),
+  /** A local terminal; afterwards it is a session like an SSH one (write, resize, close…). */
+  openLocal: (target: LocalTarget, cols: number, rows: number, onEvent: Channel<SessionMessage>) =>
+    invoke<number>('local_open', { target, cols, rows, onEvent }),
+  /** The system file dialog for the program of a custom shell; `null` when cancelled. */
+  pickProgram: (title: string) => invoke<string | null>('pick_program', { title }),
+  /** Windows: adds or removes "Open with NexSSH" in Explorer, labelled in the backend's language. */
+  setExplorerMenu: (enabled: boolean) => invoke<void>('explorer_menu', { enabled }),
+  /** Folders to open local terminals in, asked for with `--cwd` (e.g. from Explorer). */
+  launchTake: () => invoke<string[]>('launch_take'),
+  /** NexSSH was started again with `--cwd`: `launchTake` has new folders. */
+  onLaunch: (handler: () => void) => listen('launch', handler),
 
   sftpHome: (sessionId: number) => invoke<string>('sftp_home', { sessionId }),
   sftpResolve: (sessionId: number, path: string) => invoke<string>('sftp_resolve', { sessionId, path }),

@@ -9,6 +9,7 @@
     keys,
     looksLikeDestination,
     openForwards,
+    openLocalTerminal,
     openSettings,
     presetFromDestination,
     showHome,
@@ -22,6 +23,7 @@
   import { app } from '../state/app.svelte';
   import { destination, servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
+  import { shellName, shells } from '../state/shells.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
   import Icon from './Icon.svelte';
@@ -79,10 +81,27 @@
         { icon: 'zap', hint: keys.newSession(), stay: true, run: () => app.openPalette('connect') },
         'palette.newSession.keywords',
       ),
+      action(
+        'palette.localTerminal',
+        { icon: 'terminal', hint: keys.localTerminal(), run: () => openLocalTerminal() },
+        'palette.localTerminal.keywords',
+      ),
+      // Every shell when there is a choice (PowerShell, cmd, WSL…).
+      ...(shells.list.length > 1
+        ? shells.list.map((shell) =>
+            action('palette.localShell', { icon: 'terminal', run: () => openLocalTerminal(shell) }, undefined, {
+              name: shellName(shell),
+            }),
+          )
+        : []),
       action('palette.addServer', { icon: 'plus', run: () => addServer() }, 'palette.addServer.keywords'),
       action('palette.import', { icon: 'import', run: importSshConfig }, 'palette.import.keywords'),
       action('palette.showServers', { icon: 'server', run: showHome }, 'palette.showServers.keywords'),
-      action('palette.settings', { icon: 'settings', hint: keys.settings(), run: openSettings }, 'palette.settings.keywords'),
+      action(
+        'palette.settings',
+        { icon: 'settings', hint: keys.settings(), run: () => openSettings() },
+        'palette.settings.keywords',
+      ),
       action('palette.toggleSidebar', { icon: 'sidebar', hint: keys.sidebar(), run: toggleSidebar }),
       action(
         'palette.toggleFullscreen',
@@ -114,7 +133,18 @@
       out.push(action('update.check', { icon: 'update', run: () => void updates.check(true) }, 'palette.update.keywords'));
     }
     const tab = sessions.active;
-    if (tab) {
+    if (tab?.kind === 'local') {
+      out.unshift(
+        tab.status === 'disconnected'
+          ? action('session.restart', { icon: 'refresh', hint: keys.reconnect(), run: () => sessions.reconnect(tab) }, 'palette.restart.keywords')
+          : action('session.stop', { icon: 'power', run: () => sessions.disconnect(tab) }, 'palette.stop.keywords'),
+      );
+      out.push(
+        action('session.duplicate', { icon: 'duplicate', run: () => sessions.duplicate(tab) }, 'palette.duplicate.keywords'),
+        action('session.clear', { icon: 'eraser', run: () => sessions.clear(tab) }, 'palette.clear.keywords'),
+        action('session.closeTab', { icon: 'x', hint: keys.closeTab(), run: () => closeTab(tab) }),
+      );
+    } else if (tab) {
       const server = tab.serverId ? servers.byId.get(tab.serverId) : undefined;
       out.unshift(
         tab.status === 'disconnected'

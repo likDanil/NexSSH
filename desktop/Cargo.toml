@@ -27,3 +27,7 @@ log.workspace = true
 zeroize = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-single-instance = "2"
+
+[target.'cfg(windows)'.dependencies]
+# "Open with NexSSH" in Explorer's context menu for folders (explorer.rs).
+winreg = "0.55"

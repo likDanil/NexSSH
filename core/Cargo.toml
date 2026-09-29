@@ -26,9 +26,17 @@ sha1 = "0.11"
 data-encoding = "2"
 # OS credential storage (Keychain / Credential Manager / Secret Service).
 keyring-core = "1"
+# Pseudo-terminals for local shells (ConPTY on Windows); WezTerm's, widely used.
+portable-pty = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = "1"
+# Finding shells: WSL distributions and Git for Windows are registered in the registry.
+winreg = "0.55"
+
+[target.'cfg(unix)'.dependencies]
+# SIGKILL for a program in a local terminal that ignores the hang-up signal.
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }

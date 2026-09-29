@@ -1,16 +1,23 @@
-// Open tabs and their SSH sessions. Terminals register themselves here; output from the
-// backend is written straight into them (never through reactive state).
+// Open tabs and their sessions: SSH connections and local terminals, which the backend drives
+// the same way. Terminals register themselves here; output from the backend is written
+// straight into them (never through reactive state).
 
-import { api, Channel, errorMessage, type OpenTarget, type SessionMessage } from '../api';
+import { api, Channel, errorMessage, type LocalTarget, type OpenTarget, type SessionMessage } from '../api';
 import { t } from '../i18n.svelte';
-import type { ForwardInfo, Prompt, PromptReply, Server, SessionEvent } from '../types';
+import type { ForwardInfo, Prompt, PromptReply, Server, SessionEvent, ShellProfile } from '../types';
+import { app } from './app.svelte';
 import { destination } from './servers.svelte';
+import { CUSTOM_SHELL, commandName, missingShellName, shellName, shells } from './shells.svelte';
 import { toasts } from './toasts.svelte';
 
 export type TabStatus = 'connecting' | 'connected' | 'disconnected';
 
+/** An SSH session, or a local terminal (a shell on this computer: "connected" means running). */
+export type TabKind = 'ssh' | 'local';
+
 export interface Tab {
   key: string;
+  kind: TabKind;
   sessionId: number | null;
   serverId: string | null;
   target: OpenTarget;
@@ -71,6 +78,13 @@ function sentence(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** The last part of a path, for a tab's title (a drive's root stays `C:\`). */
+function folderName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '');
+  if (/^[A-Za-z]:$/.test(trimmed)) return `${trimmed}\\`;
+  return trimmed.split(/[\\/]/).pop() || path;
+}
+
 class SessionsState {
   tabs = $state<Tab[]>([]);
   activeKey = $state<string | null>(null);
@@ -99,7 +113,7 @@ class SessionsState {
   }
 
   openServer(server: Server) {
-    this.#open({ serverId: server.id }, server.name, destination(server), server.id);
+    this.#open('ssh', { serverId: server.id }, server.name, destination(server), server.id);
   }
 
   /** Focuses an existing tab of the server, or opens a new session. */
@@ -114,16 +128,49 @@ class SessionsState {
     const d = dest.trim();
     // The tab shows just the host; the full destination is in the tooltip.
     const host = d.replace(/^ssh:\/\//, '').replace(/^.*@/, '').replace(/^\[([^\]]+)\].*$/, '$1').replace(/:\d+$/, '');
-    this.#open({ destination: d }, host || d, d, null);
+    this.#open('ssh', { destination: d }, host || d, d, null);
+  }
+
+  /**
+   * Opens a local terminal: `shell`, else the one the settings choose; in `cwd`, else in the
+   * home folder. Opened in a folder, the tab is named after it.
+   */
+  async openLocal(options: { shell?: ShellProfile; cwd?: string } = {}) {
+    await shells.load();
+    const setting = app.settings.localShell;
+    const custom = app.settings.localShellCommand.trim();
+    let target: LocalTarget;
+    let name: string;
+    if (options.shell) {
+      target = { profile: options.shell.id };
+      name = shellName(options.shell);
+    } else if (setting === CUSTOM_SHELL && custom) {
+      target = { command: custom };
+      name = commandName(custom);
+    } else {
+      const chosen = setting && setting !== CUSTOM_SHELL ? shells.byId(setting) : undefined;
+      // Without a list (it could not be read) the backend starts its default shell.
+      const shell = chosen ?? shells.default;
+      if (!chosen && shell && setting && setting !== CUSTOM_SHELL) {
+        toasts.error(t('local.missing', { name: missingShellName(setting), fallback: shellName(shell) }));
+      }
+      target = shell ? { profile: shell.id } : {};
+      name = shell ? shellName(shell) : t('nav.localTerminal');
+    }
+    if (options.cwd) target.cwd = options.cwd;
+    const title = options.cwd ? folderName(options.cwd) : name;
+    const subtitle = options.cwd ? `${name} · ${options.cwd}` : name;
+    this.#open('local', { local: target }, title, subtitle, null);
   }
 
   duplicate(tab: Tab) {
-    this.#open({ ...tab.target }, tab.title, tab.subtitle, tab.serverId);
+    this.#open(tab.kind, $state.snapshot(tab.target), tab.title, tab.subtitle, tab.serverId);
   }
 
-  #open(target: OpenTarget, title: string, subtitle: string, serverId: string | null) {
+  #open(kind: TabKind, target: OpenTarget, title: string, subtitle: string, serverId: string | null) {
     const tab: Tab = {
       key: `t${++counter}`,
+      kind,
       sessionId: null,
       serverId,
       target,
@@ -139,7 +186,7 @@ class SessionsState {
     this.activeKey = tab.key;
   }
 
-  /** Called by a terminal view once it is mounted and sized: starts the SSH session. */
+  /** Called by a terminal view once it is mounted and sized: starts the session. */
   async start(key: string, terminal: TerminalSink, cols: number, rows: number) {
     terminals.set(key, terminal);
     const tab = this.get(key);
@@ -147,7 +194,10 @@ class SessionsState {
     const channel = new Channel<SessionMessage>();
     channel.onmessage = (msg) => this.#onMessage(key, msg);
     try {
-      const id = await api.openSession($state.snapshot(tab.target), cols, rows, channel);
+      const target = $state.snapshot(tab.target);
+      const id = target.local
+        ? await api.openLocal(target.local, cols, rows, channel)
+        : await api.openSession(target, cols, rows, channel);
       const current = this.get(key);
       if (!current) {
         void api.close(id);
@@ -224,7 +274,8 @@ class SessionsState {
     }
   }
 
-  /** Keyboard input from the terminal. Enter reconnects a disconnected session. */
+  /** Keyboard input from the terminal. Enter reconnects a disconnected session (or starts a
+   * local terminal's shell again). */
   input(key: string, data: string) {
     const tab = this.get(key);
     if (!tab || tab.sessionId == null) return;

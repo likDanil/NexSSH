@@ -51,6 +51,7 @@ const en = {
   'nav.servers': 'Servers',
   'nav.quickConnect': 'Quick Connect',
   'nav.settings': 'Settings',
+  'nav.localTerminal': 'Local terminal',
   'sidebar.search': 'Search servers',
   'sidebar.clearSearch': 'Clear search',
   'sidebar.noMatches': 'No servers match “{query}”.',
@@ -105,10 +106,19 @@ const en = {
   'session.closeTab': 'Close tab',
   'session.menu': 'Session…',
   'session.files': 'Files (SFTP)',
+  'session.restart': 'Restart',
+  'session.stop': 'Stop',
+  'session.terminalSettings': 'Terminal settings…',
 
   'tabs.showSidebar': 'Show sidebar',
   'tabs.newSession': 'New session',
   'tabs.sessionActions': 'Session actions',
+  'tabs.newTabMenu': 'New tab…',
+  'tabs.newConnection': 'New connection…',
+
+  // ---- local terminals -------------------------------------------------------------
+  'local.cmd': 'Command Prompt',
+  'local.missing': '{name} is not installed; opened {fallback}',
 
   'terminal.copy': 'Copy',
   'terminal.paste': 'Paste',
@@ -141,6 +151,7 @@ const en = {
   'home.addServer': 'Add server',
   'home.importConfig': 'Import ~/.ssh/config',
   'home.quickConnect': 'Quick connect',
+  'home.localTerminal': 'Local terminal',
   'home.paletteHint': 'Press {keys} anytime to search servers and run commands.',
   'home.title': 'Servers',
   'home.summary': {
@@ -151,7 +162,8 @@ const en = {
   'home.recent': 'Recent',
   'home.jumpHost': 'Jump host: {name}',
   'home.via': 'via {name}',
-  'home.shortcuts': '{palette} command palette · {newSession} new session · {settings} settings',
+  'home.shortcuts':
+    '{palette} command palette · {newSession} new session · {local} local terminal · {settings} settings',
 
   // ---- command palette -------------------------------------------------------------
   'palette.label': 'Command palette',
@@ -192,6 +204,11 @@ const en = {
   'palette.duplicate.keywords': 'clone new tab',
   'palette.clear.keywords': 'reset screen',
   'palette.editConnection': 'Edit connection settings…',
+  'palette.localTerminal': 'New local terminal',
+  'palette.localTerminal.keywords': 'shell console command line powershell cmd bash zsh wsl this computer',
+  'palette.localShell': 'Local terminal: {name}',
+  'palette.restart.keywords': 'start again shell process',
+  'palette.stop.keywords': 'end kill process shell',
 
   // ---- server editor ---------------------------------------------------------------
   'editor.titleNew': 'New server',
@@ -387,6 +404,17 @@ const en = {
   'settings.rightClickCopyPaste': 'Copy / Paste',
   'settings.gpu': 'GPU rendering',
   'settings.gpuHint': 'WebGL renderer: lower CPU usage on heavy output.',
+  'settings.localShell': 'Local terminal shell',
+  'settings.localShellHint': 'Also for “Open with NexSSH” in Explorer.',
+  'settings.shellDefault': 'Default — {name}',
+  'settings.shellCustom': 'Custom…',
+  'settings.shellMissing': '{name} (not installed)',
+  'settings.shellCommand': 'Command',
+  'settings.shellCommandHint': 'A program and its arguments; put a path with spaces in quotes.',
+  'settings.shellPick': 'Choose a shell',
+  'settings.explorerMenu': '“Open with NexSSH” in Explorer',
+  'settings.explorerMenuHint':
+    'Opens a local terminal in a folder from its context menu. Windows 11 lists it under “Show more options”.',
   'settings.ctrlK': 'Ctrl+K opens the palette inside the terminal',
   'settings.ctrlKHint':
     'Off by default: in the shell Ctrl+K deletes to the end of the line (and cuts in nano). Ctrl+Shift+K always opens the palette.',
@@ -410,6 +438,7 @@ const en = {
   'shortcut.sidebar': 'Toggle sidebar',
   'shortcut.fullscreen': 'Full screen',
   'shortcut.settings': 'Settings',
+  'shortcut.localTerminal': 'Local terminal',
   'shortcut.copyPaste': 'Copy / paste',
 } satisfies Messages;
 

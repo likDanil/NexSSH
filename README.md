@@ -35,6 +35,11 @@
 * Jump hosts (including chains): a saved server, or an address with its own login and
   password (kept in the keychain like the others); keepalive, connection timeouts, custom ports.
 * Port forwarding: local (`-L`), remote (`-R`) and SOCKS5 (`-D`), optionally saved per server.
+* **Local terminal** in the same tabs as SSH sessions: PowerShell, Command Prompt, WSL
+  distributions, Git Bash — or any shell or command of your choice (*Settings → Terminal*).
+  <kbd>Ctrl+Shift+&#96;</kbd>, the menu next to **+**, the sidebar or the palette; <kbd>Enter</kbd>
+  starts it again after it exits. On Windows, **Open with NexSSH** in Explorer's menu for
+  folders opens one right in that folder (Windows 11 lists it under *Show more options*).
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
   upload files and whole folders (buttons, or drag & drop — onto a folder in the list to
   put them there), download into *Downloads* or any folder, several at once with
@@ -72,6 +77,7 @@ version 0.1.0 predates in-app updates, so install the next version over it once 
 | --- | --- | --- |
 | Command palette | <kbd>Ctrl+Shift+K</kbd> (<kbd>Ctrl+K</kbd> outside the terminal) | <kbd>⌘K</kbd> |
 | New session / quick connect | <kbd>Ctrl+Shift+T</kbd> | <kbd>⌘T</kbd> |
+| Local terminal | <kbd>Ctrl+Shift+&#96;</kbd> | <kbd>⌃⇧&#96;</kbd> |
 | Close tab | <kbd>Ctrl+Shift+W</kbd> | <kbd>⌘W</kbd> |
 | Next / previous tab | <kbd>Ctrl+Tab</kbd> / <kbd>Ctrl+Shift+Tab</kbd> | <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd> |
 | Go to tab 1–9 | <kbd>Ctrl+1…9</kbd> | <kbd>⌘1…9</kbd> |
@@ -84,7 +90,8 @@ version 0.1.0 predates in-app updates, so install the next version over it once 
 
 On Windows and Linux plain <kbd>Ctrl+K</kbd>, <kbd>Ctrl+W</kbd>, <kbd>Ctrl+R</kbd> and <kbd>Ctrl+B</kbd>
 are left to the shell (kill line, delete word, history search, tmux). A setting lets
-<kbd>Ctrl+K</kbd> open the palette inside the terminal too.
+<kbd>Ctrl+K</kbd> open the palette inside the terminal too. Shortcuts work with any keyboard
+layout: with a Cyrillic one, <kbd>Ctrl+Shift+K</kbd> is the same key as on a US keyboard.
 
 ## Build from source
 
@@ -133,6 +140,9 @@ Useful environment variables:
 | `NEXSSH_LOG` | Log level: `error`, `warn`, `info`, `debug`, `trace`. |
 | `NEXSSH_UI_OS` | Preview another platform's window chrome (`windows`, `macos`, `linux`). |
 | `NEXSSH_UPDATE_URL` | Read updates from another `latest.json` (testing; `http://` only in debug builds). |
+
+`NexSSH --cwd <folder>` opens a local terminal in that folder (in the running window, if
+NexSSH is already open); it is what *Open with NexSSH* in Explorer runs.
 
 **Data folder:** `%APPDATA%\NexSSH` (Windows), `~/Library/Application Support/NexSSH` (macOS),
 `~/.config/nexssh` (Linux). It holds `servers.json`, `settings.json` and `known_hosts` —

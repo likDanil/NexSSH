@@ -51,6 +51,7 @@ const ru: Catalog = {
   'nav.servers': 'Серверы',
   'nav.quickConnect': 'Подключиться',
   'nav.settings': 'Настройки',
+  'nav.localTerminal': 'Локальный терминал',
   'sidebar.search': 'Поиск серверов',
   'sidebar.clearSearch': 'Очистить поиск',
   'sidebar.noMatches': 'Нет серверов по запросу «{query}».',
@@ -115,10 +116,19 @@ const ru: Catalog = {
   'session.closeTab': 'Закрыть вкладку',
   'session.menu': 'Сеанс…',
   'session.files': 'Файлы (SFTP)',
+  'session.restart': 'Перезапустить',
+  'session.stop': 'Остановить',
+  'session.terminalSettings': 'Настройки терминала…',
 
   'tabs.showSidebar': 'Показать боковую панель',
   'tabs.newSession': 'Новый сеанс',
   'tabs.sessionActions': 'Действия с сеансом',
+  'tabs.newTabMenu': 'Новая вкладка…',
+  'tabs.newConnection': 'Новое подключение…',
+
+  // ---- локальные терминалы -------------------------------------------------------
+  'local.cmd': 'Командная строка',
+  'local.missing': '«{name}» не найдена — открыта «{fallback}»',
 
   'terminal.copy': 'Копировать',
   'terminal.paste': 'Вставить',
@@ -152,6 +162,7 @@ const ru: Catalog = {
   'home.addServer': 'Добавить сервер',
   'home.importConfig': 'Импорт ~/.ssh/config',
   'home.quickConnect': 'Быстрое подключение',
+  'home.localTerminal': 'Локальный терминал',
   'home.paletteHint': 'Нажмите {keys} в любой момент, чтобы искать серверы и выполнять команды.',
   'home.title': 'Серверы',
   'home.summary': {
@@ -164,7 +175,8 @@ const ru: Catalog = {
   'home.recent': 'Недавние',
   'home.jumpHost': 'Jump-хост: {name}',
   'home.via': 'через {name}',
-  'home.shortcuts': '{palette} палитра команд · {newSession} новый сеанс · {settings} настройки',
+  'home.shortcuts':
+    '{palette} палитра команд · {newSession} новый сеанс · {local} локальный терминал · {settings} настройки',
 
   // ---- палитра команд --------------------------------------------------------------
   'palette.label': 'Палитра команд',
@@ -205,6 +217,11 @@ const ru: Catalog = {
   'palette.duplicate.keywords': 'клонировать новая вкладка',
   'palette.clear.keywords': 'сбросить экран',
   'palette.editConnection': 'Изменить параметры подключения…',
+  'palette.localTerminal': 'Новый локальный терминал',
+  'palette.localTerminal.keywords': 'оболочка консоль командная строка этот компьютер',
+  'palette.localShell': 'Локальный терминал: {name}',
+  'palette.restart.keywords': 'запустить снова оболочка процесс',
+  'palette.stop.keywords': 'завершить процесс оболочка',
 
   // ---- редактор сервера ------------------------------------------------------------
   'editor.titleNew': 'Новый сервер',
@@ -437,6 +454,17 @@ const ru: Catalog = {
   'settings.rightClickCopyPaste': 'Копировать / вставить',
   'settings.gpu': 'Отрисовка на GPU',
   'settings.gpuHint': 'WebGL-рендерер: меньше нагрузка на процессор при большом объёме вывода.',
+  'settings.localShell': 'Оболочка локального терминала',
+  'settings.localShellHint': 'Её же запускает пункт «Открыть через NexSSH» в Проводнике.',
+  'settings.shellDefault': 'По умолчанию — {name}',
+  'settings.shellCustom': 'Пользовательская…',
+  'settings.shellMissing': '{name} (не установлена)',
+  'settings.shellCommand': 'Команда',
+  'settings.shellCommandHint': 'Программа и её аргументы; путь с пробелами — в кавычках.',
+  'settings.shellPick': 'Выберите оболочку',
+  'settings.explorerMenu': '«Открыть через NexSSH» в Проводнике',
+  'settings.explorerMenuHint':
+    'Открывает локальный терминал в папке из её контекстного меню. В Windows 11 пункт находится в «Показать дополнительные параметры».',
   'settings.ctrlK': 'Ctrl+K открывает палитру и в терминале',
   'settings.ctrlKHint':
     'По умолчанию выключено: в shell Ctrl+K удаляет текст до конца строки (а в nano вырезает строку). Ctrl+Shift+K открывает палитру всегда.',
@@ -460,6 +488,7 @@ const ru: Catalog = {
   'shortcut.sidebar': 'Боковая панель',
   'shortcut.fullscreen': 'Полный экран',
   'shortcut.settings': 'Настройки',
+  'shortcut.localTerminal': 'Локальный терминал',
   'shortcut.copyPaste': 'Копировать / вставить',
 };
 

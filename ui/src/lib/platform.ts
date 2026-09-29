@@ -20,6 +20,33 @@ export function mod(e: KeyboardEvent | MouseEvent): boolean {
   return isMac() ? e.metaKey : e.ctrlKey;
 }
 
+/** Keys that type punctuation, by their place on a US keyboard. */
+const CODE_KEYS: Record<string, string> = {
+  Backquote: '`',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+};
+
+/**
+ * The key of a shortcut: the character typed (lower case), or the key's name (`Tab`, `F11`).
+ * A key typing a non-Latin character (Cyrillic, Greek…) counts as the US key in its place, so
+ * Ctrl+Shift+K works with any keyboard layout.
+ */
+export function shortcutKey(e: KeyboardEvent): string {
+  if (e.key.length === 1 && e.key.charCodeAt(0) < 128) return e.key.toLowerCase();
+  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3).toLowerCase();
+  if (/^Digit\d$/.test(e.code)) return e.code.slice(5);
+  return CODE_KEYS[e.code] ?? (e.key.length === 1 ? e.key.toLowerCase() : e.key);
+}
+
 /** Human readable shortcut, e.g. `shortcut('Shift', 'K')` → "Ctrl+Shift+K" / "⌘⇧K". */
 export function shortcut(...keys: string[]): string {
   const mac = isMac();

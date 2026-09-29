@@ -1,6 +1,15 @@
 <script lang="ts">
   import logo from '../../assets/logo.png';
-  import { addServer, connect, importSshConfig, keys, openSettings, quickConnect, showHome } from '../actions';
+  import {
+    addServer,
+    connect,
+    importSshConfig,
+    keys,
+    openLocalTerminal,
+    openSettings,
+    quickConnect,
+    showHome,
+  } from '../actions';
   import { errorMessage } from '../api';
   import { fuzzyBest } from '../fuzzy';
   import { t } from '../i18n.svelte';
@@ -150,7 +159,11 @@
       <Icon name="zap" size={15} /> <span>{t('nav.quickConnect')}</span>
       <kbd>{keys.palette()}</kbd>
     </button>
-    <button onclick={openSettings}>
+    <!-- The shortcut is in the tooltip: next to this label it would not fit. -->
+    <button onclick={() => openLocalTerminal()} title="{t('nav.localTerminal')} ({keys.localTerminal()})">
+      <Icon name="terminal" size={15} /> <span>{t('nav.localTerminal')}</span>
+    </button>
+    <button onclick={() => openSettings()}>
       <Icon name="settings" size={15} /> <span>{t('nav.settings')}</span>
     </button>
   </nav>

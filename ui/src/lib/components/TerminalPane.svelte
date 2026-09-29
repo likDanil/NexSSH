@@ -4,6 +4,7 @@
   import { t } from '../i18n.svelte';
   import { app, type MenuEntry } from '../state/app.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
+  import { shells } from '../state/shells.svelte';
   import type { TermSettings, TermView } from '../terminal';
   import { TERMINAL_THEMES } from '../themes';
   import Icon from './Icon.svelte';
@@ -47,12 +48,25 @@
       const mod = await import('../terminal');
       await mod.ensureFont(app.settings.fontSize);
       if (disposed) return;
-      const v = new mod.TermView(host, termSettings, theme, {
-        onData: (data) => sessions.input(tab.key, data),
-        onBinary: (data) => sessions.inputBinary(tab.key, data),
-        onResize: (cols, rows) => sessions.resize(tab.key, cols, rows),
-        onContextMenu: (e, tv) => contextMenu(e, tv),
-      });
+      // A local terminal on Windows runs in ConPTY, which xterm.js adapts to by the build.
+      if (tab.kind === 'local' && app.info?.os === 'windows') await shells.load();
+      if (disposed) return;
+      const conpty =
+        tab.kind === 'local' && app.info?.os === 'windows'
+          ? { backend: 'conpty' as const, buildNumber: shells.windowsBuild ?? undefined }
+          : undefined;
+      const v = new mod.TermView(
+        host,
+        termSettings,
+        theme,
+        {
+          onData: (data) => sessions.input(tab.key, data),
+          onBinary: (data) => sessions.inputBinary(tab.key, data),
+          onResize: (cols, rows) => sessions.resize(tab.key, cols, rows),
+          onContextMenu: (e, tv) => contextMenu(e, tv),
+        },
+        conpty,
+      );
       view = v;
       v.fit();
       loaded = true;
@@ -136,7 +150,8 @@
     <div class="banner" class:failed={tab.failed}>
       <span class="msg" title={tab.message ?? ''}>{tab.message}</span>
       <button class="btn" onclick={() => sessions.reconnect(tab)}>
-        <Icon name="refresh" size={14} /> {t('session.reconnect')} <kbd>Enter</kbd>
+        <Icon name="refresh" size={14} />
+        {t(tab.kind === 'local' ? 'session.restart' : 'session.reconnect')} <kbd>Enter</kbd>
       </button>
       <button class="icon-btn small" title={t('session.closeTab')} aria-label={t('session.closeTab')} onclick={() => closeTab(tab)}>
         <Icon name="x" size={13} />

@@ -1,6 +1,9 @@
 //! NexSSH desktop shell: creates the window and exposes the core over Tauri IPC.
 
 mod commands;
+#[cfg(windows)]
+mod explorer;
+mod local;
 mod logger;
 mod settings;
 mod sftp;
@@ -21,8 +24,10 @@ pub fn run() {
         // First, so a second launch hands over before creating anything: the running
         // NexSSH comes to the front instead of a second copy opening next to it (two copies
         // would also overwrite each other's servers.json and settings.json).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             log::info!("NexSSH was started again: showing this window");
+            // `--cwd <folder>` (Explorer's "Open with NexSSH") opens a local terminal here.
+            local::handle_second_start(app, &args, &cwd);
             show_main_window(app);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -30,6 +35,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(updates::Updates::default())
         .manage(sftp::Transfers::default())
+        .manage(local::Launches::default())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { paths, .. }) => {
                 sftp::dragged(window, paths)
@@ -45,6 +51,9 @@ pub fn run() {
             let core = nexssh_core::Core::open(&data_dir)?;
             let settings = Settings::load(&data_dir);
             let (r, g, b) = theme_background(settings.theme(), false);
+            let args: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            app.state::<local::Launches>().add(&args, &cwd);
             app.manage(AppState {
                 core,
                 settings: Mutex::new(settings),
@@ -81,6 +90,11 @@ pub fn run() {
             commands::prompt_answer,
             commands::forward_add,
             commands::forward_remove,
+            local::local_shells,
+            local::local_open,
+            local::pick_program,
+            local::explorer_menu,
+            local::launch_take,
             sftp::sftp_home,
             sftp::sftp_resolve,
             sftp::sftp_list,

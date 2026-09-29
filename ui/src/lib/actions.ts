@@ -1,14 +1,15 @@
 // User actions shared by the sidebar, menus, the command palette and keyboard shortcuts.
 
-import { errorMessage } from './api';
+import { api, errorMessage } from './api';
 import { t } from './i18n.svelte';
 import { shortcut } from './platform';
-import { app, type MenuEntry } from './state/app.svelte';
+import { app, type MenuEntry, type SettingsSection } from './state/app.svelte';
 import { files } from './state/files.svelte';
 import { destination, servers } from './state/servers.svelte';
 import { sessions, type Tab } from './state/sessions.svelte';
+import { CUSTOM_SHELL, commandName, shellName, shells } from './state/shells.svelte';
 import { toasts } from './state/toasts.svelte';
-import type { Server } from './types';
+import type { Server, ShellProfile } from './types';
 
 export const keys = {
   palette: () => shortcut('Mod', 'K'),
@@ -19,6 +20,8 @@ export const keys = {
   reconnect: () => (isMacLike() ? shortcut('Mod', 'R') : shortcut('Mod', 'Shift', 'R')),
   fullscreen: () => (isMacLike() ? shortcut('Ctrl', 'Mod', 'F') : 'F11'),
   files: () => shortcut('Mod', 'Shift', 'E'),
+  /** Like VS Code's new terminal; Ctrl (not Cmd) on macOS too. */
+  localTerminal: () => shortcut('Ctrl', 'Shift', '`'),
 };
 
 function isMacLike() {
@@ -33,6 +36,56 @@ export function connect(server: Server, newTab = false) {
 
 export function quickConnect() {
   app.openPalette('connect');
+}
+
+/** A local terminal with `shell`, or with the shell the settings choose. */
+export function openLocalTerminal(shell?: ShellProfile) {
+  app.menu = null;
+  void sessions.openLocal({ shell });
+}
+
+/** Opens local terminals in the folders asked for on the command line: `--cwd <folder>`,
+ * which Explorer's "Open with NexSSH" runs. */
+export async function openRequestedFolders() {
+  const folders = await api.launchTake().catch(() => [] as string[]);
+  for (const cwd of folders) await sessions.openLocal({ cwd });
+}
+
+/** The shell `openLocalTerminal()` starts: the settings' choice if it is installed. */
+function chosenShell(): ShellProfile | typeof CUSTOM_SHELL | undefined {
+  const setting = app.settings.localShell;
+  if (setting === CUSTOM_SHELL && app.settings.localShellCommand.trim()) return CUSTOM_SHELL;
+  return (setting && shells.byId(setting)) || shells.default;
+}
+
+/** The menu next to the tabs' + button: a connection, or a local terminal with any shell. */
+export async function newTabMenu(x: number, y: number) {
+  await shells.load();
+  const chosen = chosenShell();
+  const items: MenuEntry[] = [
+    { label: t('tabs.newConnection'), icon: 'zap', hint: keys.newSession(), action: quickConnect },
+    'separator',
+    ...shells.list.map((shell) => ({
+      label: shellName(shell),
+      icon: 'terminal',
+      hint: shell === chosen ? keys.localTerminal() : undefined,
+      action: () => openLocalTerminal(shell),
+    })),
+  ];
+  if (chosen === CUSTOM_SHELL) {
+    items.push({
+      label: commandName(app.settings.localShellCommand),
+      icon: 'terminal',
+      hint: keys.localTerminal(),
+      action: () => openLocalTerminal(),
+    });
+  }
+  items.push('separator', {
+    label: t('session.terminalSettings'),
+    icon: 'settings',
+    action: () => openSettings('terminal'),
+  });
+  app.showMenu(x, y, items);
 }
 
 export function addServer(preset?: Partial<Server>) {
@@ -72,9 +125,10 @@ export function importSshConfig() {
   void servers.importSshConfig();
 }
 
-export function openSettings() {
+export function openSettings(section: SettingsSection = 'appearance') {
   app.menu = null;
   app.palette.open = false;
+  app.settingsSection = section;
   app.settingsOpen = true;
 }
 
@@ -94,9 +148,10 @@ export function openForwards() {
   if (sessions.active) app.forwardsOpen = true;
 }
 
-/** Shows or hides the files (SFTP) drawer next to the terminal. */
+/** Shows or hides the files (SFTP) drawer next to the terminal; SSH sessions only. */
 export function toggleFiles() {
   app.menu = null;
+  if (sessions.active?.kind === 'local') return;
   files.toggle();
 }
 
@@ -125,8 +180,25 @@ export async function closeTab(tab: Tab) {
   requestAnimationFrame(() => sessions.focusActive());
 }
 
+/** The ⋯ menu of a local terminal and its tab's context menu. */
+function localMenu(tab: Tab, x: number, y: number) {
+  app.showMenu(x, y, [
+    tab.status === 'disconnected'
+      ? { label: t('session.restart'), icon: 'refresh', hint: keys.reconnect(), action: () => sessions.reconnect(tab) }
+      : { label: t('session.stop'), icon: 'power', action: () => sessions.disconnect(tab) },
+    { label: t('session.duplicate'), icon: 'duplicate', action: () => sessions.duplicate(tab) },
+    'separator',
+    { label: t('session.clear'), icon: 'eraser', action: () => sessions.clear(tab) },
+    { label: t('session.fullscreen'), icon: 'fullscreen', hint: keys.fullscreen(), action: toggleFullscreen },
+    { label: t('session.terminalSettings'), icon: 'settings', action: () => openSettings('terminal') },
+    'separator',
+    { label: t('session.closeTab'), icon: 'x', hint: keys.closeTab(), action: () => closeTab(tab) },
+  ]);
+}
+
 /** The ⋯ menu of a session and the tab context menu. */
 export function sessionMenu(tab: Tab, x: number, y: number) {
+  if (tab.kind === 'local') return localMenu(tab, x, y);
   const server = tab.serverId ? servers.byId.get(tab.serverId) : undefined;
   const connected = tab.status === 'connected';
   const items: MenuEntry[] = [

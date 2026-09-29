@@ -1,9 +1,11 @@
 <script lang="ts">
   import logo from '../../assets/logo.png';
   import { keys } from '../actions';
+  import { api, errorMessage } from '../api';
   import { formatNumber, LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
-  import { app } from '../state/app.svelte';
+  import { app, type SettingsSection } from '../state/app.svelte';
+  import { CUSTOM_SHELL, missingShellName, shellName, shells } from '../state/shells.svelte';
   import { toasts } from '../state/toasts.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
@@ -14,10 +16,44 @@
   const LINE_HEIGHTS = [1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5];
   const SCROLLBACKS = [1000, 5000, 10000, 50000, 100000];
 
-  type Section = 'appearance' | 'terminal' | 'keyboard' | 'about';
-  let section = $state<Section>('appearance');
+  let section = $state<SettingsSection>(app.settingsSection);
 
   const s = $derived(app.settings);
+  const windows = $derived(app.info?.os === 'windows');
+
+  // The shells are looked for again: one may have been installed since.
+  void shells.load(true);
+
+  const shellOptions: { value: string; label: string }[] = $derived.by(() => {
+    const options = [
+      { value: '', label: t('settings.shellDefault', { name: shells.default ? shellName(shells.default) : '…' }) },
+      ...shells.list.map((shell) => ({ value: shell.id, label: shellName(shell) })),
+    ];
+    const saved = s.localShell;
+    if (saved && saved !== CUSTOM_SHELL && shells.loaded && !shells.byId(saved)) {
+      options.push({ value: saved, label: t('settings.shellMissing', { name: missingShellName(saved) }) });
+    }
+    options.push({ value: CUSTOM_SHELL, label: t('settings.shellCustom') });
+    return options;
+  });
+
+  const commandExample = $derived(
+    windows ? String.raw`"C:\Program Files\Git\bin\bash.exe" --login -i` : '/usr/bin/fish --login',
+  );
+
+  async function browseProgram() {
+    try {
+      const path = await api.pickProgram(t('settings.shellPick'));
+      if (path) app.update({ localShellCommand: /\s/.test(path) ? `"${path}"` : path });
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  function setExplorerMenu(enabled: boolean) {
+    app.update({ explorerMenu: enabled });
+    app.syncExplorerMenu();
+  }
 
   function fontSize(delta: number) {
     app.update({ fontSize: Math.min(28, Math.max(9, s.fontSize + delta)) });
@@ -29,7 +65,7 @@
     toasts.show(t('settings.pathCopied'));
   }
 
-  const SECTIONS: { id: Section; label: MessageKey }[] = [
+  const SECTIONS: { id: SettingsSection; label: MessageKey }[] = [
     { id: 'appearance', label: 'settings.appearance' },
     { id: 'terminal', label: 'settings.terminal' },
     { id: 'keyboard', label: 'settings.keyboard' },
@@ -72,6 +108,7 @@
   const shortcuts: [MessageKey, string][] = $derived([
     ['shortcut.palette', isMac() ? keys.palette() : `${keys.palette()} · ${shortcut('Ctrl', 'Shift', 'K')}`],
     ['shortcut.newSession', keys.newSession()],
+    ['shortcut.localTerminal', keys.localTerminal()],
     ['shortcut.closeTab', keys.closeTab()],
     [
       'shortcut.nextPrevTab',
@@ -199,6 +236,53 @@
         </span>
         <input type="checkbox" class="toggle" checked={s.gpuAcceleration} onchange={(e) => app.update({ gpuAcceleration: e.currentTarget.checked })} />
       </label>
+      <div class="row top">
+        <span>
+          {t('settings.localShell')}
+          {#if windows}<small>{t('settings.localShellHint')}</small>{/if}
+        </span>
+        <Select
+          value={s.localShell}
+          options={shellOptions}
+          onchange={(localShell) => app.update({ localShell })}
+          label={t('settings.localShell')}
+          width={240}
+        />
+      </div>
+      {#if s.localShell === CUSTOM_SHELL}
+        <div class="row top">
+          <span>
+            {t('settings.shellCommand')}
+            <small>{t('settings.shellCommandHint')}</small>
+          </span>
+          <div class="command">
+            <input
+              class="input mono"
+              value={s.localShellCommand}
+              placeholder={commandExample}
+              aria-label={t('settings.shellCommand')}
+              spellcheck="false"
+              autocomplete="off"
+              onchange={(e) => app.update({ localShellCommand: e.currentTarget.value.trim() })}
+            />
+            <button class="btn" onclick={browseProgram}>{t('editor.browse')}</button>
+          </div>
+        </div>
+      {/if}
+      {#if windows}
+        <label class="row top">
+          <span>
+            {t('settings.explorerMenu')}
+            <small>{t('settings.explorerMenuHint')}</small>
+          </span>
+          <input
+            type="checkbox"
+            class="toggle"
+            checked={s.explorerMenu}
+            onchange={(e) => setExplorerMenu(e.currentTarget.checked)}
+          />
+        </label>
+      {/if}
     </div>
   {:else if section === 'keyboard'}
     {#if !isMac()}
@@ -365,6 +449,17 @@
   }
   .row .input {
     max-width: 260px;
+  }
+  .command {
+    display: flex;
+    gap: 6px;
+    width: 300px;
+    flex: none;
+  }
+  .command .input {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
   }
   .stepper {
     display: flex;
