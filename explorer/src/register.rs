@@ -1,9 +1,10 @@
 //! Registers the menu entry's package for the current user, and removes it.
 //!
-//! No administrator rights are needed: the package is registered for the user, and the
-//! certificate it is signed with goes to the user's *Trusted People*. That certificate is made
-//! for each build and its private key is deleted right after signing
-//! (`scripts/explorer-package.ps1`), so trusting it lets nothing else in.
+//! No administrator rights are needed, and no certificate: the package is registered for the
+//! user, unsigned. Windows 11 allows that for a package that holds no program code (this one
+//! holds its manifest and logo; the COM server is outside it, in the external location), and
+//! the publisher's OID ([`PUBLISHER`]) marks it as unsigned, so it can never pass for a signed
+//! package.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,15 +13,8 @@ use windows::ApplicationModel::Package;
 use windows::Foundation::Uri;
 use windows::Management::Deployment::{AddPackageOptions, DeploymentResult, PackageManager};
 use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
-use windows::Win32::Security::Cryptography::{
-    CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_OPEN_STORE_FLAGS, CERT_QUERY_ENCODING_TYPE,
-    CERT_STORE_ADD_REPLACE_EXISTING, CERT_STORE_PROV_SYSTEM_W, CERT_SYSTEM_STORE_CURRENT_USER,
-    CertAddEncodedCertificateToStore, CertCloseStore, CertDeleteCertificateFromStore,
-    CertDuplicateCertificateContext, CertEnumCertificatesInStore, CertGetNameStringW,
-    CertOpenStore, HCERTSTORE, X509_ASN_ENCODING,
-};
 use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
-use windows::core::{HSTRING, PWSTR, w};
+use windows::core::{HSTRING, PWSTR};
 use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
@@ -30,15 +24,11 @@ use crate::{DLL_NAME, PACKAGE_NAME, PUBLISHER, SETTINGS_KEY};
 const MSIX_NAME: &str = "NexSSH.msix";
 /// The manifest's logo (`package/logo.png`).
 const LOGO_NAME: &str = "logo.png";
-/// The certificate's common name (the package's publisher is `CN=NexSSH`).
-const CERT_NAME: &str = "NexSSH";
 
 /// What a build of NexSSH brings along; `scripts/explorer-package.ps1` makes the files.
 pub struct Payload<'a> {
-    /// The signed package.
+    /// The package: the manifest and the logo.
     pub msix: &'a [u8],
-    /// The certificate the package is signed with (only its public half).
-    pub cer: &'a [u8],
     /// The COM server.
     pub dll: &'a [u8],
     pub logo: &'a [u8],
@@ -67,8 +57,8 @@ pub fn delete_settings() -> io::Result<()> {
 }
 
 /// Registers the package of `payload` for the current user, unless it already is: unpacks the
-/// files, trusts the package's certificate, and replaces the package of another build. Quick
-/// when nothing changed, so it can run at every start.
+/// files and replaces the package of another build. Quick when nothing changed, so it can run
+/// at every start.
 pub fn install(payload: &Payload) -> Result<()> {
     let base = base_dir().ok_or("the LOCALAPPDATA folder is unknown")?;
     let dir = base.join(payload.id);
@@ -79,15 +69,12 @@ pub fn install(payload: &Payload) -> Result<()> {
         remove_other_builds(&base, Some(payload.id));
         return Ok(());
     }
-    trust(payload.cer)
-        .map_err(|e| format!("cannot trust the package's certificate: {}", e.message()))?;
     for package in &registered {
         remove_package(&manager, package)?;
     }
     add_package(&manager, &dir)?;
     set_registered_build(payload.id).map_err(|e| e.to_string())?;
-    // The certificates and files of earlier builds are not needed any more.
-    untrust(Some(payload.cer));
+    // The files of earlier builds are not needed any more.
     remove_other_builds(&base, Some(payload.id));
     Ok(())
 }
@@ -100,9 +87,9 @@ pub fn installed() -> bool {
         .is_some_and(|packages| !packages.is_empty())
 }
 
-/// Removes everything [`install`] and [`write_settings`] put in place: the package, the trust in
-/// its certificates, the settings and the unpacked files (a COM server that Explorer still has
-/// loaded stays until the next time).
+/// Removes everything [`install`] and [`write_settings`] put in place: the package, the
+/// settings and the unpacked files (a COM server that Explorer still has loaded stays until the
+/// next time).
 pub fn uninstall() {
     if let Ok(manager) = PackageManager::new()
         && let Ok(registered) = find(&manager)
@@ -111,7 +98,6 @@ pub fn uninstall() {
             let _ = remove_package(&manager, package);
         }
     }
-    untrust(None);
     let _ = delete_settings();
     if let Some(base) = base_dir() {
         remove_other_builds(&base, None);
@@ -215,6 +201,8 @@ fn add_package(manager: &PackageManager, dir: &Path) -> Result<()> {
     options
         .SetExternalLocationUri(&uri(dir)?)
         .map_err(|e| e.message())?;
+    // Unsigned (see the top of this file).
+    options.SetAllowUnsigned(true).map_err(|e| e.message())?;
     let operation = manager
         .AddPackageByUriAsync(&uri(&dir.join(MSIX_NAME))?, &options)
         .map_err(|e| e.message())?;
@@ -263,81 +251,6 @@ fn file_url(path: &Path) -> String {
 
 fn uri(path: &Path) -> Result<Uri> {
     Uri::CreateUri(&HSTRING::from(file_url(path))).map_err(|e| e.message())
-}
-
-/// The current user's *Trusted People* certificates.
-fn trusted_people() -> windows::core::Result<HCERTSTORE> {
-    // SAFETY: the store name is a static, null-terminated string.
-    unsafe {
-        CertOpenStore(
-            CERT_STORE_PROV_SYSTEM_W,
-            CERT_QUERY_ENCODING_TYPE(0),
-            None,
-            CERT_OPEN_STORE_FLAGS(CERT_SYSTEM_STORE_CURRENT_USER),
-            Some(w!("TrustedPeople").as_ptr().cast()),
-        )
-    }
-}
-
-fn trust(cer: &[u8]) -> windows::core::Result<()> {
-    let store = trusted_people()?;
-    // SAFETY: `store` is open until closed below; `cer` is a readable buffer.
-    unsafe {
-        let added = CertAddEncodedCertificateToStore(
-            Some(store),
-            X509_ASN_ENCODING,
-            cer,
-            CERT_STORE_ADD_REPLACE_EXISTING,
-            None,
-        );
-        let _ = CertCloseStore(Some(store), 0);
-        added
-    }
-}
-
-/// Stops trusting the certificates of NexSSH's packages, except `keep`.
-fn untrust(keep: Option<&[u8]>) {
-    let Ok(store) = trusted_people() else {
-        return;
-    };
-    // SAFETY: the enumeration hands out contexts of the open store; deleting frees a context,
-    // so a copy is deleted and the enumeration goes on from the original.
-    unsafe {
-        let mut cert: *mut CERT_CONTEXT = std::ptr::null_mut();
-        loop {
-            cert =
-                CertEnumCertificatesInStore(store, (!cert.is_null()).then_some(cert.cast_const()));
-            if cert.is_null() {
-                break;
-            }
-            let encoded =
-                std::slice::from_raw_parts((*cert).pbCertEncoded, (*cert).cbCertEncoded as usize);
-            if common_name(cert) == CERT_NAME && keep != Some(encoded) {
-                let _ = CertDeleteCertificateFromStore(CertDuplicateCertificateContext(Some(cert)));
-            }
-        }
-        let _ = CertCloseStore(Some(store), 0);
-    }
-}
-
-/// The subject's common name.
-///
-/// # Safety
-/// `cert` is a valid certificate context.
-unsafe fn common_name(cert: *const CERT_CONTEXT) -> String {
-    let mut name = [0u16; 128];
-    // SAFETY: per the contract; the buffer is writable.
-    let len = unsafe {
-        CertGetNameStringW(
-            cert,
-            CERT_NAME_SIMPLE_DISPLAY_TYPE,
-            0,
-            None,
-            Some(&mut name),
-        )
-    };
-    // The length includes the terminating null.
-    String::from_utf16_lossy(&name[..(len as usize).saturating_sub(1).min(name.len())])
 }
 
 #[cfg(test)]

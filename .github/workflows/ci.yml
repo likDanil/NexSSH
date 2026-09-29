@@ -92,6 +92,7 @@ jobs:
       - name: Unit tests
         run: cargo test -p nexssh-core --lib
 
-      # Registers the package for the runner's user and asks its COM server for the entry.
+      # Registers the package for the runner's user (without administrator rights) and asks its
+      # COM server for the entry.
       - name: Explorer menu entry
-        run: cargo test -p nexssh-explorer -p nexssh-explorer-command
+        run: cargo test --no-fail-fast -p nexssh-explorer -p nexssh-explorer-command

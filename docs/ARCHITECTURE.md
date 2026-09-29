@@ -55,7 +55,7 @@ NexSSH/
 │   ├── build.rs          embeds the Explorer menu's package (NEXSSH_EXPLORER_PACKAGE)
 │   └── capabilities/     window permissions
 ├── explorer/             "Open with NexSSH" in Windows 11's compact menu (Windows only)
-│   ├── src/register.rs   registers the package for the user, trusts its certificate
+│   ├── src/register.rs   registers the package for the user (unsigned), removes it
 │   ├── command/          the menu entry's COM server (IExplorerCommand, a DLL)
 │   ├── package/          the package's manifest (a package with external location) and logo
 │   └── tests/package.rs  registers the package and asks its COM server (Windows CI)
@@ -73,7 +73,7 @@ NexSSH/
 │           ├── locales/  en.ts (reference), ru.ts
 │           ├── state/    app, servers, sessions, shells, files, updates, toasts (Svelte runes)
 │           └── components/
-├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (packs and signs the package)
+├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (builds the package)
 └── .github/workflows/    ci.yml, release.yml
 ```
 
@@ -154,16 +154,18 @@ too (`windows/hooks.nsh`). No administrator rights are needed for any of it.
   *package with external location* (like VS Code's *Open with Code*): a manifest
   (`explorer/package`) declaring the menu entry for folders and their background and a COM
   server for it, `explorer/command` — an `IExplorerCommand` in a DLL that Explorer loads into a
-  COM surrogate. `scripts/explorer-package.ps1` packs the manifest and signs it with a
-  certificate made for that build, whose private key it deletes right away; the release
-  workflow runs it, and `desktop/build.rs` embeds the package, the public certificate and the
-  DLL. At start-up the app unpacks them into `%LOCALAPPDATA%\NexSSH\explorer\<build>` (a folder
-  per build, so a DLL that Explorer still holds is never overwritten), adds the certificate to
-  the user's *Trusted People* store, registers the package for the user with the
-  `PackageManager` API (external location: that folder) and drops the classic entries for
-  folders, which would show up twice under *Show more options* (packages cannot add commands to
-  drives, so the drive entry stays). Nothing is done again while the registered package is the
-  running build's; another build's package, certificate and folder are replaced.
+  COM surrogate. `scripts/explorer-package.ps1` packs the manifest (the release workflow runs
+  it), and `desktop/build.rs` embeds the package and the DLL. The package is unsigned: it holds
+  only the manifest and a logo, no program code, and Windows 11 lets a user register such a
+  package without a signature (`AllowUnsigned`; the OID in its publisher marks it as unsigned).
+  A self-signed package would need its certificate in the computer's *Trusted People* store,
+  which takes administrator rights. At start-up the app unpacks the files into
+  `%LOCALAPPDATA%\NexSSH\explorer\<build>` (a folder per build, so a DLL that Explorer still
+  holds is never overwritten), registers the package for the user with the `PackageManager` API
+  (external location: that folder) and drops the classic entries for folders, which would show
+  up twice under *Show more options* (packages cannot add commands to drives, so the drive entry
+  stays). Nothing is done again while the registered package is the running build's; another
+  build's package and folder are replaced.
 * The COM server reads the entry's title and NexSSH's path from `HKCU\Software\NexSSH\ExplorerMenu`
   every time the menu opens (hidden without them, so turning the setting off hides it at
   once). It asks Explorer to start NexSSH, through the desktop's `IShellDispatch2::ShellExecute`:
@@ -352,11 +354,10 @@ into, a folder to upload.
 * Local terminals run programs as the user, like any terminal: the page can start the shells
   found on the computer or the command line of the settings, in a folder it names. The
   Explorer entry is set up for the current user only (HKCU, a package registered for the user).
-* Windows 11's menu entry is a package signed with a self-signed certificate made for each
-  build; its private key is deleted as soon as the package is signed, so that certificate can
-  vouch for nothing else. NexSSH adds it to the user's *Trusted People* store (which Windows
-  requires for such a package) and removes it together with the entry, the uninstaller
-  included.
+* Windows 11's menu entry is an unsigned package registered for the user: nothing is added to
+  the certificate stores, and the OID Windows requires in an unsigned package's publisher keeps
+  it from passing for a signed one. The package holds no code; the COM server it names is the
+  DLL unpacked from the running NexSSH into the user's `%LOCALAPPDATA%`.
 * The webview runs with a strict CSP (no remote content, no `eval`), and only the window
   permissions needed for the custom title bar are granted. The updater and dialog plugins'
   own commands are not granted either: the UI can only use NexSSH's commands.

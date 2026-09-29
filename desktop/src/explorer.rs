@@ -102,8 +102,7 @@ fn set_in_package(enabled: bool) -> io::Result<MenuState> {
     })
 }
 
-/// Removes all entries: the classic ones, the package, the trust in its certificate and its
-/// files.
+/// Removes all entries: the classic ones, the package and its files.
 pub fn cleanup() {
     let user = RegKey::predef(HKEY_CURRENT_USER);
     let _ = remove(&user, &[FOLDER_KEYS[0], FOLDER_KEYS[1], DRIVE_KEY]);
@@ -153,7 +152,6 @@ fn package() -> Option<register::Payload<'static>> {
     }
     Some(register::Payload {
         msix: embedded!("NexSSH.msix"),
-        cer: embedded!("NexSSH.cer"),
         dll: embedded!("nexssh_explorer_command.dll"),
         logo: embedded!("logo.png"),
         id: env!("NEXSSH_EXPLORER_PACKAGE_ID"),

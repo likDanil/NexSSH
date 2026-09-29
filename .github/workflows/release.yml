@@ -160,8 +160,7 @@ jobs:
 
       - run: npm ci
 
-      # "Open with NexSSH" in Windows 11's compact context menu: a package signed with a
-      # certificate made for this build only (see the script).
+      # "Open with NexSSH" in Windows 11's compact context menu (see the script).
       - name: Package the Explorer menu entry
         shell: pwsh
         run: ./scripts/explorer-package.ps1

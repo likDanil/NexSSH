@@ -4,16 +4,15 @@
 
 .DESCRIPTION
   The COM server of the menu entry (explorer/command) and the package with external location
-  that declares it (explorer/package/AppxManifest.xml), packed with MakeAppx and signed with
-  SignTool from the Windows SDK.
+  that declares it (explorer/package/AppxManifest.xml), packed with MakeAppx from the Windows
+  SDK.
 
-  The package is signed with a certificate made for this build only: its private key is deleted
-  as soon as the package is signed, so nothing else can ever be signed with it. NexSSH trusts
-  the public half (NexSSH.cer) for the user who runs it, which needs no administrator rights,
-  and registers the package (explorer/src/register.rs).
+  The package is not signed: it holds only its manifest and logo, no program code, and Windows
+  11 lets a user register such a package without a signature and without administrator rights
+  (explorer/src/register.rs). The COM server goes next to it, in its external location.
 
-  Writes NexSSH.msix, NexSSH.cer, nexssh_explorer_command.dll and logo.png into -Out. Building
-  NexSSH with NEXSSH_EXPLORER_PACKAGE set to that folder embeds them (desktop/build.rs).
+  Writes NexSSH.msix, nexssh_explorer_command.dll and logo.png into -Out. Building NexSSH with
+  NEXSSH_EXPLORER_PACKAGE set to that folder embeds them (desktop/build.rs).
 
 .EXAMPLE
   pwsh scripts/explorer-package.ps1
@@ -44,14 +43,13 @@ try {
   $env:RUSTFLAGS = $rustflags
 }
 
-# The tools of the newest Windows SDK (bin\10.0.x.y\x64).
+# MakeAppx of the newest Windows SDK (bin\10.0.x.y\x64).
 $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory -Filter '10.*' |
   Where-Object { Test-Path (Join-Path $_.FullName 'x64\makeappx.exe') } |
   Sort-Object { [version]$_.Name } -Descending |
   Select-Object -First 1
-if (-not $sdk) { throw 'the Windows SDK (MakeAppx, SignTool) is not installed' }
+if (-not $sdk) { throw 'the Windows SDK (MakeAppx) is not installed' }
 $makeappx = Join-Path $sdk.FullName 'x64\makeappx.exe'
-$signtool = Join-Path $sdk.FullName 'x64\signtool.exe'
 
 # Relative to the repository.
 if (-not [IO.Path]::IsPathRooted($Out)) { $Out = Join-Path (Get-Location).Path $Out }
@@ -66,25 +64,6 @@ $msix = Join-Path $Out 'NexSSH.msix'
 # /nv: the manifest names files that are outside the package (the COM server).
 & $makeappx pack /o /nv /d $content /p $msix
 if ($LASTEXITCODE) { throw 'MakeAppx failed' }
-
-# Subject = the package's publisher (CN=NexSSH); code signing only; valid long enough for any
-# installer of this build.
-$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=NexSSH' -FriendlyName 'NexSSH Explorer menu' `
-  -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 3072 -NotAfter (Get-Date).AddYears(30) `
-  -CertStoreLocation 'Cert:\CurrentUser\My' `
-  -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
-$pfx = Join-Path $Out 'signing.pfx'
-try {
-  $password = [Guid]::NewGuid().ToString('N')
-  Export-PfxCertificate -Cert $cert -FilePath $pfx -Password (ConvertTo-SecureString $password -AsPlainText -Force) | Out-Null
-  & $signtool sign /fd SHA256 /f $pfx /p $password $msix
-  if ($LASTEXITCODE) { throw 'SignTool failed' }
-  Export-Certificate -Cert $cert -FilePath (Join-Path $Out 'NexSSH.cer') -Type CERT | Out-Null
-} finally {
-  # The private key goes: the package is signed, and nothing else ever will be.
-  Remove-Item $pfx -Force -ErrorAction Ignore
-  Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
-}
 
 Copy-Item target\explorer-build\release\nexssh_explorer_command.dll, explorer\package\logo.png $Out
 Remove-Item $content -Recurse -Force
