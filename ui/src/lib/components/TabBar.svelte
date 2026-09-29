@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { closeTab, keys, quickConnect, sessionMenu, toggleFiles, toggleSidebar } from '../actions';
+  import { closeTab, keys, newTabMenu, quickConnect, sessionMenu, toggleFiles, toggleSidebar } from '../actions';
   import { t } from '../i18n.svelte';
   import { currentOs } from '../platform';
   import { app } from '../state/app.svelte';
@@ -30,6 +30,17 @@
   function menu(e: MouseEvent, tab: Tab) {
     e.preventDefault();
     sessionMenu(tab, e.clientX, e.clientY);
+  }
+
+  /** The shells for a local terminal, and a new connection, under the + button. */
+  function newMenu(e: MouseEvent) {
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    void newTabMenu(r.left, r.bottom + 4);
+  }
+
+  function statusClass(tab: Tab): string {
+    return tab.status === 'disconnected' ? (tab.failed ? 'error' : 'disconnected') : tab.status;
   }
 
   function moreMenu(e: MouseEvent) {
@@ -90,9 +101,12 @@
         {ondrop}
         ondragend={() => (dragFrom = dropAt = null)}
       >
-        <span
-          class="dot {tab.status === 'disconnected' ? (tab.failed ? 'error' : 'disconnected') : tab.status}"
-        ></span>
+        {#if tab.kind === 'local'}
+          <!-- A local terminal: the terminal glyph, coloured like the status dot. -->
+          <span class="local {statusClass(tab)}"><Icon name="terminal" size={14} /></span>
+        {:else}
+          <span class="dot {statusClass(tab)}"></span>
+        {/if}
         <span class="name">{tab.title}</span>
         <button
           class="close"
@@ -111,33 +125,46 @@
       title="{t('tabs.newSession')} ({keys.newSession()})"
       aria-label={t('tabs.newSession')}
       onclick={quickConnect}
+      oncontextmenu={newMenu}
     >
       <Icon name="plus" size={15} />
+    </button>
+    <button
+      class="icon-btn new-menu"
+      title={t('tabs.newTabMenu')}
+      aria-label={t('tabs.newTabMenu')}
+      aria-haspopup="menu"
+      onclick={newMenu}
+    >
+      <Icon name="chevronDown" size={13} stroke={2} />
     </button>
   </div>
 
   <div class="actions">
     {#if sessions.active}
       {#if sessions.active.status === 'disconnected'}
+        {@const label = t(sessions.active.kind === 'local' ? 'session.restart' : 'session.reconnect')}
         <button
           class="icon-btn"
-          title="{t('session.reconnect')} ({keys.reconnect()})"
-          aria-label={t('session.reconnect')}
+          title="{label} ({keys.reconnect()})"
+          aria-label={label}
           onclick={() => sessions.active && sessions.reconnect(sessions.active)}
         >
           <Icon name="refresh" size={15} />
         </button>
       {/if}
-      <button
-        class="icon-btn"
-        class:on={files.open}
-        title="{t('session.files')} ({keys.files()})"
-        aria-label={t('session.files')}
-        aria-pressed={files.open}
-        onclick={toggleFiles}
-      >
-        <Icon name="folder" size={15} />
-      </button>
+      {#if sessions.active.kind === 'ssh'}
+        <button
+          class="icon-btn"
+          class:on={files.open}
+          title="{t('session.files')} ({keys.files()})"
+          aria-label={t('session.files')}
+          aria-pressed={files.open}
+          onclick={toggleFiles}
+        >
+          <Icon name="folder" size={15} />
+        </button>
+      {/if}
       <button class="icon-btn" title={t('tabs.sessionActions')} aria-label={t('tabs.sessionActions')} onclick={moreMenu}>
         <Icon name="more" size={16} />
       </button>
@@ -241,9 +268,37 @@
     background: var(--hover);
     color: var(--text);
   }
+  .local {
+    flex: none;
+    display: grid;
+    place-items: center;
+    margin: 0 -2px 0 -4px;
+    color: var(--text-2);
+  }
+  .local.connected {
+    color: var(--green);
+  }
+  .local.connecting {
+    color: var(--amber);
+  }
+  .local.disconnected {
+    color: var(--text-3);
+  }
+  .local.error {
+    color: var(--red);
+  }
   .new {
     flex: none;
     margin-left: 2px;
+  }
+  .new-menu {
+    flex: none;
+    width: 20px;
+    margin-left: -3px;
+    color: var(--text-3);
+  }
+  .new-menu:hover {
+    color: var(--text);
   }
   .actions {
     display: flex;

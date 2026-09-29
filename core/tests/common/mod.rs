@@ -9,8 +9,8 @@ use std::time::Duration;
 use nexssh_core::known_hosts::KnownHosts;
 use nexssh_core::secrets::Secrets;
 use nexssh_core::{
-    AuthKind, Core, EventSink, Prompt, PromptReply, PtySize, Server, SessionEvent, SessionId,
-    SessionStatus,
+    AuthKind, Core, EventSink, LocalCommand, Prompt, PromptReply, PtySize, Server, SessionEvent,
+    SessionId, SessionStatus,
 };
 use tokio::sync::mpsc;
 
@@ -88,6 +88,19 @@ impl Session {
         let id = core
             .sessions
             .open(server, PtySize::new(100, 30), Arc::new(Sink(tx)));
+        Session::new(core, id, rx)
+    }
+
+    /// A local terminal running `command`.
+    pub fn open_local(core: Arc<Core>, command: LocalCommand) -> Session {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let id = core
+            .sessions
+            .open_local(command, PtySize::new(100, 30), Arc::new(Sink(tx)));
+        Session::new(core, id, rx)
+    }
+
+    fn new(core: Arc<Core>, id: SessionId, rx: mpsc::UnboundedReceiver<Ev>) -> Session {
         Session {
             core,
             id,

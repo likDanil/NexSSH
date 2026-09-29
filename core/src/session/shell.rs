@@ -16,8 +16,8 @@ use crate::model::{PtySize, Server};
 
 /// Output is coalesced to keep IPC traffic low under heavy output; a lone chunk
 /// (e.g. a keystroke echo) is still delivered immediately.
-const FLUSH_BYTES: usize = 64 * 1024;
-const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
+pub(super) const FLUSH_BYTES: usize = 64 * 1024;
+pub(super) const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 
 enum Outcome {
     Closed,
@@ -28,7 +28,7 @@ enum Outcome {
     Failed(String),
 }
 
-enum Control {
+pub(super) enum Control {
     Close,
     Reconnect,
     /// The user aborted a connection attempt.
@@ -90,7 +90,7 @@ pub(crate) async fn run(
 
 /// Handles commands while there is no live connection (`connecting`: an attempt is
 /// in progress and may be aborted).
-async fn idle(
+pub(super) async fn idle(
     rx: &mut mpsc::UnboundedReceiver<Command>,
     size: &mut PtySize,
     connecting: bool,

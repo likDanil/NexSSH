@@ -5,7 +5,7 @@ import { api } from '../api';
 import { i18n, resolveLanguage, systemLanguage, t, type Lang } from '../i18n.svelte';
 import { setOs } from '../platform';
 import { isDarkTheme, resolveTheme } from '../themes';
-import type { AppInfo, ResolvedTheme, Server, Settings } from '../types';
+import type { AppInfo, ExplorerMenuState, ResolvedTheme, Server, Settings } from '../types';
 
 export const DEFAULT_SETTINGS: Settings = {
   language: 'system',
@@ -27,6 +27,9 @@ export const DEFAULT_SETTINGS: Settings = {
   filesWidth: 380,
   filesSort: 'name',
   filesSortDesc: false,
+  localShell: '',
+  localShellCommand: '',
+  explorerMenu: true,
   autoUpdateCheck: true,
   lastVersion: '',
 };
@@ -47,6 +50,8 @@ export interface MenuState {
   y: number;
   items: MenuEntry[];
 }
+
+export type SettingsSection = 'appearance' | 'terminal' | 'keyboard' | 'about';
 
 export interface EditorState {
   server: Server | null;
@@ -90,6 +95,8 @@ class AppState {
   systemLanguage = $state<Lang>(systemLanguage());
   language: Lang = $derived(resolveLanguage(this.settings.language, this.systemLanguage));
   keychainIssue = $state<string | null>(null);
+  /** Windows: where Explorer shows "Open with NexSSH" (`null` until known). */
+  explorerMenuState = $state<ExplorerMenuState | null>(null);
   fullscreen = $state(false);
 
   palette = $state<{ open: boolean; mode: 'commands' | 'connect'; query: string }>({
@@ -99,6 +106,8 @@ class AppState {
   });
   editor = $state<EditorState | null>(null);
   settingsOpen = $state(false);
+  /** The section the settings dialog opens at. */
+  settingsSection = $state<SettingsSection>('appearance');
   forwardsOpen = $state(false);
   menu = $state<MenuState | null>(null);
   confirmation = $state<ConfirmState | null>(null);
@@ -157,6 +166,26 @@ class AppState {
     await api.setLanguage(lang).catch(() => {});
     // The keychain problem (if any) is described by the backend in its language.
     if (!first && this.keychainIssue) this.refreshKeychainStatus();
+    // Also at start-up: the entry then points at this copy of NexSSH.
+    this.syncExplorerMenu();
+  }
+
+  /** Windows: puts "Open with NexSSH" into Explorer's menu for folders (labelled in the
+   * current language), or takes it out. */
+  syncExplorerMenu() {
+    if (this.info?.os !== 'windows') return;
+    api
+      .setExplorerMenu(this.settings.explorerMenu)
+      .then((state) => (this.explorerMenuState = state))
+      .catch((e) => console.error('explorer menu', e));
+  }
+
+  /** Windows 11: moves "Open with NexSSH" into Explorer's compact menu, once the user allowed
+   * it with administrator rights (Windows asks). */
+  async trustExplorerMenu() {
+    const state = await api.trustExplorerMenu();
+    this.explorerMenuState = state;
+    return state;
   }
 
   /** Updates settings and persists them (debounced). */

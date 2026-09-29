@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The package that puts "Open with NexSSH" into Windows 11's context menu for folders: a
+  package with external location ("sparse package") that only declares the COM server of the
+  menu entry (explorer/command). scripts/explorer-package.ps1 fills in the version, packs and
+  signs it; NexSSH registers it for the user with the COM server next to it
+  (explorer/src/register.rs). Like VS Code's resources/win32/appx/AppxManifest.xml.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  IgnorableNamespaces="uap uap10 rescap desktop4 desktop5 desktop6 com">
+  <!-- Publisher: the subject of the signing certificate (explorer/src/lib.rs, PUBLISHER). -->
+  <Identity Name="NexSSH.ExplorerMenu" Publisher="CN=NexSSH" Version="@VERSION@" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>NexSSH</DisplayName>
+    <PublisherDisplayName>NexSSH contributors</PublisherDisplayName>
+    <Logo>logo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+  <Applications>
+    <Application Id="NexSSH" Executable="NexSSH.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements
+        AppListEntry="none"
+        DisplayName="NexSSH"
+        Description="Open with NexSSH in the context menu of folders"
+        BackgroundColor="transparent"
+        Square150x150Logo="logo.png"
+        Square44x44Logo="logo.png" />
+      <Extensions>
+        <!-- On a folder, and on the empty space inside one. -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="OpenWithNexSSH" Clsid="3AD0B11B-8CE6-4687-A20A-3FA3067C3BB0" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type="Directory\Background">
+              <desktop5:Verb Id="OpenWithNexSSH" Clsid="3AD0B11B-8CE6-4687-A20A-3FA3067C3BB0" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="NexSSH">
+              <com:Class Id="3AD0B11B-8CE6-4687-A20A-3FA3067C3BB0" Path="nexssh_explorer_command.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

@@ -48,7 +48,9 @@ fn err<T>(msg: impl Into<String>) -> CmdResult<T> {
     Err(CmdError(msg.into()))
 }
 
-async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CmdResult<T> {
+pub(crate) async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+) -> CmdResult<T> {
     Ok(tauri::async_runtime::spawn_blocking(f).await?)
 }
 

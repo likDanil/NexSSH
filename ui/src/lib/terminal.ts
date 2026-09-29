@@ -1,12 +1,12 @@
 // xterm.js wrapper. Loaded lazily (dynamic import) when the first session opens, so the
 // app starts without parsing the terminal emulator.
 
-import { Terminal, type ITheme } from '@xterm/xterm';
+import { Terminal, type ITheme, type IWindowsPty } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
-import { isMac } from './platform';
+import { isMac, shortcutKey } from './platform';
 import type { Settings } from './types';
 
 export const BUNDLED_FONT = 'JetBrains Mono Variable';
@@ -37,9 +37,17 @@ export class TermView {
   #copyTimer: ReturnType<typeof setTimeout> | undefined;
   #settings: TermSettings;
 
-  constructor(host: HTMLElement, settings: TermSettings, theme: ITheme, cb: TermCallbacks) {
+  /** `windowsPty`: the session is a local terminal on Windows (ConPTY), which xterm.js adapts to. */
+  constructor(
+    host: HTMLElement,
+    settings: TermSettings,
+    theme: ITheme,
+    cb: TermCallbacks,
+    windowsPty?: IWindowsPty,
+  ) {
     this.#settings = settings;
     this.term = new Terminal({
+      windowsPty,
       fontFamily: fontStack(settings.fontFamily),
       fontSize: settings.fontSize,
       lineHeight: settings.lineHeight,
@@ -81,7 +89,8 @@ export class TermView {
   /** Clipboard shortcuts; everything else goes to the shell. */
   #onKey(e: KeyboardEvent): boolean {
     if (e.type !== 'keydown') return true;
-    const key = e.key.toLowerCase();
+    // Also with a Cyrillic (or other non-Latin) layout active.
+    const key = shortcutKey(e).toLowerCase();
     if (isMac()) {
       if (e.metaKey && key === 'c' && this.term.hasSelection()) {
         void this.copy();

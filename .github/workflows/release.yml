@@ -9,9 +9,9 @@ name: Release
 #     version. "Dry run" only builds the installer and attaches it to the
 #     workflow run.
 #
-# Branch pushes that change the release setup (this file, the bundle config or
-# the icons) run as a dry run, so a broken installer build shows up before a
-# release does.
+# Branch pushes that change the release setup (this file, the bundle config, the
+# icons, the installer hooks or the Explorer menu's package) run as a dry run, so a
+# broken installer build shows up before a release does.
 #
 # The version from the tag/input is written into Cargo.toml for the build, so the
 # app, the installer name and the release always agree.
@@ -22,6 +22,11 @@ name: Release
 # is in desktop/tauri.conf.json (plugins.updater.pubkey). A release without them would be
 # invisible to installed apps, so publishing stops right away when the key is missing;
 # dry runs still build (unsigned).
+#
+# Windows 11's Explorer menu entry: the EXPLORER_SIGNING_CERT (a PFX file, base64) and
+# EXPLORER_SIGNING_PASSWORD secrets sign its package. Computers trust that certificate once
+# (the user allows it with administrator rights), so it has to stay the same from release to
+# release; publishing stops when it is missing. Dry runs sign with a certificate of their own.
 
 on:
   push:
@@ -32,6 +37,9 @@ on:
       - .github/workflows/release.yml
       - desktop/tauri.conf.json
       - desktop/icons/**
+      - desktop/windows/**
+      - explorer/**
+      - scripts/explorer-package.ps1
   workflow_dispatch:
     inputs:
       version:
@@ -75,6 +83,7 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
           HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          HAS_EXPLORER_CERT: ${{ secrets.EXPLORER_SIGNING_CERT != '' }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_TYPE" == "tag" ]]; then
@@ -122,6 +131,10 @@ jobs:
             echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set, so installed apps could not update to this release. Add it and TAURI_SIGNING_PRIVATE_KEY_PASSWORD under Settings > Secrets and variables > Actions > Secrets, then run the release again."
             exit 1
           fi
+          if $publish && [[ "$HAS_EXPLORER_CERT" != "true" ]]; then
+            echo "::error::The EXPLORER_SIGNING_CERT secret is not set, so every release would sign the Explorer menu's package with another certificate, which users would have to allow again. Add it and EXPLORER_SIGNING_PASSWORD under Settings > Secrets and variables > Actions > Secrets, then run the release again."
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
@@ -157,11 +170,21 @@ jobs:
 
       - run: npm ci
 
+      # "Open with NexSSH" in Windows 11's compact context menu (see the script).
+      - name: Package the Explorer menu entry
+        shell: pwsh
+        env:
+          NEXSSH_EXPLORER_CERT: ${{ secrets.EXPLORER_SIGNING_CERT }}
+          NEXSSH_EXPLORER_CERT_PASSWORD: ${{ secrets.EXPLORER_SIGNING_PASSWORD }}
+        run: ./scripts/explorer-package.ps1
+
       - name: Build
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Embedded by desktop/build.rs.
+          NEXSSH_EXPLORER_PACKAGE: ${{ github.workspace }}\target\explorer-package
         run: |
           if [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
             # Also writes <installer>.sig for in-app updates.

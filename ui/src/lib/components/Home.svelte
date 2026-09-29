@@ -1,6 +1,15 @@
 <script lang="ts">
   import logo from '../../assets/logo.png';
-  import { addServer, connect, editServer, importSshConfig, keys, quickConnect, serverMenu } from '../actions';
+  import {
+    addServer,
+    connect,
+    editServer,
+    importSshConfig,
+    keys,
+    openLocalTerminal,
+    quickConnect,
+    serverMenu,
+  } from '../actions';
   import { t, timeAgo, tn, type MessageKey } from '../i18n.svelte';
   import { destination, servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
@@ -71,6 +80,10 @@
         <button class="btn primary" onclick={() => addServer()}><Icon name="plus" size={14} /> {t('home.addServer')}</button>
         <button class="btn" onclick={importSshConfig}><Icon name="import" size={14} /> {t('home.importConfig')}</button>
         <button class="btn ghost" onclick={quickConnect}><Icon name="zap" size={14} /> {t('home.quickConnect')}</button>
+        <button class="btn ghost" onclick={() => openLocalTerminal()}>
+          <Icon name="terminal" size={14} />
+          {t('home.localTerminal')}
+        </button>
       </div>
       <p class="hint"><Rich key="home.paletteHint" params={{ keys: keys.palette() }} tags={{ keys: 'kbd' }} /></p>
     </div>
@@ -82,6 +95,10 @@
           <p>{tn('home.summary', servers.data.servers.length)}</p>
         </div>
         <div class="head-actions">
+          <button class="btn ghost" onclick={() => openLocalTerminal()} title={keys.localTerminal()}>
+            <Icon name="terminal" size={14} />
+            {t('home.localTerminal')}
+          </button>
           <button class="btn ghost" onclick={importSshConfig}><Icon name="import" size={14} /> {t('home.import')}</button>
           <button class="btn" onclick={() => addServer()}><Icon name="plus" size={14} /> {t('sidebar.addServer')}</button>
         </div>
@@ -104,8 +121,13 @@
       <p class="hint">
         <Rich
           key="home.shortcuts"
-          params={{ palette: keys.palette(), newSession: keys.newSession(), settings: keys.settings() }}
-          tags={{ palette: 'kbd', newSession: 'kbd', settings: 'kbd' }}
+          params={{
+            palette: keys.palette(),
+            newSession: keys.newSession(),
+            local: keys.localTerminal(),
+            settings: keys.settings(),
+          }}
+          tags={{ palette: 'kbd', newSession: 'kbd', local: 'kbd', settings: 'kbd' }}
         />
       </p>
     </div>

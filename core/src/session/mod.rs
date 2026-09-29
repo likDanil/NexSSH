@@ -1,8 +1,9 @@
-//! Interactive SSH sessions.
+//! Interactive SSH sessions, and local terminals driven the same way.
 //!
 //! A session is a long-lived task that owns one terminal connection: it connects
 //! (through jump hosts if needed), authenticates, runs a PTY shell, streams output to an
-//! [`EventSink`] and survives disconnects so it can be reconnected in place.
+//! [`EventSink`] and survives disconnects so it can be reconnected in place. A local
+//! session ([`SessionManager::open_local`]) runs a program on this computer instead.
 //!
 //! The API is UI-agnostic: a GUI, TUI or CLI supplies an [`EventSink`] and answers
 //! [`Prompt`]s (host key confirmation, passwords, passphrases, 2FA codes) through
@@ -11,6 +12,7 @@
 mod auth;
 mod connect;
 pub(crate) mod handler;
+mod local;
 mod shell;
 
 use std::collections::HashMap;
@@ -28,6 +30,7 @@ use crate::error::{Error, Result};
 use crate::forward::ForwardInfo;
 use crate::i18n;
 use crate::known_hosts::{HostKeyStatus, KnownHosts};
+use crate::local::LocalCommand;
 use crate::model::{ForwardSpec, PtySize, Server};
 use crate::secrets::Secrets;
 use crate::sftp::Sftp;
@@ -205,6 +208,31 @@ impl SessionManager {
     /// Starts a session and returns immediately; progress is reported to `sink`.
     /// Must be called from within a Tokio runtime.
     pub fn open(&self, server: Server, size: PtySize, sink: Arc<dyn EventSink>) -> SessionId {
+        let (ctx, rx) = self.register(sink);
+        let id = ctx.id;
+        tokio::spawn(shell::run(ctx, server, size, rx));
+        id
+    }
+
+    /// Starts a local terminal running `command` (see [`crate::local`]) and returns
+    /// immediately. It is driven like an SSH session: `reconnect` starts the program again,
+    /// `disconnect` stops it. Must be called from within a Tokio runtime.
+    pub fn open_local(
+        &self,
+        command: LocalCommand,
+        size: PtySize,
+        sink: Arc<dyn EventSink>,
+    ) -> SessionId {
+        let (ctx, rx) = self.register(sink);
+        let id = ctx.id;
+        tokio::spawn(local::run(ctx, command, size, rx));
+        id
+    }
+
+    fn register(
+        &self,
+        sink: Arc<dyn EventSink>,
+    ) -> (Arc<SessionCtx>, mpsc::UnboundedReceiver<Command>) {
         let id = self.shared.next_session.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::unbounded_channel();
         lock(&self.shared.sessions).insert(id, tx);
@@ -216,8 +244,7 @@ impl SessionManager {
             prompted: AtomicBool::new(false),
             cache: Mutex::new(CredCache::default()),
         });
-        tokio::spawn(shell::run(ctx, server, size, rx));
-        id
+        (ctx, rx)
     }
 
     fn send(&self, id: SessionId, cmd: Command) -> Result<()> {

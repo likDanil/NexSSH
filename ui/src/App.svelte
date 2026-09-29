@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { closeTab, openSettings, quickConnect, toggleFiles, toggleFullscreen, toggleSidebar } from './lib/actions';
+  import {
+    closeTab,
+    openLocalTerminal,
+    openSettings,
+    quickConnect,
+    toggleFiles,
+    toggleFullscreen,
+    toggleSidebar,
+  } from './lib/actions';
   import CommandPalette from './lib/components/CommandPalette.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import ContextMenu from './lib/components/ContextMenu.svelte';
@@ -13,7 +21,7 @@
   import TabBar from './lib/components/TabBar.svelte';
   import TerminalPane from './lib/components/TerminalPane.svelte';
   import Toasts from './lib/components/Toasts.svelte';
-  import { isMac } from './lib/platform';
+  import { isMac, shortcutKey } from './lib/platform';
   import { app } from './lib/state/app.svelte';
   import { files } from './lib/state/files.svelte';
   import { sessions } from './lib/state/sessions.svelte';
@@ -30,7 +38,7 @@
   function onkeydown(e: KeyboardEvent) {
     const mac = isMac();
     const mod = mac ? e.metaKey : e.ctrlKey;
-    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const key = shortcutKey(e);
     const shift = e.shiftKey;
     const consume = () => {
       e.preventDefault();
@@ -51,6 +59,13 @@
     }
 
     if (app.overlayOpen || app.menu) return;
+
+    // New local terminal: Ctrl+Shift+` on every system, like VS Code.
+    if (e.ctrlKey && shift && !e.altKey && !e.metaKey && e.code === 'Backquote') {
+      consume();
+      openLocalTerminal();
+      return;
+    }
 
     if (key === 'F11' && !mac) {
       consume();
@@ -142,7 +157,7 @@
           <Home />
         {/if}
       </div>
-      {#if files.open && sessions.active}
+      {#if files.open && sessions.active?.kind === 'ssh'}
         <FilesDrawer tab={sessions.active} />
       {/if}
     </div>
