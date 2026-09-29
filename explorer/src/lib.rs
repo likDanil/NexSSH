@@ -4,7 +4,8 @@
 //! `IExplorerCommand` COM server named in a package manifest. NexSSH is not a packaged app, so
 //! it registers, for the user, a *package with external location* (a "sparse package", like
 //! VS Code's "Open with Code") that holds nothing but that manifest; the COM server itself
-//! (`explorer/command`, [`DLL_NAME`]) is unpacked next to it. [`register`] does that.
+//! (`explorer/command`, [`DLL_NAME`]) is unpacked next to it. [`register`] does that, once the
+//! computer trusts the certificate the package is signed with ([`trust`]).
 //!
 //! The COM server reads the entry's title and the program to run from [`SETTINGS_KEY`] every
 //! time the menu opens; the app keeps them current (the title follows its language), and
@@ -12,16 +13,17 @@
 #![cfg(windows)]
 
 pub mod register;
+pub mod trust;
 
 use windows::core::GUID;
 
 /// The COM class of the command (also in `package/AppxManifest.xml`).
 pub const CLSID: GUID = GUID::from_u128(0x3ad0b11b_8ce6_4687_a20a_3fa3067c3bb0);
 
-/// The package's name and publisher (`package/AppxManifest.xml`). The OID in the publisher is
-/// the one Windows requires of unsigned packages.
+/// The package's name and publisher (`package/AppxManifest.xml`). The publisher is the subject
+/// of the certificate the package is signed with.
 pub const PACKAGE_NAME: &str = "NexSSH.ExplorerMenu";
-pub const PUBLISHER: &str = "CN=NexSSH, OID.2.25.311729368913984317654407730594956997722=1";
+pub const PUBLISHER: &str = "CN=NexSSH";
 
 /// The COM server, next to the package (`Path` in the manifest).
 pub const DLL_NAME: &str = "nexssh_explorer_command.dll";

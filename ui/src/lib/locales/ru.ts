@@ -464,6 +464,10 @@ const ru: Catalog = {
   'settings.shellPick': 'Выберите оболочку',
   'settings.explorerMenu': '«Открыть через NexSSH» в Проводнике',
   'settings.explorerMenuHint': 'Открывает локальный терминал в папке из её контекстного меню.',
+  'settings.explorerMenuTrustHint':
+    'Windows 11 показывает пункт в «Показать дополнительные параметры». Чтобы он был в основном меню, Windows должна доверять сертификату NexSSH — для этого один раз нужны права администратора.',
+  'settings.explorerMenuTrust': 'Перенести в основное меню',
+  'settings.explorerMenuMoved': 'Пункт «Открыть через NexSSH» теперь в основном меню Проводника',
   'settings.explorerMenuFallback':
     'Windows 11 показывает пункт только в «Показать дополнительные параметры»: добавить его в основное меню не удалось ({reason}).',
   'settings.ctrlK': 'Ctrl+K открывает палитру и в терминале',

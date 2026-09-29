@@ -180,6 +180,14 @@ class AppState {
       .catch((e) => console.error('explorer menu', e));
   }
 
+  /** Windows 11: moves "Open with NexSSH" into Explorer's compact menu, once the user allowed
+   * it with administrator rights (Windows asks). */
+  async trustExplorerMenu() {
+    const state = await api.trustExplorerMenu();
+    this.explorerMenuState = state;
+    return state;
+  }
+
   /** Updates settings and persists them (debounced). */
   update(patch: Partial<Settings>) {
     Object.assign(this.settings, patch);

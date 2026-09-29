@@ -422,7 +422,14 @@ mod tests {
     fn the_selected_folders_are_read_from_the_items() {
         let dir = std::env::temp_dir().join("nexssh explorer test");
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.to_string_lossy().into_owned();
+        // The long form of the path (the temporary folder may come with short names, like
+        // RUNNER~1), which is what the shell hands out.
+        let canonical = std::fs::canonicalize(&dir).unwrap();
+        let canonical = canonical.to_string_lossy();
+        let path = canonical
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&canonical)
+            .to_string();
         assert_eq!(folders(Some(&items(&path))), [path]);
         // A drive's root.
         assert_eq!(folders(Some(&items(r"C:\"))), [r"C:\"]);

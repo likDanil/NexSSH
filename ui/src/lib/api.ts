@@ -96,6 +96,9 @@ export const api = {
   /** Windows: adds or removes "Open with NexSSH" in Explorer, labelled in the backend's language
    * (in Windows 11's compact menu where it can). */
   setExplorerMenu: (enabled: boolean) => invoke<ExplorerMenuState>('explorer_menu', { enabled }),
+  /** Windows 11: moves it into Explorer's compact menu; Windows asks the user for administrator
+   * rights (unchanged when they say no). */
+  trustExplorerMenu: () => invoke<ExplorerMenuState>('explorer_menu_trust'),
   /** Folders to open local terminals in, asked for with `--cwd` (e.g. from Explorer). */
   launchTake: () => invoke<string[]>('launch_take'),
   /** NexSSH was started again with `--cwd`: `launchTake` has new folders. */

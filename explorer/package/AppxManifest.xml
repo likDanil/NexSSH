@@ -2,11 +2,9 @@
 <!--
   The package that puts "Open with NexSSH" into Windows 11's context menu for folders: a
   package with external location ("sparse package") that only declares the COM server of the
-  menu entry (explorer/command). scripts/explorer-package.ps1 fills in the version and packs it;
-  NexSSH registers it for the user with the COM server next to it (explorer/src/register.rs).
-  Like VS Code's resources/win32/appx/AppxManifest.xml, but unsigned: the package holds no
-  program code (the COM server is in the external location), which Windows 11 lets a user
-  register without a signature.
+  menu entry (explorer/command). scripts/explorer-package.ps1 fills in the version, packs and
+  signs it; NexSSH registers it for the user with the COM server next to it
+  (explorer/src/register.rs). Like VS Code's resources/win32/appx/AppxManifest.xml.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
@@ -18,8 +16,8 @@
   xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   IgnorableNamespaces="uap uap10 rescap desktop4 desktop5 desktop6 com">
-  <!-- The publisher's OID marks unsigned packages (explorer/src/lib.rs, PUBLISHER). -->
-  <Identity Name="NexSSH.ExplorerMenu" Publisher="CN=NexSSH, OID.2.25.311729368913984317654407730594956997722=1" Version="@VERSION@" ProcessorArchitecture="x64" />
+  <!-- Publisher: the subject of the signing certificate (explorer/src/lib.rs, PUBLISHER). -->
+  <Identity Name="NexSSH.ExplorerMenu" Publisher="CN=NexSSH" Version="@VERSION@" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>NexSSH</DisplayName>
     <PublisherDisplayName>NexSSH contributors</PublisherDisplayName>

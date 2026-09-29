@@ -11,8 +11,9 @@
   ${EndIf}
 !macroend
 
-; The Explorer menu entries for Windows 11 (a package, the trust in its certificate) are
-; removed by the app itself, while it is still there (desktop/src/explorer.rs).
+; The Explorer menu entries for Windows 11 (a package, and the computer's trust in its
+; certificate, for which Windows asks for administrator rights) are removed by the app itself,
+; while it is still there (desktop/src/explorer.rs).
 !macro NSIS_HOOK_PREUNINSTALL
   ${If} $UpdateMode <> 1
     ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --explorer-cleanup'

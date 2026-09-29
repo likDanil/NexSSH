@@ -22,10 +22,14 @@ pub fn run() {
     #[cfg(windows)]
     {
         let args: Vec<String> = std::env::args().collect();
-        // The uninstaller removes the Explorer menu entries through the app (windows/hooks.nsh).
-        if args.iter().any(|a| a == "--explorer-cleanup") {
-            explorer::cleanup();
-            return;
+        // Explorer menu tasks, without a window: the uninstaller removes the entries through
+        // the app (windows/hooks.nsh), and the steps that need administrator rights run in a
+        // copy of NexSSH that Windows started with them (explorer.rs).
+        match args.get(1).map(String::as_str) {
+            Some("--explorer-cleanup") => return explorer::uninstall(),
+            Some("--explorer-trust") => std::process::exit(explorer::trust_computer()),
+            Some("--explorer-untrust") => std::process::exit(explorer::untrust_computer()),
+            _ => {}
         }
         // Started from Explorer's menu while NexSSH runs: this start hands its folder over,
         // and the running window may come to the front.
@@ -108,6 +112,7 @@ pub fn run() {
             local::local_open,
             local::pick_program,
             local::explorer_menu,
+            local::explorer_menu_trust,
             local::launch_take,
             sftp::sftp_home,
             sftp::sftp_resolve,

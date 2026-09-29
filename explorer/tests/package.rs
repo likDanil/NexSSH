@@ -3,15 +3,17 @@
 //! script's output folder (the Windows CI job); passes trivially elsewhere.
 //!
 //! NexSSH registers the package without administrator rights (under UAC, an administrator's
-//! programs run without them as well), so the test does too: started with them, as on CI, it
-//! runs itself again with a token like the ones UAC gives, and that run has to pass.
+//! programs run without them as well), once the computer trusts the package's certificate,
+//! which the user allows once with those rights. The test does the same: started with them, as
+//! on CI, it trusts the certificate, runs itself again with a token like the ones UAC gives
+//! (that run has to pass), and takes the trust back.
 #![cfg(windows)]
 
 use std::ffi::c_void;
 use std::path::PathBuf;
 
 use nexssh_explorer::register::{self, Payload};
-use nexssh_explorer::{CLSID, DLL_NAME};
+use nexssh_explorer::{CLSID, DLL_NAME, trust};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Security::{
     CheckTokenMembership, CreateRestrictedToken, CreateWellKnownSid, DISABLE_MAX_PRIVILEGE,
@@ -51,19 +53,38 @@ fn registers_the_package_and_its_com_server_serves_the_entry() {
     let Some(dir) = std::env::var_os("NEXSSH_EXPLORER_PACKAGE").map(PathBuf::from) else {
         return;
     };
+    let read = |name: &str| std::fs::read(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let (msix, cer, dll, logo) = (
+        read("NexSSH.msix"),
+        read("NexSSH.cer"),
+        read(DLL_NAME),
+        read("logo.png"),
+    );
+
     if administrator() {
+        // What the user allows once (NexSSH --explorer-trust).
+        trust::add(&cer).unwrap();
+        assert!(trust::trusted(&cer) && trust::any_trusted());
+        let code = run_without_administrator_rights();
+        // What the uninstaller does (NexSSH --explorer-untrust).
+        trust::remove().unwrap();
+        assert!(!trust::trusted(&cer) && !trust::any_trusted());
         assert_eq!(
-            run_without_administrator_rights(),
-            0,
+            code, 0,
             "the run without administrator rights failed (its output is above)"
         );
         assert!(!register::installed());
         return;
     }
-    let read = |name: &str| std::fs::read(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
-    let (msix, dll, logo) = (read("NexSSH.msix"), read(DLL_NAME), read("logo.png"));
+    // The computer's trust is beyond this process.
+    assert!(trust::add(&cer).is_err());
+    assert!(
+        trust::trusted(&cer),
+        "the computer does not trust the package's certificate (run the test as an administrator)"
+    );
     let payload = Payload {
         msix: &msix,
+        cer: &cer,
         dll: &dll,
         logo: &logo,
         id: "ci-test",

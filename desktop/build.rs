@@ -14,7 +14,12 @@ fn explorer_package() {
     let dir = std::path::PathBuf::from(dir);
     // FNV-1a of the files: the app unpacks them into a folder named after the build.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for name in ["NexSSH.msix", "nexssh_explorer_command.dll", "logo.png"] {
+    for name in [
+        "NexSSH.msix",
+        "NexSSH.cer",
+        "nexssh_explorer_command.dll",
+        "logo.png",
+    ] {
         let path = dir.join(name);
         let data = std::fs::read(&path)
             .unwrap_or_else(|e| panic!("NEXSSH_EXPLORER_PACKAGE: {}: {e}", path.display()));

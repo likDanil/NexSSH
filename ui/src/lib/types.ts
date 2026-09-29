@@ -105,7 +105,10 @@ export interface LocalShells {
 export interface ExplorerMenuState {
   /** In Windows 11's compact context menu, not only under "Show more options". */
   modern: boolean;
-  /** Why not, on Windows 11 (details for a bug report). */
+  /** It can go there once the computer trusts NexSSH's certificate, which takes administrator
+   * rights once (`api.trustExplorerMenu`). */
+  needsTrust: boolean;
+  /** Why it is not there, on Windows 11 (details for a bug report). */
   error?: string | null;
 }
 

@@ -1,10 +1,7 @@
 //! Registers the menu entry's package for the current user, and removes it.
 //!
-//! No administrator rights are needed, and no certificate: the package is registered for the
-//! user, unsigned. Windows 11 allows that for a package that holds no program code (this one
-//! holds its manifest and logo; the COM server is outside it, in the external location), and
-//! the publisher's OID ([`PUBLISHER`]) marks it as unsigned, so it can never pass for a signed
-//! package.
+//! No administrator rights are needed once the computer trusts the certificate the package is
+//! signed with (see [`crate::trust`]).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -27,8 +24,10 @@ const LOGO_NAME: &str = "logo.png";
 
 /// What a build of NexSSH brings along; `scripts/explorer-package.ps1` makes the files.
 pub struct Payload<'a> {
-    /// The package: the manifest and the logo.
+    /// The signed package: the manifest and the logo.
     pub msix: &'a [u8],
+    /// The certificate it is signed with (DER), which the computer has to trust.
+    pub cer: &'a [u8],
     /// The COM server.
     pub dll: &'a [u8],
     pub logo: &'a [u8],
@@ -201,8 +200,6 @@ fn add_package(manager: &PackageManager, dir: &Path) -> Result<()> {
     options
         .SetExternalLocationUri(&uri(dir)?)
         .map_err(|e| e.message())?;
-    // Unsigned (see the top of this file).
-    options.SetAllowUnsigned(true).map_err(|e| e.message())?;
     let operation = manager
         .AddPackageByUriAsync(&uri(&dir.join(MSIX_NAME))?, &options)
         .map_err(|e| e.message())?;

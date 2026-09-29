@@ -414,6 +414,10 @@ const en = {
   'settings.shellPick': 'Choose a shell',
   'settings.explorerMenu': '“Open with NexSSH” in Explorer',
   'settings.explorerMenuHint': 'Opens a local terminal in a folder from its context menu.',
+  'settings.explorerMenuTrustHint':
+    'Windows 11 shows it under “Show more options”. For its compact menu, Windows has to trust NexSSH’s certificate, which takes administrator rights once.',
+  'settings.explorerMenuTrust': 'Move to the compact menu',
+  'settings.explorerMenuMoved': '“Open with NexSSH” is in Explorer’s compact menu now',
   'settings.explorerMenuFallback':
     'Windows 11 shows it only under “Show more options”: adding it to the compact menu failed ({reason}).',
   'settings.ctrlK': 'Ctrl+K opens the palette inside the terminal',

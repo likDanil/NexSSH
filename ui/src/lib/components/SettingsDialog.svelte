@@ -55,6 +55,20 @@
     app.syncExplorerMenu();
   }
 
+  let trusting = $state(false);
+
+  async function trustExplorerMenu() {
+    trusting = true;
+    try {
+      const state = await app.trustExplorerMenu();
+      if (state.modern) toasts.show(t('settings.explorerMenuMoved'));
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    } finally {
+      trusting = false;
+    }
+  }
+
   function fontSize(delta: number) {
     app.update({ fontSize: Math.min(28, Math.max(9, s.fontSize + delta)) });
   }
@@ -270,21 +284,28 @@
         </div>
       {/if}
       {#if windows}
-        <label class="row top">
+        {@const menu = s.explorerMenu ? app.explorerMenuState : null}
+        <div class="row top">
           <span>
-            {t('settings.explorerMenu')}
+            <label for="explorer-menu">{t('settings.explorerMenu')}</label>
             <small>{t('settings.explorerMenuHint')}</small>
-            {#if s.explorerMenu && app.explorerMenuState?.error}
-              <small class="warn">{t('settings.explorerMenuFallback', { reason: app.explorerMenuState.error })}</small>
+            {#if menu?.needsTrust}
+              <small>{t('settings.explorerMenuTrustHint')}</small>
+              <button class="btn trust" disabled={trusting} onclick={trustExplorerMenu}>
+                {t('settings.explorerMenuTrust')}
+              </button>
+            {:else if menu?.error}
+              <small class="warn">{t('settings.explorerMenuFallback', { reason: menu.error })}</small>
             {/if}
           </span>
           <input
+            id="explorer-menu"
             type="checkbox"
             class="toggle"
             checked={s.explorerMenu}
             onchange={(e) => setExplorerMenu(e.currentTarget.checked)}
           />
-        </label>
+        </div>
       {/if}
     </div>
   {:else if section === 'keyboard'}
@@ -453,6 +474,10 @@
   .row small.warn {
     color: var(--amber);
     overflow-wrap: anywhere;
+  }
+  .row .trust {
+    align-self: flex-start;
+    margin-top: 6px;
   }
   .row .input {
     max-width: 260px;

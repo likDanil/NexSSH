@@ -39,8 +39,9 @@
   distributions, Git Bash — or any shell or command of your choice (*Settings → Terminal*).
   <kbd>Ctrl+Shift+&#96;</kbd>, the menu next to **+**, the sidebar or the palette; <kbd>Enter</kbd>
   starts it again after it exits. On Windows, **Open with NexSSH** in Explorer's menu for
-  folders opens one right in that folder (on Windows 11 in the compact menu itself, not only
-  under *Show more options*).
+  folders opens one right in that folder. On Windows 11 it can be in the compact menu itself,
+  not only under *Show more options*: *Settings → Terminal → Move to the compact menu* (Windows
+  asks for administrator rights once).
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
   upload files and whole folders (buttons, or drag & drop — onto a folder in the list to
   put them there), download into *Downloads* or any folder, several at once with
@@ -190,6 +191,19 @@ read from `releases/latest/download/latest.json`. The matching public key is
 (`npm run tauri signer generate`) needs a new public key there, and apps built with the old
 key will not accept updates signed with the new one. Without the secrets a release stops
 right away (installed apps could not see it); dry runs still build, unsigned.
+
+**Windows 11's Explorer menu entry** comes in a package signed with NexSSH's own certificate,
+which computers trust once (the user allows it with administrator rights), so it stays the same
+from release to release:
+
+| Secret | Value |
+| --- | --- |
+| `EXPLORER_SIGNING_CERT` | the certificate with its private key: a PFX file, base64 |
+| `EXPLORER_SIGNING_PASSWORD` | the PFX file's password |
+
+Its subject has to be `CN=NexSSH` (the package's publisher), with the code signing usage. A
+release stops without them; dry runs and development builds sign with a certificate of their
+own.
 
 ## Roadmap
 

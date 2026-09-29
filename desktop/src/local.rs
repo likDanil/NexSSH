@@ -117,7 +117,10 @@ pub async fn pick_program(
 pub struct MenuState {
     /// In Windows 11's compact menu (not only under "Show more options").
     pub modern: bool,
-    /// Why it is not, on Windows 11.
+    /// It can go there once the computer trusts NexSSH's certificate, which takes
+    /// administrator rights once (`explorer_menu_trust`).
+    pub needs_trust: bool,
+    /// Why it is not there, on Windows 11.
     pub error: Option<String>,
 }
 
@@ -132,6 +135,16 @@ pub async fn explorer_menu(enabled: bool) -> CmdResult<MenuState> {
         let _ = enabled;
         Ok(MenuState::default())
     }
+}
+
+/// Windows 11: puts "Open with NexSSH" into Explorer's compact menu, after Windows asked the
+/// user for administrator rights (the computer then trusts NexSSH's certificate).
+#[tauri::command]
+pub async fn explorer_menu_trust() -> CmdResult<MenuState> {
+    #[cfg(windows)]
+    return Ok(blocking(crate::explorer::trust).await??);
+    #[cfg(not(windows))]
+    Ok(MenuState::default())
 }
 
 // ---- folders from the command line --------------------------------------------------------
