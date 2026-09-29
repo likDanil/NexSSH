@@ -413,8 +413,9 @@ const en = {
   'settings.shellCommandHint': 'A program and its arguments; put a path with spaces in quotes.',
   'settings.shellPick': 'Choose a shell',
   'settings.explorerMenu': '“Open with NexSSH” in Explorer',
-  'settings.explorerMenuHint':
-    'Opens a local terminal in a folder from its context menu. Windows 11 lists it under “Show more options”.',
+  'settings.explorerMenuHint': 'Opens a local terminal in a folder from its context menu.',
+  'settings.explorerMenuFallback':
+    'Windows 11 shows it only under “Show more options”: adding it to the compact menu failed ({reason}).',
   'settings.ctrlK': 'Ctrl+K opens the palette inside the terminal',
   'settings.ctrlKHint':
     'Off by default: in the shell Ctrl+K deletes to the end of the line (and cuts in nano). Ctrl+Shift+K always opens the palette.',

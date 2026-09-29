@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "desktop"]
+members = ["core", "desktop", "explorer", "explorer/command"]
 
 [workspace.package]
 version = "0.3.0"

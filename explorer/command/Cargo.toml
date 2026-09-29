@@ -1,0 +1,27 @@
+[package]
+name = "nexssh-explorer-command"
+description = "The COM server of \"Open with NexSSH\" in Windows 11's context menu for folders (IExplorerCommand), loaded by Explorer from the package nexssh-explorer registers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "nexssh_explorer_command"
+crate-type = ["cdylib"]
+
+[target.'cfg(windows)'.dependencies]
+nexssh-explorer = { path = ".." }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# `#[implement]` refers to it by name.
+windows-core = "0.62"
+winreg = "0.55"

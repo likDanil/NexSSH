@@ -111,16 +111,26 @@ pub async fn pick_program(
     Ok(Some(path.display().to_string()))
 }
 
+/// Where "Open with NexSSH" ended up.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuState {
+    /// In Windows 11's compact menu (not only under "Show more options").
+    pub modern: bool,
+    /// Why it is not, on Windows 11.
+    pub error: Option<String>,
+}
+
 /// Shows or hides "Open with NexSSH" in the context menu of folders in Windows Explorer
 /// (in the interface's language); nothing to do elsewhere.
 #[tauri::command]
-pub async fn explorer_menu(enabled: bool) -> CmdResult<()> {
+pub async fn explorer_menu(enabled: bool) -> CmdResult<MenuState> {
     #[cfg(windows)]
     return Ok(blocking(move || crate::explorer::set(enabled)).await??);
     #[cfg(not(windows))]
     {
         let _ = enabled;
-        Ok(())
+        Ok(MenuState::default())
     }
 }
 

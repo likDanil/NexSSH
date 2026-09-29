@@ -2930,6 +2930,7 @@ version = "0.3.0"
 dependencies = [
  "log",
  "nexssh-core",
+ "nexssh-explorer",
  "serde",
  "serde_json",
  "tauri",
@@ -2965,6 +2966,24 @@ dependencies = [
  "windows-native-keyring-store",
  "winreg 0.55.0",
  "zeroize",
+]
+
+[[package]]
+name = "nexssh-explorer"
+version = "0.3.0"
+dependencies = [
+ "windows",
+ "winreg 0.55.0",
+]
+
+[[package]]
+name = "nexssh-explorer-command"
+version = "0.3.0"
+dependencies = [
+ "nexssh-explorer",
+ "windows",
+ "windows-core",
+ "winreg 0.55.0",
 ]
 
 [[package]]

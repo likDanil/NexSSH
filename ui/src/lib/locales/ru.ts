@@ -463,8 +463,9 @@ const ru: Catalog = {
   'settings.shellCommandHint': 'Программа и её аргументы; путь с пробелами — в кавычках.',
   'settings.shellPick': 'Выберите оболочку',
   'settings.explorerMenu': '«Открыть через NexSSH» в Проводнике',
-  'settings.explorerMenuHint':
-    'Открывает локальный терминал в папке из её контекстного меню. В Windows 11 пункт находится в «Показать дополнительные параметры».',
+  'settings.explorerMenuHint': 'Открывает локальный терминал в папке из её контекстного меню.',
+  'settings.explorerMenuFallback':
+    'Windows 11 показывает пункт только в «Показать дополнительные параметры»: добавить его в основное меню не удалось ({reason}).',
   'settings.ctrlK': 'Ctrl+K открывает палитру и в терминале',
   'settings.ctrlKHint':
     'По умолчанию выключено: в shell Ctrl+K удаляет текст до конца строки (а в nano вырезает строку). Ctrl+Shift+K открывает палитру всегда.',

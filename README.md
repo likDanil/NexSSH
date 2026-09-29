@@ -39,7 +39,8 @@
   distributions, Git Bash — or any shell or command of your choice (*Settings → Terminal*).
   <kbd>Ctrl+Shift+&#96;</kbd>, the menu next to **+**, the sidebar or the palette; <kbd>Enter</kbd>
   starts it again after it exits. On Windows, **Open with NexSSH** in Explorer's menu for
-  folders opens one right in that folder (Windows 11 lists it under *Show more options*).
+  folders opens one right in that folder (on Windows 11 in the compact menu itself, not only
+  under *Show more options*).
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
   upload files and whole folders (buttons, or drag & drop — onto a folder in the list to
   put them there), download into *Downloads* or any folder, several at once with
@@ -105,12 +106,23 @@ npm run dev     # run the app with hot reload
 npm run build   # optimized build + installer for the current OS
 ```
 
+On Windows, *Open with NexSSH* gets into Windows 11's compact menu only with the package
+built by `scripts/explorer-package.ps1` (needs the Windows SDK) embedded; without it the entry
+is under *Show more options*:
+
+```powershell
+pwsh scripts/explorer-package.ps1
+$env:NEXSSH_EXPLORER_PACKAGE = "$PWD\target\explorer-package"
+npm run build
+```
+
 ## Development
 
 ```
-core/     SSH, authentication, known_hosts, forwarding, storage (no GUI dependencies)
-desktop/  Tauri shell: window, IPC commands, settings
-ui/       Svelte 5 + TypeScript + xterm.js
+core/      SSH, authentication, known_hosts, forwarding, storage (no GUI dependencies)
+desktop/   Tauri shell: window, IPC commands, settings
+explorer/  Windows 11's Explorer menu entry: its COM server and package
+ui/        Svelte 5 + TypeScript + xterm.js
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
@@ -160,8 +172,9 @@ Releases are built by GitHub Actions ([release.yml](.github/workflows/release.ym
 
 The workflow writes the version into `Cargo.toml`, builds the NSIS installer on Windows and
 publishes a GitHub release with `NexSSH_<version>_x64-setup.exe` and `SHA256SUMS.txt`.
-Branch pushes that change the release setup (the workflow, `tauri.conf.json`, icons) run it as
-a dry run: the installer is built and attached to the workflow run, nothing is published.
+Branch pushes that change the release setup (the workflow, `tauri.conf.json`, icons, the
+installer hooks, the Explorer menu's package) run it as a dry run: the installer is built and
+attached to the workflow run, nothing is published.
 
 **In-app updates** need the updater signing key as repository secrets
 (*Settings → Secrets and variables → Actions*):

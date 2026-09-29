@@ -274,6 +274,9 @@
           <span>
             {t('settings.explorerMenu')}
             <small>{t('settings.explorerMenuHint')}</small>
+            {#if s.explorerMenu && app.explorerMenuState?.error}
+              <small class="warn">{t('settings.explorerMenuFallback', { reason: app.explorerMenuState.error })}</small>
+            {/if}
           </span>
           <input
             type="checkbox"
@@ -446,6 +449,10 @@
     font-size: 11.5px;
     line-height: 1.4;
     max-width: 380px;
+  }
+  .row small.warn {
+    color: var(--amber);
+    overflow-wrap: anywhere;
   }
   .row .input {
     max-width: 260px;

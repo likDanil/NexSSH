@@ -101,6 +101,14 @@ export interface LocalShells {
   windowsBuild?: number | null;
 }
 
+/** Where Windows Explorer shows "Open with NexSSH". */
+export interface ExplorerMenuState {
+  /** In Windows 11's compact context menu, not only under "Show more options". */
+  modern: boolean;
+  /** Why not, on Windows 11 (details for a bug report). */
+  error?: string | null;
+}
+
 export interface KeyInfo {
   path: string;
   keyType: string;

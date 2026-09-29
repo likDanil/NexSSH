@@ -9,9 +9,9 @@ name: Release
 #     version. "Dry run" only builds the installer and attaches it to the
 #     workflow run.
 #
-# Branch pushes that change the release setup (this file, the bundle config or
-# the icons) run as a dry run, so a broken installer build shows up before a
-# release does.
+# Branch pushes that change the release setup (this file, the bundle config, the
+# icons, the installer hooks or the Explorer menu's package) run as a dry run, so a
+# broken installer build shows up before a release does.
 #
 # The version from the tag/input is written into Cargo.toml for the build, so the
 # app, the installer name and the release always agree.
@@ -32,6 +32,9 @@ on:
       - .github/workflows/release.yml
       - desktop/tauri.conf.json
       - desktop/icons/**
+      - desktop/windows/**
+      - explorer/**
+      - scripts/explorer-package.ps1
   workflow_dispatch:
     inputs:
       version:
@@ -157,11 +160,19 @@ jobs:
 
       - run: npm ci
 
+      # "Open with NexSSH" in Windows 11's compact context menu: a package signed with a
+      # certificate made for this build only (see the script).
+      - name: Package the Explorer menu entry
+        shell: pwsh
+        run: ./scripts/explorer-package.ps1
+
       - name: Build
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Embedded by desktop/build.rs.
+          NEXSSH_EXPLORER_PACKAGE: ${{ github.workspace }}\target\explorer-package
         run: |
           if [[ -n "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
             # Also writes <installer>.sig for in-app updates.

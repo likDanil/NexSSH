@@ -6,6 +6,7 @@ import type {
   AppInfo,
   Downloaded,
   DownloadProgress,
+  ExplorerMenuState,
   ForwardSpec,
   ImportReport,
   KeyInfo,
@@ -92,8 +93,9 @@ export const api = {
     invoke<number>('local_open', { target, cols, rows, onEvent }),
   /** The system file dialog for the program of a custom shell; `null` when cancelled. */
   pickProgram: (title: string) => invoke<string | null>('pick_program', { title }),
-  /** Windows: adds or removes "Open with NexSSH" in Explorer, labelled in the backend's language. */
-  setExplorerMenu: (enabled: boolean) => invoke<void>('explorer_menu', { enabled }),
+  /** Windows: adds or removes "Open with NexSSH" in Explorer, labelled in the backend's language
+   * (in Windows 11's compact menu where it can). */
+  setExplorerMenu: (enabled: boolean) => invoke<ExplorerMenuState>('explorer_menu', { enabled }),
   /** Folders to open local terminals in, asked for with `--cwd` (e.g. from Explorer). */
   launchTake: () => invoke<string[]>('launch_take'),
   /** NexSSH was started again with `--cwd`: `launchTake` has new folders. */

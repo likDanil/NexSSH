@@ -10,3 +10,11 @@
     DeleteRegKey HKCU "Software\Classes\Drive\shell\NexSSH"
   ${EndIf}
 !macroend
+
+; The Explorer menu entries for Windows 11 (a package, the trust in its certificate) are
+; removed by the app itself, while it is still there (desktop/src/explorer.rs).
+!macro NSIS_HOOK_PREUNINSTALL
+  ${If} $UpdateMode <> 1
+    ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --explorer-cleanup'
+  ${EndIf}
+!macroend

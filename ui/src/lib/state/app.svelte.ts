@@ -5,7 +5,7 @@ import { api } from '../api';
 import { i18n, resolveLanguage, systemLanguage, t, type Lang } from '../i18n.svelte';
 import { setOs } from '../platform';
 import { isDarkTheme, resolveTheme } from '../themes';
-import type { AppInfo, ResolvedTheme, Server, Settings } from '../types';
+import type { AppInfo, ExplorerMenuState, ResolvedTheme, Server, Settings } from '../types';
 
 export const DEFAULT_SETTINGS: Settings = {
   language: 'system',
@@ -95,6 +95,8 @@ class AppState {
   systemLanguage = $state<Lang>(systemLanguage());
   language: Lang = $derived(resolveLanguage(this.settings.language, this.systemLanguage));
   keychainIssue = $state<string | null>(null);
+  /** Windows: where Explorer shows "Open with NexSSH" (`null` until known). */
+  explorerMenuState = $state<ExplorerMenuState | null>(null);
   fullscreen = $state(false);
 
   palette = $state<{ open: boolean; mode: 'commands' | 'connect'; query: string }>({
@@ -172,7 +174,10 @@ class AppState {
    * current language), or takes it out. */
   syncExplorerMenu() {
     if (this.info?.os !== 'windows') return;
-    api.setExplorerMenu(this.settings.explorerMenu).catch((e) => console.error('explorer menu', e));
+    api
+      .setExplorerMenu(this.settings.explorerMenu)
+      .then((state) => (this.explorerMenuState = state))
+      .catch((e) => console.error('explorer menu', e));
   }
 
   /** Updates settings and persists them (debounced). */

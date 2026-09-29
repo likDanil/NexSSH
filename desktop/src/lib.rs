@@ -19,6 +19,20 @@ use commands::AppState;
 use settings::{Settings, theme_background};
 
 pub fn run() {
+    #[cfg(windows)]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        // The uninstaller removes the Explorer menu entries through the app (windows/hooks.nsh).
+        if args.iter().any(|a| a == "--explorer-cleanup") {
+            explorer::cleanup();
+            return;
+        }
+        // Started from Explorer's menu while NexSSH runs: this start hands its folder over,
+        // and the running window may come to the front.
+        if args.iter().any(|a| a.starts_with("--cwd")) {
+            nexssh_explorer::allow_foreground();
+        }
+    }
     logger::init();
     let app = tauri::Builder::default()
         // First, so a second launch hands over before creating anything: the running
