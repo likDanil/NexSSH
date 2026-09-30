@@ -135,6 +135,7 @@
     ['shortcut.fullscreen', keys.fullscreen()],
     ['shortcut.settings', keys.settings()],
     ['shortcut.copyPaste', isMac() ? '⌘C · ⌘V' : 'Ctrl+Shift+C · Ctrl+Shift+V'],
+    ['shortcut.openLink', t('shortcut.click', { key: shortcut('Mod') })],
   ]);
 </script>
 

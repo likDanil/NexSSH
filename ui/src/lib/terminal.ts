@@ -3,10 +3,11 @@
 
 import { Terminal, type ITheme, type IWindowsPty } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
-import { isMac, shortcutKey } from './platform';
+import { isMac, mod, shortcutKey } from './platform';
 import type { Settings } from './types';
 
 export const BUNDLED_FONT = 'JetBrains Mono Variable';
@@ -23,11 +24,25 @@ function fontStack(custom: string): string {
   return [quoted, `'${BUNDLED_FONT}'`, FALLBACK_FONTS].filter(Boolean).join(', ');
 }
 
+/** A link under the mouse: a web address in the output, or a hyperlink (OSC 8), whose text
+ * may say something else than where it points. */
+export interface HoveredLink {
+  uri: string;
+  hyperlink: boolean;
+  /** Where the mouse came onto it (client coordinates). */
+  x: number;
+  y: number;
+}
+
 export interface TermCallbacks {
   onData(data: string): void;
   onBinary(data: string): void;
   onResize(cols: number, rows: number): void;
   onContextMenu(e: MouseEvent, view: TermView): void;
+  /** Ctrl+click (Cmd+click on macOS) on a link. */
+  onLinkOpen(uri: string): void;
+  /** The mouse came onto a link, or left it (`null`). */
+  onLinkHover(link: HoveredLink | null): void;
 }
 
 export class TermView {
@@ -36,6 +51,7 @@ export class TermView {
   #webgl: WebglAddon | null = null;
   #copyTimer: ReturnType<typeof setTimeout> | undefined;
   #settings: TermSettings;
+  #link: string | null = null;
 
   /** `windowsPty`: the session is a local terminal on Windows (ConPTY), which xterm.js adapts to. */
   constructor(
@@ -46,6 +62,19 @@ export class TermView {
     windowsPty?: IWindowsPty,
   ) {
     this.#settings = settings;
+    // Links open with Ctrl+click (Cmd+click on macOS), as in most terminals: a plain click
+    // stays a click, for selecting text and for programs that use the mouse.
+    const activate = (e: MouseEvent, uri: string) => {
+      if (mod(e)) cb.onLinkOpen(uri);
+    };
+    const hover = (hyperlink: boolean) => (e: MouseEvent, uri: string) => {
+      this.#link = uri;
+      cb.onLinkHover({ uri, hyperlink, x: e.clientX, y: e.clientY });
+    };
+    const leave = () => {
+      this.#link = null;
+      cb.onLinkHover(null);
+    };
     this.term = new Terminal({
       windowsPty,
       fontFamily: fontStack(settings.fontFamily),
@@ -64,8 +93,12 @@ export class TermView {
       macOptionClickForcesSelection: true,
       rightClickSelectsWord: false,
       allowProposedApi: false,
+      // Hyperlinks programs print (OSC 8, e.g. `ls --hyperlink`); only web ones.
+      linkHandler: { activate, hover: hover(true), leave },
     });
     this.term.loadAddon(this.#fit);
+    // Web addresses in the output.
+    this.term.loadAddon(new WebLinksAddon(activate, { hover: hover(false), leave }));
     this.term.open(host);
     this.setGpu(settings.gpuAcceleration);
 
@@ -116,6 +149,11 @@ export class TermView {
       return false;
     }
     return true;
+  }
+
+  /** The link under the mouse, if any. */
+  get link(): string | null {
+    return this.#link;
   }
 
   async copy() {

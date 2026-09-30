@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { closeTab, sessionMenu } from '../actions';
+  import { api, errorMessage } from '../api';
   import { t } from '../i18n.svelte';
+  import { shortcut } from '../platform';
   import { app, type MenuEntry } from '../state/app.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
   import { shells } from '../state/shells.svelte';
-  import type { TermSettings, TermView } from '../terminal';
+  import { toasts } from '../state/toasts.svelte';
+  import type { HoveredLink, TermSettings, TermView } from '../terminal';
   import { TERMINAL_THEMES } from '../themes';
   import Icon from './Icon.svelte';
   import PromptCard from './PromptCard.svelte';
@@ -21,6 +24,9 @@
   let view: TermView | null = null;
   let loaded = $state(false);
   let frame = 0;
+  // The link under the mouse, shown with how to open it.
+  let link = $state<HoveredLink | null>(null);
+  let linkTimer: ReturnType<typeof setTimeout> | undefined;
 
   const termSettings: TermSettings = $derived({
     fontFamily: app.settings.fontFamily,
@@ -64,6 +70,8 @@
           onBinary: (data) => sessions.inputBinary(tab.key, data),
           onResize: (cols, rows) => sessions.resize(tab.key, cols, rows),
           onContextMenu: (e, tv) => contextMenu(e, tv),
+          onLinkOpen: openLink,
+          onLinkHover: hoverLink,
         },
         conpty,
       );
@@ -78,6 +86,7 @@
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
+      clearTimeout(linkTimer);
       observer?.disconnect();
       sessions.detach(tab.key);
       view?.dispose();
@@ -108,7 +117,38 @@
     }
   });
 
+  function hoverLink(next: HoveredLink | null) {
+    clearTimeout(linkTimer);
+    if (!next) {
+      link = null;
+      return;
+    }
+    // When the mouse rests on it, not while it passes by.
+    linkTimer = setTimeout(() => (link = next), 400);
+  }
+
+  function openLink(uri: string) {
+    hoverLink(null);
+    api.openLink(uri).catch((e) => toasts.error(errorMessage(e)));
+  }
+
+  function copyLink(uri: string) {
+    navigator.clipboard
+      .writeText(uri)
+      .then(() => toasts.show(t('terminal.linkCopied')))
+      .catch(() => {});
+  }
+
+  /** Next to the mouse, on the side of it with room. */
+  function tipPosition(l: HoveredLink): string {
+    const x = l.x > window.innerWidth * 0.6 ? `right: ${window.innerWidth - l.x + 8}px` : `left: ${l.x + 12}px`;
+    const y = l.y > window.innerHeight - 90 ? `bottom: ${window.innerHeight - l.y + 10}px` : `top: ${l.y + 18}px`;
+    return `${x}; ${y}`;
+  }
+
   function contextMenu(e: MouseEvent, v: TermView) {
+    const uri = v.link;
+    hoverLink(null);
     if (app.settings.rightClickPaste) {
       if (v.term.hasSelection()) {
         void v.copy().then(() => v.term.clearSelection());
@@ -117,13 +157,21 @@
       }
       return;
     }
-    const items: MenuEntry[] = [
+    const items: MenuEntry[] = [];
+    if (uri) {
+      items.push(
+        { label: t('terminal.openLink'), icon: 'globe', action: () => openLink(uri) },
+        { label: t('terminal.copyLink'), icon: 'link', action: () => copyLink(uri) },
+        'separator',
+      );
+    }
+    items.push(
       { label: t('terminal.copy'), icon: 'copy', disabled: !v.term.hasSelection(), action: () => void v.copy() },
       { label: t('terminal.paste'), icon: 'paste', action: () => void v.paste().then(() => v.focus()) },
       { label: t('terminal.selectAll'), action: () => v.term.selectAll() },
       'separator',
       { label: t('session.clear'), icon: 'eraser', action: () => v.clear() },
-    ];
+    );
     items.push('separator', {
       label: t('session.menu'),
       icon: 'more',
@@ -135,6 +183,13 @@
 
 <div class="pane" class:active>
   <div class="host" bind:this={host}></div>
+
+  {#if link && active}
+    <div class="link-tip" style={tipPosition(link)} role="tooltip">
+      {#if link.hyperlink}<span class="uri">{link.uri}</span>{/if}
+      <span>{t('terminal.linkHint', { key: shortcut('Mod') })}</span>
+    </div>
+  {/if}
 
   {#if tab.status === 'connecting' && !tab.prompts.length}
     <div class="progress" aria-hidden="true"></div>
@@ -178,6 +233,26 @@
   }
   .host :global(.xterm-viewport) {
     background-color: transparent !important;
+  }
+  .link-tip {
+    position: fixed;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: min(560px, calc(100vw - 24px));
+    padding: 5px 9px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    color: var(--text-2);
+    font-size: 12px;
+    pointer-events: none;
+  }
+  .link-tip .uri {
+    color: var(--text);
+    overflow-wrap: anywhere;
   }
   .progress {
     position: absolute;

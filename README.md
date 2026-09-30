@@ -27,6 +27,9 @@
 * Saved servers with groups, search and live status; **import from `~/.ssh/config`**
   (`Include`, wildcard `Host` blocks, `ProxyJump`, forwards).
 * Tabs with a real terminal (xterm.js, GPU rendering), resize, copy/paste, reconnect with <kbd>Enter</kbd>.
+  Web links in the output open with <kbd>Ctrl</kbd>+click (<kbd>⌘</kbd>+click on macOS), and so do
+  hyperlinks programs print (OSC 8, e.g. `ls --hyperlink`), which show where they lead first;
+  the right-click menu on a link opens or copies it.
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,
   PEM, PKCS#8, PuTTY `.ppk`) — the passphrase is asked only if the server accepts the key;
   pick a key from those found in `~/.ssh` or with *Browse…* — passwords and
@@ -85,6 +88,7 @@ version 0.1.0 predates in-app updates, so install the next version over it once 
 | Go to tab 1–9 | <kbd>Ctrl+1…9</kbd> | <kbd>⌘1…9</kbd> |
 | Reconnect | <kbd>Enter</kbd> in a closed session, <kbd>Ctrl+Shift+R</kbd> | <kbd>Enter</kbd>, <kbd>⌘R</kbd> |
 | Copy / paste | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+Shift+V</kbd> (<kbd>Ctrl+C</kbd> copies a selection) | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> |
+| Open a link in the terminal | <kbd>Ctrl</kbd>+click | <kbd>⌘</kbd>+click |
 | Toggle sidebar | <kbd>Ctrl+Shift+B</kbd> | <kbd>⌘B</kbd> |
 | Files (SFTP) | <kbd>Ctrl+Shift+E</kbd> | <kbd>⌘⇧E</kbd> |
 | Full screen | <kbd>F11</kbd> | <kbd>⌃⌘F</kbd> |

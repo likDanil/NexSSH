@@ -3,6 +3,7 @@
 mod commands;
 #[cfg(windows)]
 mod explorer;
+mod links;
 mod local;
 mod logger;
 mod settings;
@@ -114,6 +115,7 @@ pub fn run() {
             local::explorer_menu,
             local::explorer_menu_trust,
             local::launch_take,
+            links::open_link,
             sftp::sftp_home,
             sftp::sftp_resolve,
             sftp::sftp_list,

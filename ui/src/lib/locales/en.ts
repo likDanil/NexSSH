@@ -123,6 +123,10 @@ const en = {
   'terminal.copy': 'Copy',
   'terminal.paste': 'Paste',
   'terminal.selectAll': 'Select all',
+  'terminal.openLink': 'Open link',
+  'terminal.copyLink': 'Copy link',
+  'terminal.linkCopied': 'Link copied',
+  'terminal.linkHint': '{key}+click to open',
 
   // ---- prompts over the terminal ---------------------------------------------------
   'prompt.changed.title': 'Host key has changed',
@@ -445,6 +449,8 @@ const en = {
   'shortcut.settings': 'Settings',
   'shortcut.localTerminal': 'Local terminal',
   'shortcut.copyPaste': 'Copy / paste',
+  'shortcut.openLink': 'Open a link in the terminal',
+  'shortcut.click': '{key}+click',
 } satisfies Messages;
 
 export default en;

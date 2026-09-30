@@ -133,6 +133,10 @@ const ru: Catalog = {
   'terminal.copy': 'Копировать',
   'terminal.paste': 'Вставить',
   'terminal.selectAll': 'Выделить всё',
+  'terminal.openLink': 'Открыть ссылку',
+  'terminal.copyLink': 'Копировать ссылку',
+  'terminal.linkCopied': 'Ссылка скопирована',
+  'terminal.linkHint': '{key}+клик — открыть',
 
   // ---- запросы поверх терминала ----------------------------------------------------
   'prompt.changed.title': 'Ключ хоста изменился',
@@ -495,6 +499,8 @@ const ru: Catalog = {
   'shortcut.settings': 'Настройки',
   'shortcut.localTerminal': 'Локальный терминал',
   'shortcut.copyPaste': 'Копировать / вставить',
+  'shortcut.openLink': 'Открыть ссылку в терминале',
+  'shortcut.click': '{key}+клик',
 };
 
 export default ru;

@@ -87,6 +87,9 @@ export const api = {
   close: (id: number) => invoke<void>('session_close', { id }),
   answer: (id: number, reply: PromptReply) => invoke<void>('prompt_answer', { id, reply }),
 
+  /** Opens a web link from the terminal in the default browser (http and https only). */
+  openLink: (url: string) => invoke<void>('open_link', { url }),
+
   localShells: () => invoke<LocalShells>('local_shells'),
   /** A local terminal; afterwards it is a session like an SSH one (write, resize, close…). */
   openLocal: (target: LocalTarget, cols: number, rows: number, onEvent: Channel<SessionMessage>) =>
