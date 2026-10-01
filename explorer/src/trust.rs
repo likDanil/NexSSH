@@ -10,7 +10,7 @@
 use std::io;
 use std::path::Path;
 
-use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED};
+use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED, HWND};
 use windows::Win32::Security::Cryptography::{
     CERT_CONTEXT, CERT_NAME_ISSUER_FLAG, CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_OPEN_STORE_FLAGS,
     CERT_QUERY_ENCODING_TYPE, CERT_STORE_ADD_REPLACE_EXISTING, CERT_STORE_PROV_SYSTEM_W,
@@ -80,13 +80,16 @@ pub fn message(code: u32) -> String {
 }
 
 /// Starts `program` with `args` with administrator rights, which Windows asks the user for
-/// (UAC), and waits for it to end: its exit code, or `None` when the user said no.
-pub fn run_elevated(program: &Path, args: &str) -> io::Result<Option<u32>> {
+/// (UAC), and waits for it to end: its exit code, or `None` when the user said no. `owner`: the
+/// window the question belongs to, which brings it to the front (a program without windows of
+/// its own, started by an installer, may otherwise get it only as a flashing taskbar button).
+pub fn run_elevated(program: &Path, args: &str, owner: Option<HWND>) -> io::Result<Option<u32>> {
     let file = HSTRING::from(program.as_os_str());
     let parameters = HSTRING::from(args);
     let mut info = SHELLEXECUTEINFOW {
         cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
         fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC,
+        hwnd: owner.unwrap_or_default(),
         lpVerb: w!("runas"),
         lpFile: PCWSTR(file.as_ptr()),
         lpParameters: PCWSTR(parameters.as_ptr()),

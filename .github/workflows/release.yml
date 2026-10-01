@@ -11,7 +11,9 @@ name: Release
 #
 # Branch pushes that change the release setup (this file, the bundle config, the
 # icons, the installer hooks or the Explorer menu's package) run as a dry run, so a
-# broken installer build shows up before a release does.
+# broken installer build shows up before a release does. Every run also installs,
+# updates, reinstalls and uninstalls the installer on the runner, checking the Explorer
+# menu entry each time (scripts/installer-test.ps1).
 #
 # The version from the tag/input is written into Cargo.toml for the build, so the
 # app, the installer name and the release always agree.
@@ -40,6 +42,7 @@ on:
       - desktop/windows/**
       - explorer/**
       - scripts/explorer-package.ps1
+      - scripts/installer-test.ps1
   workflow_dispatch:
     inputs:
       version:
@@ -210,6 +213,13 @@ jobs:
           name: NexSSH-${{ needs.version.outputs.version }}-windows-x64
           path: dist/*
           if-no-files-found: error
+
+      # "Open with NexSSH" through install, update, reinstall and uninstall (see the script),
+      # after the upload so that a failing installer can be looked at; it stops the release.
+      # Windows PowerShell for its Appx module.
+      - name: Test the installer
+        shell: powershell
+        run: ./scripts/installer-test.ps1
 
   publish:
     name: Publish release

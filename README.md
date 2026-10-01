@@ -44,9 +44,10 @@
   distributions, Git Bash — or any shell or command of your choice (*Settings → Terminal*).
   <kbd>Ctrl+Shift+&#96;</kbd>, the menu next to **+**, the sidebar or the palette; <kbd>Enter</kbd>
   starts it again after it exits. On Windows, **Open with NexSSH** in Explorer's menu for
-  folders opens one right in that folder. On Windows 11 it can be in the compact menu itself,
-  not only under *Show more options*: *Settings → Terminal → Move to the compact menu* (Windows
-  asks for administrator rights once).
+  folders opens one right in that folder; the installer adds it. On Windows 11 it goes into the
+  compact menu itself, not only under *Show more options*: Windows asks for administrator rights
+  once while installing (said no? *Settings → Terminal → Move to the compact menu* asks again),
+  and updates keep it there.
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
   upload files and whole folders (buttons, or drag & drop — onto a folder in the list to
   put them there), download into *Downloads* or any folder, several at once with

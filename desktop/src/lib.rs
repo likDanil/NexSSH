@@ -23,11 +23,16 @@ pub fn run() {
     #[cfg(windows)]
     {
         let args: Vec<String> = std::env::args().collect();
-        // Explorer menu tasks, without a window: the uninstaller removes the entries through
-        // the app (windows/hooks.nsh), and the steps that need administrator rights run in a
-        // copy of NexSSH that Windows started with them (explorer.rs).
+        // Explorer menu tasks, without a window: the installer and the uninstaller put the
+        // entries in place and remove them through the app (windows/hooks.nsh), and the steps
+        // that need administrator rights run in a copy of NexSSH that Windows started with them
+        // (explorer.rs).
         match args.get(1).map(String::as_str) {
-            Some("--explorer-cleanup") => return explorer::uninstall(),
+            Some("--explorer-install") => {
+                logger::init();
+                std::process::exit(explorer::install_command(&args[2..]));
+            }
+            Some("--explorer-cleanup") => return explorer::uninstall_command(&args[2..]),
             Some("--explorer-trust") => std::process::exit(explorer::trust_computer()),
             Some("--explorer-untrust") => std::process::exit(explorer::untrust_computer()),
             _ => {}
