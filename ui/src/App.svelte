@@ -79,6 +79,19 @@
     }
     if (!mod || e.altKey) return;
 
+    // The terminal's font size, like a browser's zoom: Mod+= (or Mod++), Mod+- and Mod+0, also
+    // on the number pad. The shell has no use for them (Ctrl+_, its undo, stays with Shift).
+    if (key === '=' || key === '+') {
+      consume();
+      app.zoom(1);
+      return;
+    }
+    if (!shift && (key === '-' || key === '0')) {
+      consume();
+      app.zoom(key === '-' ? -1 : 0);
+      return;
+    }
+
     // Mod+1..9 selects a tab (9 = last).
     if (!shift && /^[1-9]$/.test(key)) {
       consume();

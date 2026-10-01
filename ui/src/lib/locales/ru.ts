@@ -137,6 +137,7 @@ const ru: Catalog = {
   'terminal.copyLink': 'Копировать ссылку',
   'terminal.linkCopied': 'Ссылка скопирована',
   'terminal.linkHint': '{key}+клик — открыть',
+  'terminal.fontSize': 'Размер шрифта {size}',
 
   // ---- запросы поверх терминала ----------------------------------------------------
   'prompt.changed.title': 'Ключ хоста изменился',
@@ -211,6 +212,10 @@ const ru: Catalog = {
   'palette.settings.keywords': 'параметры опции шрифт',
   'palette.toggleSidebar': 'Показать или скрыть боковую панель',
   'palette.toggleFullscreen': 'Полноэкранный режим',
+  'palette.zoomIn': 'Шрифт терминала: крупнее',
+  'palette.zoomOut': 'Шрифт терминала: мельче',
+  'palette.zoomReset': 'Шрифт терминала: обычный размер',
+  'palette.zoom.keywords': 'масштаб шрифт размер увеличить уменьшить zoom',
   'palette.toggleFullscreen.keywords': 'фокус',
   'palette.theme': 'Тема: {name}',
   'palette.theme.keywords': 'оформление цвет тёмная светлая',
@@ -501,6 +506,7 @@ const ru: Catalog = {
   'shortcut.copyPaste': 'Копировать / вставить',
   'shortcut.openLink': 'Открыть ссылку в терминале',
   'shortcut.click': '{key}+клик',
+  'shortcut.fontSize': 'Размер шрифта терминала (и Ctrl+колесо)',
 };
 
 export default ru;

@@ -4,7 +4,7 @@
   import { api, errorMessage } from '../api';
   import { formatNumber, LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
-  import { app, type SettingsSection } from '../state/app.svelte';
+  import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
   import { CUSTOM_SHELL, missingShellName, shellName, shells } from '../state/shells.svelte';
   import { toasts } from '../state/toasts.svelte';
   import { updates } from '../state/updates.svelte';
@@ -70,7 +70,7 @@
   }
 
   function fontSize(delta: number) {
-    app.update({ fontSize: Math.min(28, Math.max(9, s.fontSize + delta)) });
+    app.update({ fontSize: clampFontSize(s.fontSize + delta) });
   }
 
   async function copyPath() {
@@ -136,6 +136,7 @@
     ['shortcut.settings', keys.settings()],
     ['shortcut.copyPaste', isMac() ? '⌘C · ⌘V' : 'Ctrl+Shift+C · Ctrl+Shift+V'],
     ['shortcut.openLink', t('shortcut.click', { key: shortcut('Mod') })],
+    ['shortcut.fontSize', `${keys.zoomIn()} · ${keys.zoomOut()} · ${keys.zoomReset()}`],
   ]);
 </script>
 

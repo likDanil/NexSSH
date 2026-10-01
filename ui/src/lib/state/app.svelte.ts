@@ -34,6 +34,11 @@ export const DEFAULT_SETTINGS: Settings = {
   lastVersion: '',
 };
 
+/** The terminal's font size goes from 9 to 28 (settings and Ctrl+=/Ctrl+-). */
+export function clampFontSize(size: number): number {
+  return Math.min(28, Math.max(9, size));
+}
+
 export interface MenuItem {
   label: string;
   icon?: string;
@@ -112,8 +117,11 @@ class AppState {
   menu = $state<MenuState | null>(null);
   confirmation = $state<ConfirmState | null>(null);
   permissions = $state<PermissionsState | null>(null);
+  /** The terminal's font size, shown for a moment after a zoom shortcut changed it. */
+  zoomBadge = $state<number | null>(null);
 
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
+  #zoomTimer: ReturnType<typeof setTimeout> | undefined;
 
   get overlayOpen(): boolean {
     return (
@@ -186,6 +194,16 @@ class AppState {
     const state = await api.trustExplorerMenu();
     this.explorerMenuState = state;
     return state;
+  }
+
+  /** The terminal's font size, like a browser's zoom: a step bigger (1), smaller (-1), or
+   * back to the default (0). It is the setting, so it stays. */
+  zoom(step: -1 | 0 | 1) {
+    const size = step === 0 ? DEFAULT_SETTINGS.fontSize : clampFontSize(this.settings.fontSize + step);
+    if (size !== this.settings.fontSize) this.update({ fontSize: size });
+    this.zoomBadge = size;
+    clearTimeout(this.#zoomTimer);
+    this.#zoomTimer = setTimeout(() => (this.zoomBadge = null), 1200);
   }
 
   /** Updates settings and persists them (debounced). */

@@ -127,6 +127,7 @@ const en = {
   'terminal.copyLink': 'Copy link',
   'terminal.linkCopied': 'Link copied',
   'terminal.linkHint': '{key}+click to open',
+  'terminal.fontSize': 'Font size {size}',
 
   // ---- prompts over the terminal ---------------------------------------------------
   'prompt.changed.title': 'Host key has changed',
@@ -198,6 +199,10 @@ const en = {
   'palette.settings.keywords': 'preferences options font',
   'palette.toggleSidebar': 'Toggle sidebar',
   'palette.toggleFullscreen': 'Toggle full screen',
+  'palette.zoomIn': 'Terminal font: bigger',
+  'palette.zoomOut': 'Terminal font: smaller',
+  'palette.zoomReset': 'Terminal font: default size',
+  'palette.zoom.keywords': 'zoom font size scale',
   'palette.toggleFullscreen.keywords': 'focus',
   'palette.theme': 'Theme: {name}',
   'palette.theme.keywords': 'appearance color dark light',
@@ -451,6 +456,7 @@ const en = {
   'shortcut.copyPaste': 'Copy / paste',
   'shortcut.openLink': 'Open a link in the terminal',
   'shortcut.click': '{key}+click',
+  'shortcut.fontSize': 'Terminal font size (also Ctrl+wheel)',
 } satisfies Messages;
 
 export default en;

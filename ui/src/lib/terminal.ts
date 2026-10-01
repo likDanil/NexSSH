@@ -43,6 +43,8 @@ export interface TermCallbacks {
   onLinkOpen(uri: string): void;
   /** The mouse came onto a link, or left it (`null`). */
   onLinkHover(link: HoveredLink | null): void;
+  /** Ctrl+wheel: the font a step bigger (1) or smaller (-1). */
+  onZoom(step: 1 | -1): void;
 }
 
 export class TermView {
@@ -117,6 +119,23 @@ export class TermView {
       e.preventDefault();
       cb.onContextMenu(e, this);
     });
+    // Ctrl+wheel (a touchpad's pinch too) zooms instead of scrolling, before xterm sees it: a
+    // step per notch of a mouse wheel, or per bit of a touchpad's movement.
+    let wheel = 0;
+    host.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey && !(isMac() && e.metaKey)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        wheel += e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? e.deltaY : e.deltaY * 50;
+        if (Math.abs(wheel) >= 50) {
+          cb.onZoom(wheel < 0 ? 1 : -1);
+          wheel = 0;
+        }
+      },
+      { capture: true, passive: false },
+    );
   }
 
   /** Clipboard shortcuts; everything else goes to the shell. */

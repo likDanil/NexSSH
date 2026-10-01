@@ -3,6 +3,8 @@
   const ICONS: Record<string, string> = {
     search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    text: '<path d="M5.5 7.5v-2h13v2M12 5.5v13M9 18.5h6"/>',
     x: '<path d="M17 7 7 17M7 7l10 10"/>',
     chevronRight: '<path d="m10 7 5 5-5 5"/>',
     chevronDown: '<path d="m7 10 5 5 5-5"/>',

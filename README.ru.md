@@ -93,6 +93,7 @@
 | Переподключиться | <kbd>Enter</kbd> в закрытой сессии, <kbd>Ctrl+Shift+R</kbd> | <kbd>Enter</kbd>, <kbd>⌘R</kbd> |
 | Копировать / вставить | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+Shift+V</kbd> (<kbd>Ctrl+C</kbd> копирует выделение) | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> |
 | Открыть ссылку в терминале | <kbd>Ctrl</kbd>+клик | <kbd>⌘</kbd>+клик |
+| Шрифт терминала: крупнее / мельче / обычный | <kbd>Ctrl+=</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd>, <kbd>Ctrl</kbd>+колесо | <kbd>⌘=</kbd> / <kbd>⌘-</kbd> / <kbd>⌘0</kbd>, щипок |
 | Скрыть/показать сайдбар | <kbd>Ctrl+Shift+B</kbd> | <kbd>⌘B</kbd> |
 | Файлы (SFTP) | <kbd>Ctrl+Shift+E</kbd> | <kbd>⌘⇧E</kbd> |
 | Полный экран | <kbd>F11</kbd> | <kbd>⌃⌘F</kbd> |

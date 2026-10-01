@@ -72,6 +72,7 @@
           onContextMenu: (e, tv) => contextMenu(e, tv),
           onLinkOpen: openLink,
           onLinkHover: hoverLink,
+          onZoom: (step) => app.zoom(step),
         },
         conpty,
       );
@@ -184,6 +185,10 @@
 <div class="pane" class:active>
   <div class="host" bind:this={host}></div>
 
+  {#if active && app.zoomBadge !== null}
+    <div class="zoom-badge" aria-live="polite">{t('terminal.fontSize', { size: app.zoomBadge })}</div>
+  {/if}
+
   {#if link && active}
     <div class="link-tip" style={tipPosition(link)} role="tooltip">
       {#if link.hyperlink}<span class="uri">{link.uri}</span>{/if}
@@ -233,6 +238,21 @@
   }
   .host :global(.xterm-viewport) {
     background-color: transparent !important;
+  }
+  .zoom-badge {
+    position: absolute;
+    top: 12px;
+    right: 18px;
+    z-index: 5;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    color: var(--text-2);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
   }
   .link-tip {
     position: fixed;
