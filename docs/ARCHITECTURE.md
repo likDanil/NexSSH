@@ -68,7 +68,7 @@ NexSSH/
 │       └── lib/
 │           ├── api.ts    the only module calling Tauri
 │           ├── types.ts  TypeScript mirror of the Rust types
-│           ├── terminal.ts xterm.js wrapper (lazy-loaded chunk), links
+│           ├── terminal.ts xterm.js wrapper (lazy-loaded chunk), links, pastes
 │           ├── actions.ts user actions shared by menus, palette, shortcuts
 │           ├── popup.ts  lists that open under a control, rendered on <body>
 │           ├── i18n.svelte.ts t(), plurals, language detection
@@ -380,6 +380,12 @@ into, a folder to upload.
   URL as the parser writes it back (ShellExecuteEx on Windows, `xdg-open`, `open`), never
   through a shell. xterm.js itself leaves hyperlinks (OSC 8) to other schemes alone, and a
   hyperlink's hint shows where it leads, which its text need not say.
+* Pastes into a terminal leave out control characters but tab and line breaks, as in Windows
+  Terminal: an escape sequence from the clipboard could otherwise end a bracketed paste early
+  and run the rest, and keys like Ctrl+O run a line without a line break. Text with line breaks
+  is shown before it goes in, unless the program takes pastes as text (bracketed paste); the
+  settings can make NexSSH always or never ask. Pastes xterm would take by itself (Cmd+V, a
+  middle click) go the same way.
 * "Show in folder" opens only files this run of the app downloaded itself. The same goes for
   local paths the page hands back: a download goes only to Downloads or a folder the user
   picked in the native dialog, and an upload by path reads only what the user picked or

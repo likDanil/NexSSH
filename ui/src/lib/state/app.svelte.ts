@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from '../api';
-import { i18n, resolveLanguage, systemLanguage, t, type Lang } from '../i18n.svelte';
+import { i18n, resolveLanguage, systemLanguage, t, tn, type Lang } from '../i18n.svelte';
 import { setOs } from '../platform';
 import { isDarkTheme, resolveTheme } from '../themes';
 import type { AppInfo, ExplorerMenuState, ResolvedTheme, Server, Settings } from '../types';
@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 10000,
   copyOnSelect: false,
   rightClickPaste: false,
+  pasteWarning: 'auto',
   gpuAcceleration: true,
   ctrlKInTerminal: false,
   sidebarWidth: 240,
@@ -72,6 +73,10 @@ export interface ConfirmState {
   input?: string;
   /** The field holds a file name: it opens with the name selected, not the extension. */
   fileName?: boolean;
+  /** Text shown as it is (monospace), e.g. what is about to be pasted. */
+  preview?: string;
+  /** A checkbox with this label; when it is ticked, the dialog answers `checked`. */
+  checkbox?: string;
   resolve: (value: string | null) => void;
 }
 
@@ -237,6 +242,28 @@ class AppState {
   /** In-app confirmation (native confirm() is not available in every webview). */
   async confirm(title: string, message: string, confirmLabel = t('common.ok'), danger = false): Promise<boolean> {
     return (await this.#ask({ title, message, confirmLabel, danger })) !== null;
+  }
+
+  /** Whether text may go into a terminal as it is pasted (`bracketed`: the program takes pastes
+   * as text). A line break works like Enter, so text with them may run commands at once: the
+   * user is asked first, as the settings say. */
+  async allowPaste(text: string, bracketed: boolean): Promise<boolean> {
+    const mode = this.settings.pasteWarning;
+    if (mode === 'never' || !/[\r\n]/.test(text) || (mode === 'auto' && bracketed)) return true;
+    const lines = text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+    const shown = lines.slice(0, 8).map((l) => (l.length > 200 ? `${l.slice(0, 200)}…` : l));
+    if (lines.length > shown.length) shown.push(tn('paste.more', lines.length - shown.length));
+    const answer = await this.#ask({
+      title: tn('paste.title', lines.length),
+      message: t(bracketed ? 'paste.asText' : 'paste.runs'),
+      confirmLabel: t('terminal.paste'),
+      danger: false,
+      preview: shown.join('\n'),
+      checkbox: t('paste.dontAsk'),
+    });
+    if (answer === null) return false;
+    if (answer === 'checked') this.update({ pasteWarning: 'never' });
+    return true;
   }
 
   /** Asks for a line of text; `null` when cancelled. */

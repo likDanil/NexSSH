@@ -18,6 +18,9 @@ export type TermSettings = Pick<
   'fontFamily' | 'fontSize' | 'lineHeight' | 'cursorStyle' | 'cursorBlink' | 'scrollback' | 'copyOnSelect' | 'gpuAcceleration'
 >;
 
+/** Control characters but tab and line breaks, which pastes leave out (see `pasteText`). */
+const PASTE_CONTROLS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g;
+
 function fontStack(custom: string): string {
   const user = custom.trim();
   const quoted = user && !/[,'"]/.test(user) ? `'${user}'` : user;
@@ -45,6 +48,8 @@ export interface TermCallbacks {
   onLinkHover(link: HoveredLink | null): void;
   /** Ctrl+wheel: the font a step bigger (1) or smaller (-1). */
   onZoom(step: 1 | -1): void;
+  /** Whether `text` may be pasted (`bracketed`: the program takes pastes as text). */
+  allowPaste(text: string, bracketed: boolean): Promise<boolean>;
 }
 
 export class TermView {
@@ -54,6 +59,7 @@ export class TermView {
   #copyTimer: ReturnType<typeof setTimeout> | undefined;
   #settings: TermSettings;
   #link: string | null = null;
+  #cb: TermCallbacks;
 
   /** `windowsPty`: the session is a local terminal on Windows (ConPTY), which xterm.js adapts to. */
   constructor(
@@ -64,6 +70,7 @@ export class TermView {
     windowsPty?: IWindowsPty,
   ) {
     this.#settings = settings;
+    this.#cb = cb;
     // Links open with Ctrl+click (Cmd+click on macOS), as in most terminals: a plain click
     // stays a click, for selecting text and for programs that use the mouse.
     const activate = (e: MouseEvent, uri: string) => {
@@ -119,6 +126,18 @@ export class TermView {
       e.preventDefault();
       cb.onContextMenu(e, this);
     });
+    // Pastes xterm would take by itself (Cmd+V on macOS, a middle click on Linux) go the same
+    // way as the app's own.
+    host.addEventListener(
+      'paste',
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = e.clipboardData?.getData('text/plain');
+        if (text) void this.pasteText(text);
+      },
+      { capture: true },
+    );
     // Ctrl+wheel (a touchpad's pinch too) zooms instead of scrolling, before xterm sees it: a
     // step per notch of a mouse wheel, or per bit of a touchpad's movement.
     let wheel = 0;
@@ -182,7 +201,18 @@ export class TermView {
 
   async paste() {
     const text = await navigator.clipboard.readText().catch(() => '');
-    if (text) this.term.paste(text);
+    if (text) await this.pasteText(text);
+  }
+
+  /** Pastes `text` if the user agrees, when asking is due (see `TermCallbacks.allowPaste`). */
+  async pasteText(text: string) {
+    // Without control characters, as in Windows Terminal: they would reach the program as keys
+    // (Ctrl+O runs the line in bash, with no line break), and an escape sequence could end a
+    // bracketed paste early, so that the rest runs as if typed.
+    const clean = text.replace(PASTE_CONTROLS, '');
+    if (!clean || !(await this.#cb.allowPaste(clean, this.term.modes.bracketedPasteMode))) return;
+    this.term.paste(clean);
+    this.term.focus();
   }
 
   write(data: Uint8Array | string) {

@@ -143,6 +143,9 @@ export interface Settings {
   scrollback: number;
   copyOnSelect: boolean;
   rightClickPaste: boolean;
+  /** Ask before text with line breaks goes into a terminal: `auto` unless the program takes
+   * pastes as text (bracketed paste), so the lines do not run at once. */
+  pasteWarning: 'auto' | 'always' | 'never';
   gpuAcceleration: boolean;
   /** Windows/Linux: plain Ctrl+K opens the palette even while typing in a terminal. */
   ctrlKInTerminal: boolean;

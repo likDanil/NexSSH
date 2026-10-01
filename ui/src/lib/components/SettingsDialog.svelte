@@ -91,6 +91,11 @@
     ...LANGUAGES,
   ]);
 
+  const PASTE_WARNINGS: { id: Settings['pasteWarning']; label: MessageKey }[] = [
+    { id: 'auto', label: 'settings.pasteAuto' },
+    { id: 'always', label: 'settings.pasteAlways' },
+    { id: 'never', label: 'settings.pasteNever' },
+  ];
   const CURSORS: { id: Settings['cursorStyle']; label: MessageKey }[] = [
     { id: 'bar', label: 'settings.cursorBar' },
     { id: 'block', label: 'settings.cursorBlock' },
@@ -243,6 +248,17 @@
           <button class:on={s.rightClickPaste} onclick={() => app.update({ rightClickPaste: true })}>
             {t('settings.rightClickCopyPaste')}
           </button>
+        </div>
+      </div>
+      <div class="row top">
+        <span>
+          {t('settings.pasteWarning')}
+          <small>{t('settings.pasteWarningHint')}</small>
+        </span>
+        <div class="segmented">
+          {#each PASTE_WARNINGS as p (p.id)}
+            <button class:on={s.pasteWarning === p.id} onclick={() => app.update({ pasteWarning: p.id })}>{t(p.label)}</button>
+          {/each}
         </div>
       </div>
       <label class="row">

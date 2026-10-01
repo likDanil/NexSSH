@@ -128,6 +128,11 @@ const en = {
   'terminal.linkCopied': 'Link copied',
   'terminal.linkHint': '{key}+click to open',
   'terminal.fontSize': 'Font size {size}',
+  'paste.title': { one: 'Paste {count} line?', other: 'Paste {count} lines?' },
+  'paste.runs': 'A line break works like Enter: the shell runs each line as soon as it is pasted.',
+  'paste.asText': 'The program takes the paste as text: nothing runs until you press Enter.',
+  'paste.more': { one: '… and {count} more line', other: '… and {count} more lines' },
+  'paste.dontAsk': 'Don’t ask again',
 
   // ---- prompts over the terminal ---------------------------------------------------
   'prompt.changed.title': 'Host key has changed',
@@ -411,6 +416,12 @@ const en = {
   'settings.rightClick': 'Right click',
   'settings.rightClickMenu': 'Menu',
   'settings.rightClickCopyPaste': 'Copy / Paste',
+  'settings.pasteWarning': 'Ask before pasting several lines',
+  'settings.pasteWarningHint':
+    'A line break works like Enter, so pasted lines may run at once. Auto does not ask when the program takes the paste as text (bracketed paste, as in recent bash).',
+  'settings.pasteAuto': 'Auto',
+  'settings.pasteAlways': 'Always',
+  'settings.pasteNever': 'Never',
   'settings.gpu': 'GPU rendering',
   'settings.gpuHint': 'WebGL renderer: lower CPU usage on heavy output.',
   'settings.localShell': 'Local terminal shell',

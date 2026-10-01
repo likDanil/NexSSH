@@ -29,7 +29,9 @@
 * Tabs with a real terminal (xterm.js, GPU rendering), resize, copy/paste, reconnect with <kbd>Enter</kbd>.
   Web links in the output open with <kbd>Ctrl</kbd>+click (<kbd>⌘</kbd>+click on macOS), and so do
   hyperlinks programs print (OSC 8, e.g. `ls --hyperlink`), which show where they lead first;
-  the right-click menu on a link opens or copies it.
+  the right-click menu on a link opens or copies it. Before several lines are pasted, NexSSH
+  shows them and asks, unless the program takes pastes as text (bracketed paste); pastes leave
+  control characters out.
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,
   PEM, PKCS#8, PuTTY `.ppk`) — the passphrase is asked only if the server accepts the key;
   pick a key from those found in `~/.ssh` or with *Browse…* — passwords and

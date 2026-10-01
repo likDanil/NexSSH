@@ -73,6 +73,7 @@
           onLinkOpen: openLink,
           onLinkHover: hoverLink,
           onZoom: (step) => app.zoom(step),
+          allowPaste: (text, bracketed) => app.allowPaste(text, bracketed),
         },
         conpty,
       );

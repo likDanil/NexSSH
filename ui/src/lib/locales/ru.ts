@@ -138,6 +138,21 @@ const ru: Catalog = {
   'terminal.linkCopied': 'Ссылка скопирована',
   'terminal.linkHint': '{key}+клик — открыть',
   'terminal.fontSize': 'Размер шрифта {size}',
+  'paste.title': {
+    one: 'Вставить {count} строку?',
+    few: 'Вставить {count} строки?',
+    many: 'Вставить {count} строк?',
+    other: 'Вставить {count} строки?',
+  },
+  'paste.runs': 'Перевод строки работает как Enter: оболочка выполнит каждую строку сразу при вставке.',
+  'paste.asText': 'Программа примет вставку как текст: ничего не выполнится, пока вы не нажмёте Enter.',
+  'paste.more': {
+    one: '… и ещё {count} строка',
+    few: '… и ещё {count} строки',
+    many: '… и ещё {count} строк',
+    other: '… и ещё {count} строки',
+  },
+  'paste.dontAsk': 'Больше не спрашивать',
 
   // ---- запросы поверх терминала ----------------------------------------------------
   'prompt.changed.title': 'Ключ хоста изменился',
@@ -461,6 +476,12 @@ const ru: Catalog = {
   'settings.rightClick': 'Правый клик',
   'settings.rightClickMenu': 'Меню',
   'settings.rightClickCopyPaste': 'Копировать / вставить',
+  'settings.pasteWarning': 'Спрашивать перед вставкой нескольких строк',
+  'settings.pasteWarningHint':
+    'Перевод строки работает как Enter, поэтому вставленные строки могут сразу выполниться. «Авто» не спрашивает, когда программа принимает вставку как текст (bracketed paste, как в свежем bash).',
+  'settings.pasteAuto': 'Авто',
+  'settings.pasteAlways': 'Всегда',
+  'settings.pasteNever': 'Никогда',
   'settings.gpu': 'Отрисовка на GPU',
   'settings.gpuHint': 'WebGL-рендерер: меньше нагрузка на процессор при большом объёме вывода.',
   'settings.localShell': 'Оболочка локального терминала',
