@@ -488,6 +488,17 @@ messages! {
         ru: "не удалось открыть файловый менеджер: {error}",
     }
 
+    // ---- links in the terminal -------------------------------------------------------
+
+    fn link_not_web(link: &str) {
+        en: "only web links (http, https) open from the terminal: {link}",
+        ru: "из терминала открываются только веб-ссылки (http, https): {link}",
+    }
+    fn open_link_failed(error: impl Display) {
+        en: "could not open the link: {error}",
+        ru: "не удалось открыть ссылку: {error}",
+    }
+
     // ---- application updates ---------------------------------------------------------
 
     fn update_check_failed(error: impl Display) {

@@ -47,6 +47,7 @@ NexSSH/
 │   ├── src/sftp.rs       IPC commands of the files drawer, transfers
 │   ├── src/local.rs      IPC commands of local terminals, `--cwd <folder>` launches
 │   ├── src/explorer.rs   "Open with NexSSH" in Windows Explorer's menu for folders
+│   ├── src/links.rs      web links from the terminal, opened in the default browser
 │   ├── src/updates.rs    in-app updates (check, download, install)
 │   ├── src/sink.rs       EventSink → Tauri Channel
 │   ├── src/settings.rs   settings.json (UI-owned schema)
@@ -67,7 +68,7 @@ NexSSH/
 │       └── lib/
 │           ├── api.ts    the only module calling Tauri
 │           ├── types.ts  TypeScript mirror of the Rust types
-│           ├── terminal.ts xterm.js wrapper (lazy-loaded chunk)
+│           ├── terminal.ts xterm.js wrapper (lazy-loaded chunk), links, pastes
 │           ├── actions.ts user actions shared by menus, palette, shortcuts
 │           ├── popup.ts  lists that open under a control, rendered on <body>
 │           ├── i18n.svelte.ts t(), plurals, language detection
@@ -337,7 +338,7 @@ type SessionEvent =
 | Keychain | **keyring-core** + native stores | Windows Credential Manager, macOS Keychain, Secret Service. Linking the stores directly (instead of `keyring`'s all-in-one feature) avoids the zbus async stack. |
 | GUI shell | **Tauri 2** | System webview (WebView2 / WKWebView / WebKitGTK): a few MB installer, no bundled Chromium, far lower RAM than Electron. |
 | UI | **Svelte 5** | Compiles to small vanilla JS; runes give fine-grained reactivity without a virtual DOM. |
-| Terminal | **xterm.js 6** + fit + WebGL | The de-facto web terminal (VS Code). WebGL renderer cuts CPU on heavy output; DOM renderer is the fallback. |
+| Terminal | **xterm.js 6** + fit + WebGL + web links | The de-facto web terminal (VS Code). WebGL renderer cuts CPU on heavy output; DOM renderer is the fallback. The web-links addon finds addresses in the output; hyperlinks (OSC 8) are xterm's own. |
 | Storage | JSON file | See "Decisions" below. |
 | Font | JetBrains Mono (bundled, OFL) | Consistent metrics on every OS; ~100 KB, subsets loaded on demand. |
 
@@ -373,6 +374,18 @@ into, a folder to upload.
   own commands are not granted either: the UI can only use NexSSH's commands.
 * Updates run only if their minisign signature matches the public key built into the app
   (`plugins.updater.pubkey`); the private key exists only as a GitHub Actions secret.
+* Links in the terminal open only with Ctrl+click (Cmd+click), and only web ones: the page
+  hands the address to `open_link`, which accepts nothing but an `http` or `https` URL with a
+  host (no `file:`, no other programs' protocol handlers) and gives the default browser the
+  URL as the parser writes it back (ShellExecuteEx on Windows, `xdg-open`, `open`), never
+  through a shell. xterm.js itself leaves hyperlinks (OSC 8) to other schemes alone, and a
+  hyperlink's hint shows where it leads, which its text need not say.
+* Pastes into a terminal leave out control characters but tab and line breaks, as in Windows
+  Terminal: an escape sequence from the clipboard could otherwise end a bracketed paste early
+  and run the rest, and keys like Ctrl+O run a line without a line break. Text with line breaks
+  is shown before it goes in, unless the program takes pastes as text (bracketed paste); the
+  settings can make NexSSH always or never ask. Pastes xterm would take by itself (Cmd+V, a
+  middle click) go the same way.
 * "Show in folder" opens only files this run of the app downloaded itself. The same goes for
   local paths the page hands back: a download goes only to Downloads or a folder the user
   picked in the native dialog, and an upload by path reads only what the user picked or

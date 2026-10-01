@@ -2926,7 +2926,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexssh"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "log",
  "nexssh-core",
@@ -2938,13 +2938,14 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "windows",
  "winreg 0.55.0",
  "zeroize",
 ]
 
 [[package]]
 name = "nexssh-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "apple-native-keyring-store",
  "data-encoding",
@@ -2970,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-explorer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "windows",
  "winreg 0.55.0",
@@ -2978,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-explorer-command"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "nexssh-explorer",
  "windows",

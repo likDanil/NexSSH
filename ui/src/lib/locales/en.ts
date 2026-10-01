@@ -123,6 +123,16 @@ const en = {
   'terminal.copy': 'Copy',
   'terminal.paste': 'Paste',
   'terminal.selectAll': 'Select all',
+  'terminal.openLink': 'Open link',
+  'terminal.copyLink': 'Copy link',
+  'terminal.linkCopied': 'Link copied',
+  'terminal.linkHint': '{key}+click to open',
+  'terminal.fontSize': 'Font size {size}',
+  'paste.title': { one: 'Paste {count} line?', other: 'Paste {count} lines?' },
+  'paste.runs': 'A line break works like Enter: the shell runs each line as soon as it is pasted.',
+  'paste.asText': 'The program takes the paste as text: nothing runs until you press Enter.',
+  'paste.more': { one: '… and {count} more line', other: '… and {count} more lines' },
+  'paste.dontAsk': 'Don’t ask again',
 
   // ---- prompts over the terminal ---------------------------------------------------
   'prompt.changed.title': 'Host key has changed',
@@ -194,6 +204,10 @@ const en = {
   'palette.settings.keywords': 'preferences options font',
   'palette.toggleSidebar': 'Toggle sidebar',
   'palette.toggleFullscreen': 'Toggle full screen',
+  'palette.zoomIn': 'Terminal font: bigger',
+  'palette.zoomOut': 'Terminal font: smaller',
+  'palette.zoomReset': 'Terminal font: default size',
+  'palette.zoom.keywords': 'zoom font size scale',
   'palette.toggleFullscreen.keywords': 'focus',
   'palette.theme': 'Theme: {name}',
   'palette.theme.keywords': 'appearance color dark light',
@@ -402,6 +416,12 @@ const en = {
   'settings.rightClick': 'Right click',
   'settings.rightClickMenu': 'Menu',
   'settings.rightClickCopyPaste': 'Copy / Paste',
+  'settings.pasteWarning': 'Ask before pasting several lines',
+  'settings.pasteWarningHint':
+    'A line break works like Enter, so pasted lines may run at once. Auto does not ask when the program takes the paste as text (bracketed paste, as in recent bash).',
+  'settings.pasteAuto': 'Auto',
+  'settings.pasteAlways': 'Always',
+  'settings.pasteNever': 'Never',
   'settings.gpu': 'GPU rendering',
   'settings.gpuHint': 'WebGL renderer: lower CPU usage on heavy output.',
   'settings.localShell': 'Local terminal shell',
@@ -445,6 +465,9 @@ const en = {
   'shortcut.settings': 'Settings',
   'shortcut.localTerminal': 'Local terminal',
   'shortcut.copyPaste': 'Copy / paste',
+  'shortcut.openLink': 'Open a link in the terminal',
+  'shortcut.click': '{key}+click',
+  'shortcut.fontSize': 'Terminal font size (also Ctrl+wheel)',
 } satisfies Messages;
 
 export default en;

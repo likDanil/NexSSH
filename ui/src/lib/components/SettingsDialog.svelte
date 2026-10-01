@@ -4,7 +4,7 @@
   import { api, errorMessage } from '../api';
   import { formatNumber, LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
-  import { app, type SettingsSection } from '../state/app.svelte';
+  import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
   import { CUSTOM_SHELL, missingShellName, shellName, shells } from '../state/shells.svelte';
   import { toasts } from '../state/toasts.svelte';
   import { updates } from '../state/updates.svelte';
@@ -70,7 +70,7 @@
   }
 
   function fontSize(delta: number) {
-    app.update({ fontSize: Math.min(28, Math.max(9, s.fontSize + delta)) });
+    app.update({ fontSize: clampFontSize(s.fontSize + delta) });
   }
 
   async function copyPath() {
@@ -91,6 +91,11 @@
     ...LANGUAGES,
   ]);
 
+  const PASTE_WARNINGS: { id: Settings['pasteWarning']; label: MessageKey }[] = [
+    { id: 'auto', label: 'settings.pasteAuto' },
+    { id: 'always', label: 'settings.pasteAlways' },
+    { id: 'never', label: 'settings.pasteNever' },
+  ];
   const CURSORS: { id: Settings['cursorStyle']; label: MessageKey }[] = [
     { id: 'bar', label: 'settings.cursorBar' },
     { id: 'block', label: 'settings.cursorBlock' },
@@ -135,6 +140,8 @@
     ['shortcut.fullscreen', keys.fullscreen()],
     ['shortcut.settings', keys.settings()],
     ['shortcut.copyPaste', isMac() ? '⌘C · ⌘V' : 'Ctrl+Shift+C · Ctrl+Shift+V'],
+    ['shortcut.openLink', t('shortcut.click', { key: shortcut('Mod') })],
+    ['shortcut.fontSize', `${keys.zoomIn()} · ${keys.zoomOut()} · ${keys.zoomReset()}`],
   ]);
 </script>
 
@@ -241,6 +248,17 @@
           <button class:on={s.rightClickPaste} onclick={() => app.update({ rightClickPaste: true })}>
             {t('settings.rightClickCopyPaste')}
           </button>
+        </div>
+      </div>
+      <div class="row top">
+        <span>
+          {t('settings.pasteWarning')}
+          <small>{t('settings.pasteWarningHint')}</small>
+        </span>
+        <div class="segmented">
+          {#each PASTE_WARNINGS as p (p.id)}
+            <button class:on={s.pasteWarning === p.id} onclick={() => app.update({ pasteWarning: p.id })}>{t(p.label)}</button>
+          {/each}
         </div>
       </div>
       <label class="row">

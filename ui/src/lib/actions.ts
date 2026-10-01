@@ -22,6 +22,9 @@ export const keys = {
   files: () => shortcut('Mod', 'Shift', 'E'),
   /** Like VS Code's new terminal; Ctrl (not Cmd) on macOS too. */
   localTerminal: () => shortcut('Ctrl', 'Shift', '`'),
+  zoomIn: () => shortcut('Mod', '='),
+  zoomOut: () => shortcut('Mod', '−'),
+  zoomReset: () => shortcut('Mod', '0'),
 };
 
 function isMacLike() {

@@ -133,6 +133,26 @@ const ru: Catalog = {
   'terminal.copy': 'Копировать',
   'terminal.paste': 'Вставить',
   'terminal.selectAll': 'Выделить всё',
+  'terminal.openLink': 'Открыть ссылку',
+  'terminal.copyLink': 'Копировать ссылку',
+  'terminal.linkCopied': 'Ссылка скопирована',
+  'terminal.linkHint': '{key}+клик — открыть',
+  'terminal.fontSize': 'Размер шрифта {size}',
+  'paste.title': {
+    one: 'Вставить {count} строку?',
+    few: 'Вставить {count} строки?',
+    many: 'Вставить {count} строк?',
+    other: 'Вставить {count} строки?',
+  },
+  'paste.runs': 'Перевод строки работает как Enter: оболочка выполнит каждую строку сразу при вставке.',
+  'paste.asText': 'Программа примет вставку как текст: ничего не выполнится, пока вы не нажмёте Enter.',
+  'paste.more': {
+    one: '… и ещё {count} строка',
+    few: '… и ещё {count} строки',
+    many: '… и ещё {count} строк',
+    other: '… и ещё {count} строки',
+  },
+  'paste.dontAsk': 'Больше не спрашивать',
 
   // ---- запросы поверх терминала ----------------------------------------------------
   'prompt.changed.title': 'Ключ хоста изменился',
@@ -207,6 +227,10 @@ const ru: Catalog = {
   'palette.settings.keywords': 'параметры опции шрифт',
   'palette.toggleSidebar': 'Показать или скрыть боковую панель',
   'palette.toggleFullscreen': 'Полноэкранный режим',
+  'palette.zoomIn': 'Шрифт терминала: крупнее',
+  'palette.zoomOut': 'Шрифт терминала: мельче',
+  'palette.zoomReset': 'Шрифт терминала: обычный размер',
+  'palette.zoom.keywords': 'масштаб шрифт размер увеличить уменьшить zoom',
   'palette.toggleFullscreen.keywords': 'фокус',
   'palette.theme': 'Тема: {name}',
   'palette.theme.keywords': 'оформление цвет тёмная светлая',
@@ -452,6 +476,12 @@ const ru: Catalog = {
   'settings.rightClick': 'Правый клик',
   'settings.rightClickMenu': 'Меню',
   'settings.rightClickCopyPaste': 'Копировать / вставить',
+  'settings.pasteWarning': 'Спрашивать перед вставкой нескольких строк',
+  'settings.pasteWarningHint':
+    'Перевод строки работает как Enter, поэтому вставленные строки могут сразу выполниться. «Авто» не спрашивает, когда программа принимает вставку как текст (bracketed paste, как в свежем bash).',
+  'settings.pasteAuto': 'Авто',
+  'settings.pasteAlways': 'Всегда',
+  'settings.pasteNever': 'Никогда',
   'settings.gpu': 'Отрисовка на GPU',
   'settings.gpuHint': 'WebGL-рендерер: меньше нагрузка на процессор при большом объёме вывода.',
   'settings.localShell': 'Оболочка локального терминала',
@@ -495,6 +525,9 @@ const ru: Catalog = {
   'shortcut.settings': 'Настройки',
   'shortcut.localTerminal': 'Локальный терминал',
   'shortcut.copyPaste': 'Копировать / вставить',
+  'shortcut.openLink': 'Открыть ссылку в терминале',
+  'shortcut.click': '{key}+клик',
+  'shortcut.fontSize': 'Размер шрифта терминала (и Ctrl+колесо)',
 };
 
 export default ru;

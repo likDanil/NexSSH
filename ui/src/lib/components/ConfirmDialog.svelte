@@ -12,6 +12,7 @@
   let value = $state(request.input ?? '');
 
   let selected = false;
+  let checked = $state(false);
 
   /** Selects the text when the field first gets focus, so typing replaces it. */
   function selectText(e: FocusEvent) {
@@ -29,14 +30,18 @@
       if (!v) return;
       request.resolve(v);
     } else {
-      request.resolve('');
+      request.resolve(checked ? 'checked' : '');
     }
   }
 </script>
 
-<Modal title={request.title} width={400} onclose={() => request.resolve(null)}>
+<Modal title={request.title} width={request.preview === undefined ? 400 : 520} onclose={() => request.resolve(null)}>
   <form onsubmit={submit}>
     {#if request.message}<p>{request.message}</p>{/if}
+    {#if request.preview !== undefined}<pre class="preview">{request.preview}</pre>{/if}
+    {#if request.checkbox}
+      <label class="check"><input type="checkbox" bind:checked /> {request.checkbox}</label>
+    {/if}
     {#if request.input !== undefined}
       <!-- svelte-ignore a11y_autofocus -->
       <input class="input" bind:value autofocus spellcheck="false" onfocus={selectText} />
@@ -65,6 +70,27 @@
   }
   .input {
     margin-bottom: 14px;
+  }
+  .preview {
+    max-height: 190px;
+    overflow: auto;
+    margin: 0 0 14px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--input);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre;
+    user-select: text;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    color: var(--text-2);
   }
   .actions {
     display: flex;

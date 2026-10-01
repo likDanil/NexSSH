@@ -103,6 +103,9 @@
         'palette.settings.keywords',
       ),
       action('palette.toggleSidebar', { icon: 'sidebar', hint: keys.sidebar(), run: toggleSidebar }),
+      action('palette.zoomIn', { icon: 'plus', hint: keys.zoomIn(), run: () => app.zoom(1) }, 'palette.zoom.keywords'),
+      action('palette.zoomOut', { icon: 'minus', hint: keys.zoomOut(), run: () => app.zoom(-1) }, 'palette.zoom.keywords'),
+      action('palette.zoomReset', { icon: 'text', hint: keys.zoomReset(), run: () => app.zoom(0) }, 'palette.zoom.keywords'),
       action(
         'palette.toggleFullscreen',
         { icon: 'fullscreen', hint: keys.fullscreen(), run: toggleFullscreen },

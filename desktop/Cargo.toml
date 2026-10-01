@@ -33,3 +33,11 @@ tauri-plugin-single-instance = "2"
 # compact menu through a package (explorer/).
 nexssh-explorer = { path = "../explorer" }
 winreg = "0.55"
+# Links from the terminal open in the default browser (links.rs).
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
