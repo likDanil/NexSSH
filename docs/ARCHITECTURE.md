@@ -52,7 +52,7 @@ NexSSH/
 │   ├── src/sink.rs       EventSink → Tauri Channel
 │   ├── src/settings.rs   settings.json (UI-owned schema)
 │   ├── tauri.conf.json   bundle config (NSIS installer), updater key, CSP
-│   ├── windows/hooks.nsh installer hooks: the uninstaller removes the Explorer menu entry
+│   ├── windows/hooks.nsh installer hooks: the Explorer menu entry, set up and removed
 │   ├── build.rs          embeds the Explorer menu's package (NEXSSH_EXPLORER_PACKAGE)
 │   └── capabilities/     window permissions
 ├── explorer/             "Open with NexSSH" in Windows 11's compact menu (Windows only)
@@ -75,7 +75,8 @@ NexSSH/
 │           ├── locales/  en.ts (reference), ru.ts
 │           ├── state/    app, servers, sessions, shells, files, updates, toasts (Svelte runes)
 │           └── components/
-├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (packs and signs the package)
+├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (packs and signs the package),
+│                         installer-test.ps1 (the installer and the Explorer menu entry, Windows CI)
 └── .github/workflows/    ci.yml, release.yml
 ```
 
@@ -141,12 +142,13 @@ starts the program again in the same tab; disconnect stops it.
   xterm.js adapts its resize and reflow to it.
 
 **Open with NexSSH** (Windows) runs `"…\NexSSH.exe" --cwd <folder>` on a folder, on the empty
-space inside one and on a drive. The app sets it up for the current user at start-up and
-whenever the setting or the language changes (the label follows the interface language, the
-command points at the running copy), and takes it all away when the setting is off; the
-uninstaller runs `NexSSH --explorer-cleanup` for that (which also takes back the computer's
-trust in the package's certificate, asking for administrator rights once), and removes the
-classic entries itself too (`windows/hooks.nsh`).
+space inside one and on a drive. The installer sets it up for the user as soon as the files
+are in place (`NexSSH --explorer-install`, `windows/hooks.nsh`), unless the settings turned it
+off; the app does again at start-up and whenever the setting or the language changes (the
+label follows the interface language, the command points at the running copy), and takes it
+all away when the setting is off. The uninstaller runs `NexSSH --explorer-cleanup` for that
+(which also takes back the computer's trust in the package's certificate, asking for
+administrator rights once), and removes the classic entries itself too.
 
 * Classic entries: the verb `NexSSH` under `HKCU\Software\Classes\Directory\shell`,
   `…\Directory\Background\shell` and `…\Drive\shell` with the command `--cwd "%V"`. A drive's
@@ -164,10 +166,20 @@ classic entries itself too (`windows/hooks.nsh`).
   certificate from a public authority (VS Code's package is signed by Microsoft), and its own
   counts only in the computer's *Trusted People* store: neither the user's store nor an
   unsigned package works (Windows refuses unsigned packages that declare an application). Adding
-  a certificate there takes administrator rights, so on Windows 11 the settings offer *Move to
-  the compact menu*: NexSSH starts itself elevated (`--explorer-trust`, Windows asks the user)
-  to trust the certificate, which releases sign with the same key every time
-  (`EXPLORER_SIGNING_CERT`). Until then, and when the user says no, the classic entries stay.
+  a certificate there takes administrator rights: NexSSH starts itself elevated
+  (`--explorer-trust`, Windows asks the user) to trust the certificate, which releases sign
+  with the same key every time (`EXPLORER_SIGNING_CERT`). An install the user watches has it
+  done right after the files (`--explorer-install --trust`; the question belongs to the
+  installer's window, so it comes up in front); if the user says no then, or NexSSH was
+  installed silently, the settings offer *Move to the compact menu*. Until then the classic
+  entries stay. Updates and silent installs never ask.
+* The trust lasts until NexSSH is uninstalled. The in-app update (`/UPDATE`) never runs the
+  uninstaller, but installing another version by hand does by default (*Uninstall before
+  installing*): that installer starts the installed uninstaller in place (`_?=`), whereas
+  Windows' *Uninstall* runs a copy of it from the temporary folder, so the uninstaller tells
+  the two apart (`$EXEDIR`). Run by an installer, it removes the entries but keeps the trust
+  (`--keep-trust`), and the new version puts them back without asking anything.
+  `scripts/installer-test.ps1` goes through all of these on the release workflow's runner.
 * Then, at start-up, the app unpacks the files into `%LOCALAPPDATA%\NexSSH\explorer\<build>`
   (a folder per build, so a DLL that Explorer still holds is never overwritten), registers the
   package for the user with the `PackageManager` API (external location: that folder), without
@@ -366,9 +378,10 @@ into, a folder to upload.
 * Windows 11's menu entry is a package registered for the user and signed with NexSSH's own
   certificate. Only after the user allowed it (UAC) does the computer trust that certificate,
   in *Trusted People*: it then accepts packages signed with its key, which exists only as a
-  GitHub Actions secret, like the updater's. The uninstaller takes the trust back (asking for
-  administrator rights again). The COM server the package names is the DLL unpacked from the
-  running NexSSH into the user's `%LOCALAPPDATA%`.
+  GitHub Actions secret, like the updater's. Uninstalling NexSSH takes the trust back (asking
+  for administrator rights again); installing another version over it does not. The COM server
+  the package names is the DLL unpacked from the running NexSSH into the user's
+  `%LOCALAPPDATA%`.
 * The webview runs with a strict CSP (no remote content, no `eval`), and only the window
   permissions needed for the custom title bar are granted. The updater and dialog plugins'
   own commands are not granted either: the UI can only use NexSSH's commands.
