@@ -240,6 +240,22 @@
   .host :global(.xterm-viewport) {
     background-color: transparent !important;
   }
+  /* A rounded bar like the app's other scrollbars, slimmer than the strip that takes the mouse
+     (xterm's 14 px, which the fit addon keeps free); a little wider under the mouse. The colors
+     are the theme's: xterm sets them with `background`, which would paint under the border too,
+     hence a selector that outweighs its own. */
+  .host :global(.xterm .xterm-scrollable-element > .scrollbar > .slider) {
+    box-sizing: border-box;
+    border: 3px solid transparent;
+    border-inline-width: 4px;
+    border-radius: 7px;
+    background-clip: padding-box;
+    transition: border-inline-width 0.12s var(--ease);
+  }
+  .host :global(.xterm .xterm-scrollable-element > .scrollbar > .slider:hover),
+  .host :global(.xterm .xterm-scrollable-element > .scrollbar > .slider.active) {
+    border-inline-width: 3px;
+  }
   .zoom-badge {
     position: absolute;
     top: 12px;
