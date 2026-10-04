@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ctrlKInTerminal: false,
   sidebarWidth: 240,
   sidebarHidden: false,
+  sidebarAutoHide: false,
   collapsedGroups: [],
   filesShowHidden: false,
   filesWidth: 380,
@@ -33,6 +34,8 @@ export const DEFAULT_SETTINGS: Settings = {
   explorerMenu: true,
   autoUpdateCheck: true,
   lastVersion: '',
+  agentsEnabled: false,
+  agentsPort: 7422,
 };
 
 /** The terminal's font size goes from 9 to 28 (settings and Ctrl+=/Ctrl+-). */
@@ -57,7 +60,7 @@ export interface MenuState {
   items: MenuEntry[];
 }
 
-export type SettingsSection = 'appearance' | 'terminal' | 'keyboard' | 'about';
+export type SettingsSection = 'appearance' | 'terminal' | 'keyboard' | 'agents' | 'about';
 
 export interface EditorState {
   server: Server | null;
@@ -124,6 +127,15 @@ class AppState {
   permissions = $state<PermissionsState | null>(null);
   /** The terminal's font size, shown for a moment after a zoom shortcut changed it. */
   zoomBadge = $state<number | null>(null);
+  /** An AI agent's question is on screen (see state/agents). */
+  agentAsking = $state(false);
+  /** The sidebar stepped aside for a session the user opened (`sidebarAutoHide`); not saved, so
+   * NexSSH starts with the sidebar as the user left it. */
+  sidebarAutoHidden = $state(false);
+
+  get sidebarHidden(): boolean {
+    return this.settings.sidebarHidden || (this.settings.sidebarAutoHide && this.sidebarAutoHidden);
+  }
 
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
   #zoomTimer: ReturnType<typeof setTimeout> | undefined;
@@ -135,7 +147,8 @@ class AppState {
       this.settingsOpen ||
       this.forwardsOpen ||
       !!this.confirmation ||
-      !!this.permissions
+      !!this.permissions ||
+      this.agentAsking
     );
   }
 
@@ -209,6 +222,22 @@ class AppState {
     this.zoomBadge = size;
     clearTimeout(this.#zoomTimer);
     this.#zoomTimer = setTimeout(() => (this.zoomBadge = null), 1200);
+  }
+
+  /** Shows or hides the sidebar on the user's word (the buttons, the shortcut, the palette). */
+  setSidebarHidden(hidden: boolean) {
+    this.sidebarAutoHidden = false;
+    this.update({ sidebarHidden: hidden });
+  }
+
+  /** The user opened a session: the sidebar steps aside, if the settings say so. */
+  sidebarForSession() {
+    if (this.settings.sidebarAutoHide) this.sidebarAutoHidden = true;
+  }
+
+  /** Back to the home screen: the sidebar is back too, unless the user hid it. */
+  sidebarForHome() {
+    this.sidebarAutoHidden = false;
   }
 
   /** Updates settings and persists them (debounced). */

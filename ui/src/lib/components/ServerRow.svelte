@@ -1,6 +1,7 @@
 <script lang="ts">
   import { connect, serverMenu } from '../actions';
   import { t } from '../i18n.svelte';
+  import { app } from '../state/app.svelte';
   import { sessions } from '../state/sessions.svelte';
   import { destination } from '../state/servers.svelte';
   import type { Server } from '../types';
@@ -13,6 +14,8 @@
 
   const status = $derived(sessions.serverStatus(server.id));
   const selected = $derived(!!sessions.active && sessions.active.serverId === server.id);
+  /** Shared with AI agents (shown while agents may connect at all). */
+  const shared = $derived(app.settings.agentsEnabled && !!server.agents && server.agents !== 'off');
 
   function onclick(e: MouseEvent) {
     // Ctrl/Cmd-click always opens another session.
@@ -47,7 +50,14 @@
 >
   <span class="dot {status === 'idle' ? '' : status}"></span>
   <span class="text">
-    <span class="name">{server.name}</span>
+    <span class="name">
+      <span class="label">{server.name}</span>
+      {#if shared}
+        <span class="agents" title={t(server.agents === 'allow' ? 'server.agentsAllow' : 'server.agentsAsk')}>
+          <Icon name="sparkle" size={12} stroke={1.9} />
+        </span>
+      {/if}
+    </span>
     <span class="host">{server.host}</span>
   </span>
   <button class="icon-btn small more" aria-label={t('server.actions')} onclick={menu}>
@@ -83,14 +93,23 @@
     flex-direction: column;
     line-height: 1.25;
   }
-  .name,
+  .label,
   .host {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
   .name {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
     font-weight: 500;
+  }
+  .agents {
+    flex: none;
+    display: grid;
+    color: var(--text-3);
   }
   .host {
     font-size: 11.5px;

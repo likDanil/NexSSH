@@ -2,6 +2,7 @@
   import { closeTab, keys, newTabMenu, quickConnect, sessionMenu, toggleFiles, toggleSidebar } from '../actions';
   import { t } from '../i18n.svelte';
   import { currentOs } from '../platform';
+  import { agents } from '../state/agents.svelte';
   import { app } from '../state/app.svelte';
   import { files } from '../state/files.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
@@ -16,6 +17,8 @@
   let dropAt = $state<number | null>(null);
 
   function activate(tab: Tab) {
+    // Back to work from the servers screen, like opening a session.
+    if (sessions.activeKey === null) app.sidebarForSession();
     sessions.activeKey = tab.key;
     requestAnimationFrame(() => sessions.focusActive());
   }
@@ -70,7 +73,7 @@
 </script>
 
 <header class="bar" data-tauri-drag-region={dragRegion}>
-  {#if app.settings.sidebarHidden}
+  {#if app.sidebarHidden}
     <button
       class="icon-btn"
       title="{t('tabs.showSidebar')} ({keys.sidebar()})"
@@ -108,6 +111,12 @@
           <span class="dot {statusClass(tab)}"></span>
         {/if}
         <span class="name">{tab.title}</span>
+        {#if agents.busy(tab.sessionId)}
+          {@const work = agents.busy(tab.sessionId)}
+          <span class="agent" title={t('agents.busy', { agent: work?.agent ?? '', detail: work?.detail ?? '' })}>
+            <Icon name="sparkle" size={13} stroke={1.9} />
+          </span>
+        {/if}
         <button
           class="close"
           aria-label={t('session.closeTab')}
@@ -247,6 +256,19 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     font-weight: 500;
+  }
+  /* An AI agent runs something on this tab's connection. */
+  .agent {
+    flex: none;
+    display: grid;
+    margin-right: -4px;
+    color: var(--text);
+    animation: agent-pulse 1.4s var(--ease) infinite;
+  }
+  @keyframes agent-pulse {
+    50% {
+      opacity: 0.35;
+    }
   }
   .close {
     display: grid;

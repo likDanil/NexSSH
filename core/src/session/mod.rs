@@ -22,11 +22,12 @@ use std::sync::{Arc, Mutex};
 
 use russh::client::Handle;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use zeroize::Zeroizing;
 
 use self::handler::ClientHandler;
 use crate::error::{Error, Result};
+use crate::exec::{self, ExecOptions, ExecOutput};
 use crate::forward::ForwardInfo;
 use crate::i18n;
 use crate::known_hosts::{HostKeyStatus, KnownHosts};
@@ -189,6 +190,8 @@ pub(crate) struct Shared {
     prompts: Mutex<HashMap<u64, oneshot::Sender<PromptReply>>>,
     /// Connections of connected sessions, for extra channels such as SFTP.
     live: Mutex<HashMap<SessionId, Live>>,
+    /// Counts changes of `live`, so others can wait for a session to connect.
+    live_changes: watch::Sender<u64>,
     next_session: AtomicU64,
     next_prompt: AtomicU64,
 }
@@ -213,6 +216,7 @@ impl SessionManager {
                 sessions: Mutex::new(HashMap::new()),
                 prompts: Mutex::new(HashMap::new()),
                 live: Mutex::new(HashMap::new()),
+                live_changes: watch::Sender::new(0),
                 next_session: AtomicU64::new(1),
                 next_prompt: AtomicU64::new(1),
             }),
@@ -339,27 +343,69 @@ impl SessionManager {
             .await
             .cloned()
     }
+
+    /// Runs `command` on a connected session's connection, on a channel of its own and
+    /// without a terminal (see [`crate::exec`]).
+    pub async fn exec(
+        &self,
+        id: SessionId,
+        command: &str,
+        options: ExecOptions,
+    ) -> Result<ExecOutput> {
+        let handle = {
+            let live = lock(&self.shared.live);
+            let entry = live
+                .get(&id)
+                .ok_or_else(|| Error::Disconnected(i18n::not_connected()))?;
+            Arc::clone(&entry.handle)
+        };
+        exec::run(&handle, command, options).await
+    }
+
+    /// A connected session of the saved server `server_id` (the one connected first).
+    pub fn connected(&self, server_id: &str) -> Option<SessionId> {
+        lock(&self.shared.live)
+            .iter()
+            .filter(|(_, live)| !server_id.is_empty() && live.server_id == server_id)
+            .map(|(id, _)| *id)
+            .min()
+    }
+
+    /// Changes whenever a session connects or its connection ends.
+    pub fn live_changes(&self) -> watch::Receiver<u64> {
+        self.shared.live_changes.subscribe()
+    }
 }
 
 /// A connected session's SSH connection.
 pub(crate) struct Live {
+    /// The saved server it is (empty for quick connections).
+    server_id: String,
     handle: Arc<Handle<ClientHandler>>,
     sftp: Arc<tokio::sync::OnceCell<Arc<Sftp>>>,
 }
 
 impl Shared {
-    pub(crate) fn set_live(&self, id: SessionId, handle: Arc<Handle<ClientHandler>>) {
+    pub(crate) fn set_live(
+        &self,
+        id: SessionId,
+        server_id: &str,
+        handle: Arc<Handle<ClientHandler>>,
+    ) {
         lock(&self.live).insert(
             id,
             Live {
+                server_id: server_id.to_string(),
                 handle,
                 sftp: Arc::default(),
             },
         );
+        self.live_changes.send_modify(|n| *n += 1);
     }
 
     pub(crate) fn clear_live(&self, id: SessionId) {
         lock(&self.live).remove(&id);
+        self.live_changes.send_modify(|n| *n += 1);
     }
 }
 

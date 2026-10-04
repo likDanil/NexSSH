@@ -137,10 +137,11 @@ export function openSettings(section: SettingsSection = 'appearance') {
 
 export function showHome() {
   sessions.activeKey = null;
+  app.sidebarForHome();
 }
 
 export function toggleSidebar() {
-  app.update({ sidebarHidden: !app.settings.sidebarHidden });
+  app.setSidebarHidden(!app.sidebarHidden);
 }
 
 export function toggleFullscreen() {

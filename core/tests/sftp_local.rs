@@ -246,6 +246,46 @@ async fn servers_that_read_less_or_hide_sizes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn small_files_in_memory() {
+    let servers = [
+        Options::default(),
+        // Reads shorter than asked for, sizes hidden like /proc files.
+        Options {
+            max_read: 20_000,
+            hide_sizes: true,
+            ..Options::default().old_openssh()
+        },
+    ];
+    for options in servers {
+        let server = LocalServer::start(options.clone()).await;
+        let (_session, sftp) = server.connect().await;
+        let data = pattern(300_000, 5);
+        std::fs::write(server.local("/notes.txt"), &data).unwrap();
+
+        let (whole, size) = sftp.read_part("/notes.txt", 0, 1_000_000).await.unwrap();
+        assert!(whole == data, "{options:?}");
+        let said = if options.hide_sizes { 0 } else { 300_000 };
+        assert_eq!(size, Some(said));
+        let (part, _) = sftp.read_part("/notes.txt", 299_990, 100).await.unwrap();
+        assert_eq!(part, data[299_990..]);
+        let (part, _) = sftp.read_part("/notes.txt", 1000, 50).await.unwrap();
+        assert_eq!(part, data[1000..1050]);
+        assert!(sftp.read_part("/", 0, 10).await.is_err(), "a folder");
+        assert!(sftp.read_part("/missing", 0, 10).await.is_err());
+
+        // Written whole: shorter content replaces longer, and new files are created.
+        let text = pattern(600_000, 1);
+        sftp.write_whole("/notes.txt", &text).await.unwrap();
+        assert!(std::fs::read(server.local("/notes.txt")).unwrap() == text);
+        sftp.write_whole("/notes.txt", b"short").await.unwrap();
+        assert_eq!(std::fs::read(server.local("/notes.txt")).unwrap(), b"short");
+        sftp.write_whole("/empty", b"").await.unwrap();
+        assert_eq!(std::fs::read(server.local("/empty")).unwrap(), b"");
+        assert!(sftp.write_whole("/no/such/dir/file", b"x").await.is_err());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn cancelled_transfers_leave_nothing_behind() {
     let server = LocalServer::start(Options {
         delay: Duration::from_millis(10),

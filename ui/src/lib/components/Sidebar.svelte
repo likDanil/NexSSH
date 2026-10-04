@@ -9,6 +9,7 @@
     openSettings,
     quickConnect,
     showHome,
+    toggleSidebar,
   } from '../actions';
   import { errorMessage } from '../api';
   import { fuzzyBest } from '../fuzzy';
@@ -132,6 +133,14 @@
   <div class="brand" data-tauri-drag-region={dragRegion}>
     <img src={logo} alt="" class="logo" draggable="false" />
     <span class="title" data-tauri-drag-region={dragRegion}>NexSSH</span>
+    <button
+      class="icon-btn hide"
+      title="{t('sidebar.hide')} ({keys.sidebar()})"
+      aria-label={t('sidebar.hide')}
+      onclick={toggleSidebar}
+    >
+      <Icon name="sidebar" size={16} />
+    </button>
   </div>
 
   <label class="search">
@@ -242,9 +251,17 @@
     pointer-events: none;
   }
   .title {
+    flex: 1;
     font-weight: 600;
     font-size: 13.5px;
     letter-spacing: -0.01em;
+  }
+  .brand .hide {
+    margin-right: -6px;
+    color: var(--text-2);
+  }
+  .brand .hide:hover {
+    color: var(--text);
   }
   .search {
     display: flex;

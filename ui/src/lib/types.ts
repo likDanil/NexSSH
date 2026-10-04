@@ -4,6 +4,8 @@
 import type { LanguageSetting } from './i18n.svelte';
 
 export type AuthKind = 'auto' | 'password' | 'key' | 'agent';
+/** What AI agents (over MCP) may do on a server: nothing, ask the user first, or anything. */
+export type AgentAccess = 'off' | 'ask' | 'allow';
 export type ForwardKind = 'local' | 'remote' | 'dynamic';
 
 export interface ForwardSpec {
@@ -32,6 +34,8 @@ export interface Server {
   forwards?: ForwardSpec[];
   alias?: string;
   lastUsed?: number;
+  /** Not written when `off`. */
+  agents?: AgentAccess;
 }
 
 export interface StoreData {
@@ -154,6 +158,9 @@ export interface Settings {
   ctrlKInTerminal: boolean;
   sidebarWidth: number;
   sidebarHidden: boolean;
+  /** Hide the sidebar while a session the user opened is shown; it comes back on the home
+   * screen. Never saved as `sidebarHidden`. */
+  sidebarAutoHide: boolean;
   collapsedGroups: string[];
   /** Files drawer: show dotfiles, its width and sort order (folders always come first). */
   filesShowHidden: boolean;
@@ -170,6 +177,9 @@ export interface Settings {
   autoUpdateCheck: boolean;
   /** The version that last ran, to say "updated to …" once after an update. */
   lastVersion: string;
+  /** AI agents may connect (MCP on 127.0.0.1:`agentsPort`). */
+  agentsEnabled: boolean;
+  agentsPort: number;
 }
 
 export interface AppInfo {
@@ -226,6 +236,61 @@ export interface UpdateInfo {
   version: string;
   currentVersion: string;
   notes?: string;
+}
+
+/** A question from the backend: may an agent do this? Mirrors desktop/src/agents/mod.rs. */
+export interface AgentRequest {
+  id: number;
+  agent: string;
+  serverId: string;
+  serverName: string;
+  tool: 'run_command' | 'write_file' | 'upload' | string;
+  /** The command, or the path. */
+  detail: string;
+  /** A command's input, or the beginning of a file's new content. */
+  preview?: string;
+}
+
+/** An agent needs a session of a server that has none: the page opens a tab. */
+export interface AgentOpen {
+  id: number;
+  agent: string;
+  serverId: string;
+}
+
+export type AgentActivityStatus = 'waiting' | 'running' | 'done' | 'failed' | 'denied';
+
+export interface AgentActivity {
+  id: number;
+  /** Unix time in milliseconds. */
+  at: number;
+  agent: string;
+  serverId: string;
+  serverName: string;
+  tool: string;
+  detail: string;
+  status: AgentActivityStatus;
+  sessionId?: number;
+  exitCode?: number;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface AgentsStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  url: string;
+  error?: string;
+  /** NexSSH's program, for agents' configurations (`NexSSH mcp`). */
+  exe: string;
+  /** The token is in the keychain (the bridge can read it). */
+  tokenKept: boolean;
+  agents: { name: string; lastSeen: number }[];
+  requests: AgentRequest[];
+  opens: AgentOpen[];
+  /** Newest first. */
+  activity: AgentActivity[];
 }
 
 export interface DownloadProgress {

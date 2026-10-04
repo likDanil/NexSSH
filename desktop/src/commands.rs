@@ -16,6 +16,7 @@ use tauri::State;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use zeroize::Zeroizing;
 
+use crate::agents::Agents;
 use crate::settings::Settings;
 use crate::sink::ChannelSink;
 
@@ -148,12 +149,17 @@ pub fn settings_get(state: State<'_, AppState>) -> CmdResult<Value> {
 }
 
 #[tauri::command]
-pub async fn settings_set(state: State<'_, AppState>, settings: Value) -> CmdResult<()> {
+pub async fn settings_set(
+    state: State<'_, AppState>,
+    agents: State<'_, Agents>,
+    settings: Value,
+) -> CmdResult<()> {
     state
         .settings
         .lock()
         .map_err(|e| e.to_string())?
-        .save(settings)?;
+        .save(settings.clone())?;
+    agents.apply(&settings);
     Ok(())
 }
 
@@ -177,15 +183,21 @@ pub struct SaveResult {
 /// host) is stored in the OS keychain; `clear_password` (`clear_jump_password`) removes a
 /// stored one. Keychain problems never lose the server: they are reported as a warning.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn server_save(
     state: State<'_, AppState>,
+    agents: State<'_, Agents>,
     server: Server,
     password: Option<String>,
     clear_password: Option<bool>,
     jump_password: Option<String>,
     clear_jump_password: Option<bool>,
 ) -> CmdResult<SaveResult> {
+    let before = state.core.store.get(&server.id).map(|s| s.agents);
     let saved = state.core.store.save_server(server)?;
+    if before != Some(saved.agents) {
+        agents.forget_server(&saved.id);
+    }
     let secrets = &state.core.secrets;
     let own = Secrets::password_account(&saved.id);
     let jump = Secrets::jump_password_account(&saved.id);
@@ -220,8 +232,13 @@ async fn store_secret(
 }
 
 #[tauri::command]
-pub async fn server_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+pub async fn server_delete(
+    state: State<'_, AppState>,
+    agents: State<'_, Agents>,
+    id: String,
+) -> CmdResult<()> {
     state.core.store.delete_server(&id)?;
+    agents.forget_server(&id);
     let secrets = Arc::clone(&state.core.secrets);
     blocking(move || {
         secrets.delete(&Secrets::password_account(&id))?;
