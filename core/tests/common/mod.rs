@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use nexssh_core::known_hosts::KnownHosts;
@@ -58,11 +59,17 @@ impl EventSink for Sink {
 }
 
 pub fn temp_dir() -> PathBuf {
+    // Tests running at the same time can see the same clock (Windows' is coarse).
+    static TAKEN: AtomicU64 = AtomicU64::new(0);
     let n: u64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos() as u64;
-    let dir = std::env::temp_dir().join(format!("nexssh-it-{n}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "nexssh-it-{n}-{}-{}",
+        std::process::id(),
+        TAKEN.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

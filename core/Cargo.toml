@@ -12,6 +12,8 @@ repository.workspace = true
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
 # SFTP client over an existing SSH channel (same author as russh).
 russh-sftp = "3"
+# Many SFTP requests in flight at once (already part of russh's dependency tree).
+futures-util = "0.3"
 tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros", "io-util", "fs"] }
 serde.workspace = true
 serde_json.workspace = true

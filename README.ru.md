@@ -159,6 +159,15 @@ eval "$(sudo scripts/test-sshd.sh env)"
 cargo test -p nexssh-core --test sshd --test sftp
 ```
 
+Тестам передачи файлов в `sftp_local` сервер не нужен: он работает в самом тесте, за прокси,
+который добавляет задержку. Они же замеряют скорость и поднимают «медленный канал», чтобы
+проверить на нём приложение:
+
+```sh
+NEXSSH_BENCH_DELAY_MS=25 cargo test --release -p nexssh-core --test sftp_local transfer_speed -- --ignored --nocapture
+cargo test -p nexssh-core --test sftp_local serve -- --ignored --nocapture
+```
+
 Переменные окружения: `NEXSSH_DATA_DIR` — другая папка данных (портативный режим, тесты),
 `NEXSSH_LOG` — уровень логов, `NEXSSH_UI_OS` — предпросмотр заголовка окна другой ОС,
 `NEXSSH_UPDATE_URL` — брать обновления из другого `latest.json` (для тестов; `http://` —

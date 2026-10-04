@@ -24,6 +24,9 @@ use crate::util;
 /// Longest supported jump host chain (including the target).
 const MAX_HOPS: usize = 8;
 
+/// Receive window of every channel (see [`client_config`]).
+const CHANNEL_WINDOW: u32 = 16 * 1024 * 1024;
+
 /// An authenticated connection to the target, plus the jump host connections it runs through.
 pub(crate) struct Connection {
     pub handle: Arc<Handle<ClientHandler>>,
@@ -218,6 +221,11 @@ fn client_config(hop: &Server, known: &[Algorithm]) -> Arc<client::Config> {
         keepalive_max: 3,
         inactivity_timeout: None,
         nodelay: true,
+        // What the server may send on a channel before hearing back: with russh's 2 MiB a
+        // download (or anything through a jump host) could not go faster than about 1.5 MiB
+        // per round trip. russh tops the window up as data arrives, not as it is used, so a
+        // larger one buffers nothing more on this side.
+        window_size: CHANNEL_WINDOW,
         preferred,
         ..Default::default()
     })

@@ -1,6 +1,7 @@
 // The files drawer (SFTP): the folder shown for each tab, and every transfer. Transfers
 // keep running when the drawer is closed or another tab is shown.
 
+import { listen } from '@tauri-apps/api/event';
 import { api, Channel, errorMessage } from '../api';
 import { i18n, t, tn } from '../i18n.svelte';
 import type { FilesSort, PickedUpload, SftpEntry, TransferProgress } from '../types';
@@ -48,8 +49,12 @@ export interface UploadItem {
 
 /** Upload piece size: big enough for throughput, small enough for smooth progress. */
 const UPLOAD_CHUNK = 1024 * 1024;
-/** Downloads started together (each one is pipelined already). */
+/** Downloads, and uploads, started together (each one is pipelined already). */
 const PARALLEL_DOWNLOADS = 3;
+const PARALLEL_UPLOADS = 3;
+/** Files of a folder dropped on the page sent at the same time (a small file is mostly
+ * round trips). */
+const PARALLEL_PAGE_FILES = 4;
 /** Speed is measured over at least this many milliseconds. */
 const RATE_INTERVAL = 500;
 /** Deeper folders in a drop are refused (a link loop would never end). */
@@ -129,14 +134,21 @@ export function sortEntries(entries: SftpEntry[], key: FilesSort, desc: boolean)
   });
 }
 
-/** Upload items for plain files (from the file dialog, or a drop without folder entries). */
+/** Upload items for plain files (a drop without folder entries). */
 export function itemsFromFiles(list: Iterable<File>): UploadItem[] {
   return Array.from(list, (file) => ({ name: file.name, dirs: [], files: [{ file, path: file.name }] }));
 }
 
-/** Upload items from a drop. Call it while the drop event runs: the entries are taken then
- * and read afterwards. */
-export function itemsFromDrop(data: DataTransfer): Promise<UploadItem[]> {
+/** What a drop holds, taken while the drop event runs (it is read afterwards). */
+export interface Dropped {
+  entries: FileSystemEntry[];
+  plain: File[];
+  /** The dropped files and folders themselves. */
+  files: File[];
+}
+
+/** Takes what a drop holds; call it while the drop event runs. */
+export function takeDrop(data: DataTransfer): Dropped {
   const entries: FileSystemEntry[] = [];
   const plain: File[] = [];
   for (const item of Array.from(data.items)) {
@@ -146,7 +158,42 @@ export function itemsFromDrop(data: DataTransfer): Promise<UploadItem[]> {
     if (entry) entries.push(entry);
     else if (file) plain.push(file);
   }
+  return { entries, plain, files: Array.from(data.files) };
+}
+
+/** Upload items from a drop, read in the page. */
+export function readDrop({ entries, plain }: Dropped): Promise<UploadItem[]> {
   return readEntries(entries).then((items) => [...items, ...itemsFromFiles(plain)]);
+}
+
+/** WebView2's way to hand files to the app (Windows). */
+interface WebviewBridge {
+  postMessageWithAdditionalObjects?: (message: unknown, objects: ArrayLike<unknown>) => void;
+}
+
+/** How long to wait for the app to tell the paths of dropped files. */
+const DROP_ANSWER_TIMEOUT = 3000;
+let nextDrop = 1;
+const dropAnswers = new Map<number, (items: PickedUpload[]) => void>();
+let dropListener: Promise<unknown> | null = null;
+
+/** Windows: the dropped files as the app sees them (see `take_page_drops` in sftp.rs), so they
+ * are uploaded from disk, which is much faster than sending them from the page; `null` where
+ * that is not possible, or not for all of them. */
+export async function pathsOfDrop({ files }: Dropped): Promise<PickedUpload[] | null> {
+  const webview = (window as { chrome?: { webview?: WebviewBridge } }).chrome?.webview;
+  if (!webview?.postMessageWithAdditionalObjects || !files.length) return null;
+  const id = nextDrop++;
+  const answer = new Promise<PickedUpload[]>((resolve) => dropAnswers.set(id, resolve));
+  dropListener ??= listen<{ id: number; items: PickedUpload[] }>('files-picked', ({ payload }) =>
+    dropAnswers.get(payload.id)?.(payload.items),
+  );
+  await dropListener;
+  webview.postMessageWithAdditionalObjects(`nexssh-drop:${id}`, files);
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DROP_ANSWER_TIMEOUT));
+  const items = await Promise.race([answer, timeout]);
+  dropAnswers.delete(id);
+  return items?.length === files.length ? items : null;
 }
 
 async function readEntries(entries: FileSystemEntry[]): Promise<UploadItem[]> {
@@ -206,6 +253,8 @@ class FilesState {
   #loads = new Map<string, number>();
   /** Last speed measurement per running transfer. */
   #samples = new Map<number, { time: number; done: number }>();
+  /** Uploads of a transfer's files on their way from the page: cancelled with it. */
+  #parts = new Map<number, Set<number>>();
 
   get running(): number {
     return this.transfers.filter((tr) => tr.status === 'running').length;
@@ -511,13 +560,26 @@ class FilesState {
     if (!(await this.#confirmReplace(tab, sessionId, target, names))) return;
     const uploaded: string[] = [];
     const errors: string[] = [];
-    for (const item of items) {
+    await eachLimited(items, PARALLEL_UPLOADS, async (item) => {
       const error = await this.#uploadItem(sessionId, target, item);
       if (error === null) uploaded.push(item.name);
       else if (error) errors.push(error);
-    }
+    });
     reportFailures(errors);
     this.#uploaded(tab, target, uploaded);
+  }
+
+  /** Asks for local files, then uploads them into `dir` (default: the folder shown). */
+  async uploadFiles(tab: Tab, dir?: string) {
+    if (!this.views[tab.key]?.path || tab.sessionId == null) return;
+    let picked: PickedUpload[];
+    try {
+      picked = await api.sftpPickFiles(t('files.uploadFilesTitle'));
+    } catch (e) {
+      toasts.error(errorMessage(e));
+      return;
+    }
+    if (picked.length) await this.uploadPicked(tab, picked, dir);
   }
 
   /** Asks for a local folder, then uploads it into `dir` (default: the folder shown). */
@@ -543,7 +605,7 @@ class FilesState {
     if (!(await this.#confirmReplace(tab, sessionId, target, items))) return;
     const uploaded: string[] = [];
     const errors: string[] = [];
-    for (const item of items) {
+    await eachLimited(items, PARALLEL_UPLOADS, async (item) => {
       const tr = this.#add('up', item.name, 0);
       const channel = new Channel<TransferProgress>();
       channel.onmessage = (p) => {
@@ -554,11 +616,11 @@ class FilesState {
         this.#finish(tr);
         uploaded.push(item.name);
       } catch (e) {
-        if (tr.status !== 'running') continue;
+        if (tr.status !== 'running') return;
         this.#fail(tr, errorMessage(e));
         errors.push(tr.error ?? '');
       }
-    }
+    });
     reportFailures(errors);
     this.#uploaded(tab, target, uploaded);
   }
@@ -607,38 +669,51 @@ class FilesState {
     else this.#refreshIn(tab, parentPath(dir));
   }
 
-  /** Uploads one file or folder as one transfer: `null` when done, else the error ('' when cancelled). */
+  /** Uploads one file or folder from the page as one transfer, several files at a time:
+   * `null` when done, else the error ('' when cancelled). */
   async #uploadItem(sessionId: number, dir: string, item: UploadItem): Promise<string | null> {
     const tr = this.#add('up', item.name, item.files.reduce((sum, f) => sum + f.file.size, 0));
-    let sent = 0;
+    const parts = new Set<number>();
+    this.#parts.set(tr.id, parts);
+    /** Bytes sent per file. */
+    const sent = new Map<string, number>();
+    const report = () => this.#progress(tr, [...sent.values()].reduce((sum, n) => sum + n, 0));
     try {
-      for (const sub of item.dirs) {
-        if (tr.status !== 'running') break;
-        await api.sftpEnsureDir(sessionId, joinPath(dir, sub));
-      }
-      for (const { file, path } of item.files) {
-        if (tr.status !== 'running') break;
-        await api.sftpUploadBegin(sessionId, joinPath(dir, path), tr.id);
+      if (item.dirs.length) await api.sftpEnsureDirs(sessionId, item.dirs.map((sub) => joinPath(dir, sub)));
+      await eachLimited(item.files, PARALLEL_PAGE_FILES, async ({ file, path }) => {
+        if (tr.status !== 'running') return;
+        const id = nextTransfer++;
+        parts.add(id);
+        await api.sftpUploadBegin(sessionId, joinPath(dir, path), id);
+        // The next piece is read while this one is on its way.
+        const piece = (offset: number) => file.slice(offset, offset + UPLOAD_CHUNK).arrayBuffer();
+        let next = piece(0);
         for (let offset = 0; offset < file.size && tr.status === 'running'; offset += UPLOAD_CHUNK) {
-          const chunk = await file.slice(offset, offset + UPLOAD_CHUNK).arrayBuffer();
-          await api.sftpUploadChunk(tr.id, chunk);
-          this.#progress(tr, sent + offset + chunk.byteLength);
+          const chunk = await next;
+          if (offset + UPLOAD_CHUNK < file.size) next = piece(offset + UPLOAD_CHUNK);
+          await api.sftpUploadChunk(id, chunk);
+          sent.set(path, offset + chunk.byteLength);
+          report();
         }
-        if (tr.status !== 'running') break;
-        await api.sftpUploadEnd(tr.id);
-        sent += file.size;
-      }
-      if (tr.status !== 'running') {
-        // Cancelled while a piece was on its way: that put the upload back, drop it again.
-        void api.sftpCancel(tr.id).catch(() => {});
-        return '';
-      }
+        if (tr.status !== 'running') {
+          // Stopped while a piece was on its way: that put the upload back, drop it again.
+          void api.sftpCancel(id).catch(() => {});
+          return;
+        }
+        await api.sftpUploadEnd(id);
+        parts.delete(id);
+      });
+      if (tr.status !== 'running') return '';
       this.#finish(tr);
       return null;
     } catch (e) {
       if (tr.status !== 'running') return '';
+      // The other files stop too.
       this.#fail(tr, errorMessage(e));
+      for (const id of parts) void api.sftpCancel(id).catch(() => {});
       return tr.error ?? '';
+    } finally {
+      this.#parts.delete(tr.id);
     }
   }
 
@@ -647,6 +722,7 @@ class FilesState {
     tr.status = 'cancelled';
     this.#samples.delete(tr.id);
     void api.sftpCancel(tr.id).catch(() => {});
+    for (const id of this.#parts.get(tr.id) ?? []) void api.sftpCancel(id).catch(() => {});
   }
 
   reveal(tr: Transfer) {

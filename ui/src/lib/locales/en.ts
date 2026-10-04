@@ -291,6 +291,7 @@ const en = {
   'files.title': 'Files',
   'files.upload': 'Upload',
   'files.uploadFiles': 'Upload files…',
+  'files.uploadFilesTitle': 'Upload files',
   'files.uploadFolder': 'Upload folder…',
   'files.uploadFolderTitle': 'Upload folder',
   'files.newFolder': 'New folder',

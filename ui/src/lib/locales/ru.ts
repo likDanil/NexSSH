@@ -316,6 +316,7 @@ const ru: Catalog = {
   'files.title': 'Файлы',
   'files.upload': 'Загрузить',
   'files.uploadFiles': 'Загрузить файлы…',
+  'files.uploadFilesTitle': 'Загрузить файлы',
   'files.uploadFolder': 'Загрузить папку…',
   'files.uploadFolderTitle': 'Загрузить папку',
   'files.newFolder': 'Новая папка',

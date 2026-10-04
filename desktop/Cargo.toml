@@ -43,3 +43,5 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# The paths of files dropped on the page (sftp.rs); the version Tauri's WebView2 uses.
+webview2-com = "0.39"

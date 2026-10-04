@@ -154,6 +154,15 @@ eval "$(sudo scripts/test-sshd.sh env)"
 cargo test -p nexssh-core --test sshd --test sftp
 ```
 
+The SFTP transfer tests in `sftp_local` need no server: they run one in the test process,
+behind a proxy that adds latency. They also measure transfer speeds, and serve a slow link to
+try the app against:
+
+```sh
+NEXSSH_BENCH_DELAY_MS=25 cargo test --release -p nexssh-core --test sftp_local transfer_speed -- --ignored --nocapture
+cargo test -p nexssh-core --test sftp_local serve -- --ignored --nocapture
+```
+
 Useful environment variables:
 
 | Variable | Effect |

@@ -125,7 +125,7 @@ pub fn run() {
             sftp::sftp_resolve,
             sftp::sftp_list,
             sftp::sftp_mkdir,
-            sftp::sftp_ensure_dir,
+            sftp::sftp_ensure_dirs,
             sftp::sftp_new_file,
             sftp::sftp_chmod,
             sftp::sftp_rename,
@@ -133,6 +133,7 @@ pub fn run() {
             sftp::sftp_download,
             sftp::sftp_pick_destination,
             sftp::sftp_pick_upload,
+            sftp::sftp_pick_files,
             sftp::sftp_upload_path,
             sftp::sftp_upload_begin,
             sftp::sftp_upload_chunk,
@@ -192,6 +193,8 @@ fn create_main_window(app: &tauri::App, background: Color) -> tauri::Result<()> 
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    builder.build()?;
+    let _window = builder.build()?;
+    #[cfg(windows)]
+    sftp::take_page_drops(&_window)?;
     Ok(())
 }
