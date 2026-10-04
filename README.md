@@ -56,6 +56,10 @@
   permissions (also recursively), sort by name, size or date, jump to a name by typing it,
   and *Open in terminal* to `cd` there. Transfers show speed and time left and can be
   cancelled; nothing is overwritten without asking.
+* **AI agents (MCP):** Claude Code, Codex, Cursor and other agents run commands, read and
+  write files and move files and folders on the servers you share with them, through your own
+  sessions. Each server says what agents may do there — nothing (the default), ask you first,
+  or anything — and *Settings → AI agents* lists what they did. See [AI agents](#ai-agents).
 * **In-app updates** (Windows): NexSSH finds a new release by itself; *Download* fetches it
   in the background and *Install* updates silently — no installer windows — and restarts.
   Updates are signed and verified before they run.
@@ -103,6 +107,38 @@ On Windows and Linux plain <kbd>Ctrl+K</kbd>, <kbd>Ctrl+W</kbd>, <kbd>Ctrl+R</kb
 are left to the shell (kill line, delete word, history search, tmux). A setting lets
 <kbd>Ctrl+K</kbd> open the palette inside the terminal too. Shortcuts work with any keyboard
 layout: with a Cyrillic one, <kbd>Ctrl+Shift+K</kbd> is the same key as on a US keyboard.
+
+## AI agents
+
+NexSSH is an MCP server ([Model Context Protocol](https://modelcontextprotocol.io)) for AI
+agents. Turn it on in *Settings → AI agents*, then share servers with agents: edit a server →
+*More options* → *AI agents*:
+
+* **No access** (the default): agents do not see the server.
+* **Ask first**: agents may list folders and read files; every command, file write and upload
+  waits until you press *Run* or *Allow* in NexSSH. You can let an agent go on without asking
+  about that server until NexSSH closes.
+* **Full access**: agents work without asking.
+
+To connect an agent, copy what *Settings → AI agents* shows for it (Claude Code, Codex, a JSON
+block for Claude Desktop, Cursor, Windsurf and others, or HTTP). For Claude Code it is one
+command, with NexSSH's path on your computer:
+
+```sh
+claude mcp add --scope user nexssh "C:\Users\you\AppData\Local\NexSSH\NexSSH.exe" mcp
+```
+
+`NexSSH mcp` is a bridge on standard input and output: it takes the token from the system
+keychain, so the agent's configuration holds no secret, and when NexSSH is not running, the
+first tool call starts it. Agents that connect by address use `http://127.0.0.1:7422/mcp`
+with the token from the settings (`Authorization: Bearer …`); only this computer can connect.
+
+The tools: `list_servers`, `run_command` (exit code, stdout and stderr; no terminal),
+`read_file`, `write_file`, `list_directory`, and `upload` and `download` for files and whole
+folders at full SFTP speed. They work in your sessions: a command runs on a channel of its own
+on a connected tab's connection, so it needs no second login and does not touch what you type.
+A server that is not connected gets a tab, opened behind yours; it comes forward when it needs a
+password or a 2FA code. A tab an agent is working in shows ✦.
 
 ## Build from source
 

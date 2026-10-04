@@ -3,6 +3,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
+  AgentsStatus,
   AppInfo,
   Downloaded,
   DownloadProgress,
@@ -156,6 +157,22 @@ export const api = {
   updateDownload: (onProgress: Channel<DownloadProgress>) => invoke<void>('update_download', { onProgress }),
   /** Runs the installer; on Windows the app exits and the new version starts by itself. */
   updateInstall: () => invoke<void>('update_install'),
+
+  /** AI agents (MCP): everything the page shows about them, sent again on every change. */
+  agentsStatus: () => invoke<AgentsStatus>('agents_status'),
+  onAgents: (handler: (status: AgentsStatus) => void) =>
+    listen<AgentsStatus>('agents', (e) => handler(e.payload)),
+  /** The bearer token for agents that connect over HTTP. */
+  agentsToken: () => invoke<string>('agents_token'),
+  /** A new token; agents holding the old one are refused. */
+  agentsNewToken: () => invoke<string>('agents_new_token'),
+  /** The user's answer to a request; `remember`: don't ask this agent about this server again
+   * until NexSSH quits. */
+  agentsAnswer: (id: number, allow: boolean, remember: boolean) =>
+    invoke<void>('agents_answer', { id, allow, remember }),
+  /** The tab opened for an agent did not connect. */
+  agentsOpenFailed: (id: number, message: string) => invoke<void>('agents_open_failed', { id, message }),
+  agentsClearActivity: () => invoke<void>('agents_clear_activity'),
 
   addForward: (sessionId: number, spec: ForwardSpec, saveTo?: string) =>
     invoke<void>('forward_add', { sessionId, spec, saveTo: saveTo ?? null }),

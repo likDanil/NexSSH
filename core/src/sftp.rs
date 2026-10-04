@@ -654,6 +654,63 @@ impl Sftp {
         })
     }
 
+    // ---- small files, whole in memory -----------------------------------------------
+
+    /// Up to `len` bytes of the file `path` from `offset`, and the file's size as the server
+    /// gives it (if it does; files such as those in `/proc` say 0, whatever they hold).
+    pub async fn read_part(
+        &self,
+        path: &str,
+        offset: u64,
+        len: u64,
+    ) -> Result<(Vec<u8>, Option<u64>)> {
+        let meta = self.raw.stat(path).await.map_err(|e| fail(path, e))?.attrs;
+        if meta.is_dir() {
+            return Err(Error::invalid(i18n::sftp_is_folder(path)));
+        }
+        let file = self.open_file(path, OpenFlags::READ).await?;
+        let mut data = Vec::new();
+        while (data.len() as u64) < len {
+            let want = (len - data.len() as u64).min(self.read_len);
+            let at = offset + data.len() as u64;
+            match self.raw.read(file.handle.as_str(), at, want as u32).await {
+                Ok(reply) if !reply.data.is_empty() => {
+                    let got = reply.data.len().min(want as usize);
+                    data.extend_from_slice(&reply.data[..got]);
+                }
+                Ok(_) => break,
+                Err(SftpError::Status(s)) if s.status_code == StatusCode::Eof => break,
+                Err(e) => return Err(fail(path, e)),
+            }
+        }
+        Ok((data, meta.size))
+    }
+
+    /// Makes `data` the whole content of the file `path`, creating it or replacing what it
+    /// held (its permissions stay). Unlike an upload, a write that fails does not remove the
+    /// file: it may be one the user had (a configuration file being edited).
+    pub async fn write_whole(&self, path: &str, data: &[u8]) -> Result<()> {
+        let flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
+        let handle = self
+            .raw
+            .open(path, flags, FileAttributes::empty())
+            .await
+            .map_err(|e| fail(path, e))?
+            .handle;
+        // All at once: the content is small (it came in one message).
+        let len = self.write_len as usize;
+        let writes = data.chunks(len).enumerate().map(|(i, piece)| {
+            self.raw
+                .write(handle.as_str(), (i * len) as u64, piece.to_vec())
+        });
+        let written: Vec<_> = futures_util::future::join_all(writes).await;
+        let closed = self.raw.close(handle).await;
+        for reply in written {
+            reply.map_err(|e| fail(path, e))?;
+        }
+        closed.map(drop).map_err(|e| fail(path, e))
+    }
+
     // ---- requests ---------------------------------------------------------------------
 
     /// Whether `path` is known to exist (if the server cannot say, the operation itself will).

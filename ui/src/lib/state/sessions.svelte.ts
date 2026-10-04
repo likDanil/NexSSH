@@ -4,7 +4,7 @@
 
 import { api, Channel, errorMessage, type LocalTarget, type OpenTarget, type SessionMessage } from '../api';
 import { t } from '../i18n.svelte';
-import type { ForwardInfo, Prompt, PromptReply, Server, SessionEvent, ShellProfile } from '../types';
+import type { AgentOpen, ForwardInfo, Prompt, PromptReply, Server, SessionEvent, ShellProfile } from '../types';
 import { app } from './app.svelte';
 import { destination, servers } from './servers.svelte';
 import { CUSTOM_SHELL, commandName, missingShellName, shellName, shells } from './shells.svelte';
@@ -33,6 +33,8 @@ export interface Tab {
   /** The user name typed for a host without one (a `user` prompt), until the session connects;
    * `server`: the saved server to remember it for. */
   typedUser: { name: string; host: string; server: string | null } | null;
+  /** AI agents' requests waiting for this tab to connect (see state/agents). */
+  agentOpens: number[];
 }
 
 /** What the session layer needs from a terminal view. */
@@ -119,12 +121,44 @@ class SessionsState {
     this.#open('ssh', { serverId: server.id }, server.name, destination(server), server.id);
   }
 
+  /**
+   * An AI agent needs a session of a saved server: a tab of it that is connecting or can be
+   * reconnected, else a new one. It opens behind the tab the user is in (keystrokes keep going
+   * there) and comes forward when it needs the user: a password, a host key. The backend learns
+   * that it connected by itself; a failure is reported.
+   */
+  openForAgent(open: AgentOpen) {
+    const server = servers.byId.get(open.serverId);
+    if (!server) {
+      void api.agentsOpenFailed(open.id, t('agents.serverGone')).catch(() => {});
+      return;
+    }
+    const mine = this.forServer(server.id);
+    let tab = mine.find((t) => t.status === 'connecting') ?? mine.find((t) => t.status === 'disconnected');
+    if (tab?.status === 'disconnected') this.reconnect(tab);
+    if (!tab) {
+      const key = this.#open('ssh', { serverId: server.id }, server.name, destination(server), server.id, true);
+      tab = this.get(key);
+    }
+    tab?.agentOpens.push(open.id);
+  }
+
+  /** Tells the backend that the tab its agents wait for will not connect. */
+  #failAgentOpens(tab: Tab, message: string) {
+    for (const id of tab.agentOpens) void api.agentsOpenFailed(id, message).catch(() => {});
+    tab.agentOpens = [];
+  }
+
   /** Focuses an existing tab of the server, or opens a new session. */
   focusOrOpen(server: Server) {
     const existing = this.forServer(server.id);
     const pick = existing.find((t) => t.key === this.activeKey) ?? existing[existing.length - 1];
-    if (pick) this.activeKey = pick.key;
-    else this.openServer(server);
+    if (pick) {
+      this.activeKey = pick.key;
+      app.sidebarForSession();
+    } else {
+      this.openServer(server);
+    }
   }
 
   openDestination(dest: string) {
@@ -170,7 +204,15 @@ class SessionsState {
     this.#open(tab.kind, $state.snapshot(tab.target), tab.title, tab.subtitle, tab.serverId);
   }
 
-  #open(kind: TabKind, target: OpenTarget, title: string, subtitle: string, serverId: string | null) {
+  /** Adds a tab and returns its key; `behind`: the active tab stays active (if there is one). */
+  #open(
+    kind: TabKind,
+    target: OpenTarget,
+    title: string,
+    subtitle: string,
+    serverId: string | null,
+    behind = false,
+  ): string {
     const tab: Tab = {
       key: `t${++counter}`,
       kind,
@@ -185,9 +227,13 @@ class SessionsState {
       prompts: [],
       forwards: [],
       typedUser: null,
+      agentOpens: [],
     };
     this.tabs.push(tab);
-    this.activeKey = tab.key;
+    if (!behind || this.activeKey === null) this.activeKey = tab.key;
+    // Tabs agents open are not the user's doing: the layout stays.
+    if (!behind) app.sidebarForSession();
+    return tab.key;
   }
 
   /** Called by a terminal view once it is mounted and sized: starts the session. */
@@ -214,6 +260,7 @@ class SessionsState {
         current.status = 'disconnected';
         current.failed = true;
         current.message = errorMessage(e);
+        this.#failAgentOpens(current, current.message);
       }
       terminal.write(`${RED}${errorMessage(e)}${RESET}\r\n`);
     }
@@ -245,6 +292,7 @@ class SessionsState {
           tab.status = 'connected';
           tab.message = null;
           tab.failed = false;
+          tab.agentOpens = [];
           this.#keepTypedUser(tab);
         } else if (ev.status === 'disconnected') {
           tab.status = 'disconnected';
@@ -252,6 +300,7 @@ class SessionsState {
           tab.failed = ev.failed;
           tab.prompts = [];
           term?.write(`\r\n${DIM}── ${tab.message} ──${RESET}\r\n`);
+          this.#failAgentOpens(tab, tab.message);
         } else if (ev.status === 'closed') {
           this.#remove(tab.key);
         }
@@ -269,6 +318,8 @@ class SessionsState {
         break;
       case 'prompt':
         tab.prompts.push({ id: ev.id, prompt: ev.prompt });
+        // A tab opened behind for an agent needs the user now.
+        if (tab.agentOpens.length) this.activeKey = tab.key;
         break;
       case 'promptClosed':
         tab.prompts = tab.prompts.filter((p) => p.id !== ev.id);
@@ -366,11 +417,13 @@ class SessionsState {
   #remove(key: string) {
     const index = this.tabs.findIndex((t) => t.key === key);
     if (index === -1) return;
+    this.#failAgentOpens(this.tabs[index], t('agents.tabClosed'));
     this.tabs.splice(index, 1);
     this.#queues.delete(key);
     if (this.activeKey === key) {
       this.activeKey = this.tabs[index]?.key ?? this.tabs[index - 1]?.key ?? null;
     }
+    if (!this.tabs.length) app.sidebarForHome();
   }
 
   clear(tab: Tab) {

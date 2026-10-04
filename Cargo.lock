@@ -2164,6 +2164,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2188,6 +2194,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -2926,8 +2933,13 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexssh"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
+ "bytes",
+ "getrandom 0.4.3",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "log",
  "nexssh-core",
  "nexssh-explorer",
@@ -2938,6 +2950,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tokio",
  "webview2-com",
  "windows",
  "winreg 0.55.0",
@@ -2946,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-core"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
  "apple-native-keyring-store",
  "data-encoding",
@@ -2973,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-explorer"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
  "windows",
  "winreg 0.55.0",
@@ -2981,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-explorer-command"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
  "nexssh-explorer",
  "windows",

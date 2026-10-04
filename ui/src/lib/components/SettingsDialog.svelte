@@ -2,14 +2,18 @@
   import logo from '../../assets/logo.png';
   import { keys } from '../actions';
   import { api, errorMessage } from '../api';
-  import { formatNumber, LANGUAGES, t, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
+  import { formatNumber, i18n, LANGUAGES, t, timeAgo, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
+  import { agents } from '../state/agents.svelte';
   import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
+  import { servers } from '../state/servers.svelte';
+  import { sessions } from '../state/sessions.svelte';
   import { CUSTOM_SHELL, missingShellName, shellName, shells } from '../state/shells.svelte';
   import { toasts } from '../state/toasts.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
-  import type { Settings } from '../types';
+  import type { AgentActivity, Server, Settings } from '../types';
+  import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import Select from './Select.svelte';
 
@@ -69,6 +73,12 @@
     }
   }
 
+  /** Turned on with a session open, the sidebar steps aside right away. */
+  function setSidebarAutoHide(on: boolean) {
+    app.update({ sidebarAutoHide: on });
+    if (on && sessions.active) app.sidebarForSession();
+  }
+
   function fontSize(delta: number) {
     app.update({ fontSize: clampFontSize(s.fontSize + delta) });
   }
@@ -83,8 +93,141 @@
     { id: 'appearance', label: 'settings.appearance' },
     { id: 'terminal', label: 'settings.terminal' },
     { id: 'keyboard', label: 'settings.keyboard' },
+    { id: 'agents', label: 'settings.agents' },
     { id: 'about', label: 'settings.about' },
   ];
+
+  // ---- AI agents --------------------------------------------------------------------
+
+  type Client = 'claude' | 'codex' | 'json' | 'http';
+  const CLIENTS: { id: Client; label: string; hint: MessageKey }[] = [
+    { id: 'claude', label: 'Claude Code', hint: 'agents.hintClaude' },
+    { id: 'codex', label: 'Codex', hint: 'agents.hintCodex' },
+    { id: 'json', label: 'JSON', hint: 'agents.hintJson' },
+    { id: 'http', label: 'HTTP', hint: 'agents.hintHttp' },
+  ];
+  let client = $state<Client>('claude');
+  let token = $state<string | null>(null);
+  let tokenShown = $state(false);
+  let copied = $state(false);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const agentStatus = $derived(agents.status);
+  const sharedServers = $derived(servers.data.servers.filter((sv) => sv.agents && sv.agents !== 'off'));
+
+  /** How an agent connects to NexSSH: the bridge (`NexSSH mcp`, no token) or HTTP. */
+  function snippet(kind: Client, secret: string): string {
+    const exe = agentStatus?.exe || 'NexSSH';
+    const url = agentStatus?.url ?? `http://127.0.0.1:${s.agentsPort}/mcp`;
+    switch (kind) {
+      case 'claude':
+        return `claude mcp add --scope user nexssh "${exe}" mcp`;
+      case 'codex':
+        // A JSON string is a valid TOML basic string.
+        return `[mcp_servers.nexssh]\ncommand = ${JSON.stringify(exe)}\nargs = ["mcp"]`;
+      case 'json':
+        return JSON.stringify({ mcpServers: { nexssh: { command: exe, args: ['mcp'] } } }, null, 2);
+      case 'http':
+        return JSON.stringify(
+          { mcpServers: { nexssh: { type: 'http', url, headers: { Authorization: `Bearer ${secret}` } } } },
+          null,
+          2,
+        );
+    }
+  }
+
+  const shownSnippet = $derived(snippet(client, tokenShown && token ? token : '••••••••'));
+
+  async function ensureToken(): Promise<string> {
+    if (!token) token = await api.agentsToken();
+    return token;
+  }
+
+  async function copySnippet() {
+    try {
+      const text = snippet(client, client === 'http' ? await ensureToken() : '');
+      await navigator.clipboard.writeText(text);
+      copied = true;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => (copied = false), 1500);
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  async function toggleToken() {
+    try {
+      if (!tokenShown) await ensureToken();
+      tokenShown = !tokenShown;
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  async function renewToken() {
+    if (!(await app.confirm(t('agents.newTokenTitle'), t('agents.newTokenConfirm'), t('agents.newToken')))) return;
+    try {
+      token = await api.agentsNewToken();
+      toasts.show(t('agents.newTokenDone'), 'success');
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  function setPort(value: string) {
+    const port = Number(value.trim());
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) app.update({ agentsPort: port });
+  }
+
+  function editShared(server: Server) {
+    app.settingsOpen = false;
+    app.openEditor(server);
+  }
+
+  const ACTIVITY_ICONS: Record<AgentActivity['status'], string> = {
+    waiting: 'more',
+    running: 'sparkle',
+    done: 'check',
+    failed: 'alert',
+    denied: 'x',
+  };
+
+  function activityMeta(a: AgentActivity): string {
+    const parts = [a.agent, a.serverName];
+    if (a.status === 'done' && a.exitCode != null) parts.push(t('agents.exit', { code: a.exitCode }));
+    else parts.push(t(`agents.status.${a.status}` as MessageKey));
+    if (a.durationMs != null) parts.push(duration(a.durationMs));
+    parts.push(new Date(a.at).toLocaleTimeString(i18n.lang, { hour: '2-digit', minute: '2-digit' }));
+    return parts.join(' · ');
+  }
+
+  function duration(ms: number): string {
+    if (ms >= 60_000) {
+      const secs = Math.round(ms / 1000);
+      return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    }
+    const digits = ms < 10_000 ? 1 : 0;
+    return new Intl.NumberFormat(i18n.lang, {
+      style: 'unit',
+      unit: 'second',
+      unitDisplay: 'short',
+      maximumFractionDigits: digits,
+      minimumFractionDigits: digits,
+    }).format(ms / 1000);
+  }
+
+  const TOOLS: Record<string, MessageKey> = {
+    run_command: 'agents.tool.run_command',
+    read_file: 'agents.tool.read_file',
+    write_file: 'agents.tool.write_file',
+    list_directory: 'agents.tool.list_directory',
+    upload: 'agents.tool.upload',
+    download: 'agents.tool.download',
+  };
+
+  function toolLabel(tool: string): string {
+    return TOOLS[tool] ? t(TOOLS[tool]) : tool;
+  }
 
   const languages: { id: LanguageSetting; name: string }[] = $derived([
     { id: 'system', name: t('settings.languageSystem') },
@@ -210,6 +353,18 @@
           width={160}
         />
       </div>
+      <label class="row top">
+        <span>
+          {t('settings.sidebarAutoHide')}
+          <small>{t('settings.sidebarAutoHideHint', { key: keys.sidebar() })}</small>
+        </span>
+        <input
+          type="checkbox"
+          class="toggle"
+          checked={s.sidebarAutoHide}
+          onchange={(e) => setSidebarAutoHide(e.currentTarget.checked)}
+        />
+      </label>
     </div>
   {:else if section === 'terminal'}
     <div class="rows">
@@ -341,6 +496,120 @@
         <div class="sc"><span>{t(label)}</span><kbd>{keysText}</kbd></div>
       {/each}
     </div>
+  {:else if section === 'agents'}
+    <div class="rows">
+      <div class="row top">
+        <span>
+          <label for="agents-enabled">{t('agents.enable')}</label>
+          <small>{t('agents.enableHint')}</small>
+          {#if s.agentsEnabled}
+            {#if agentStatus?.error}
+              <small class="warn">{t('agents.failed', { reason: agentStatus.error })}</small>
+            {:else if agentStatus?.running}
+              <small class="ok mono">{t('agents.running', { url: agentStatus.url })}</small>
+            {:else}
+              <small>{t('agents.starting')}</small>
+            {/if}
+          {/if}
+        </span>
+        <input
+          id="agents-enabled"
+          type="checkbox"
+          class="toggle"
+          checked={s.agentsEnabled}
+          onchange={(e) => app.update({ agentsEnabled: e.currentTarget.checked })}
+        />
+      </div>
+    </div>
+
+    {#if s.agentsEnabled}
+      <div class="connect">
+        <span class="label">{t('agents.connect')}</span>
+        <div class="segmented">
+          {#each CLIENTS as c (c.id)}
+            <button class:on={client === c.id} onclick={() => (client = c.id)}>{c.label}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="snippet">
+        <pre class="mono">{shownSnippet}</pre>
+        <button class="btn copy" onclick={copySnippet}>
+          <Icon name={copied ? 'check' : 'copy'} size={14} />
+          {t(copied ? 'agents.copied' : 'agents.copy')}
+        </button>
+      </div>
+      <p class="note">{t(CLIENTS.find((c) => c.id === client)?.hint ?? 'agents.hintJson')}</p>
+      {#if client === 'http'}
+        <div class="token">
+          <button class="btn" onclick={toggleToken}>{t(tokenShown ? 'agents.hideToken' : 'agents.showToken')}</button>
+          <button class="btn" onclick={renewToken}>{t('agents.newToken')}</button>
+        </div>
+      {/if}
+      {#if agentStatus?.running && !agentStatus.tokenKept}
+        <p class="note warn">{t('agents.tokenNotKept')}</p>
+      {/if}
+
+      <div class="rows">
+        <div class="row">
+          <span>{t('agents.port')} <small>{t('agents.portHint')}</small></span>
+          <input
+            class="input port"
+            inputmode="numeric"
+            value={s.agentsPort}
+            aria-label={t('agents.port')}
+            onchange={(e) => setPort(e.currentTarget.value)}
+          />
+        </div>
+        <div class="row top">
+          <span>{t('agents.shared')}</span>
+          {#if sharedServers.length}
+            <span class="chips">
+              {#each sharedServers as server (server.id)}
+                <button class="chip" onclick={() => editShared(server)}>
+                  {server.name}
+                  <small>{t(server.agents === 'allow' ? 'agents.accessAllow' : 'agents.accessAsk')}</small>
+                </button>
+              {/each}
+            </span>
+          {:else}
+            <small class="empty">{t('agents.sharedNone')}</small>
+          {/if}
+        </div>
+        {#if agentStatus?.agents.length}
+          <div class="row top">
+            <span>{t('agents.recent')}</span>
+            <span class="chips">
+              {#each agentStatus.agents as seen (seen.name)}
+                <span class="chip static">{seen.name} <small>{timeAgo(seen.lastSeen / 1000)}</small></span>
+              {/each}
+            </span>
+          </div>
+        {/if}
+      </div>
+
+      <div class="activity-head">
+        <span class="label">{t('agents.activity')}</span>
+        {#if agentStatus?.activity.length}
+          <button class="btn ghost small" onclick={() => void api.agentsClearActivity()}>{t('agents.clear')}</button>
+        {/if}
+      </div>
+      {#if agentStatus?.activity.length}
+        <ul class="activity">
+          {#each agentStatus.activity as a (a.id)}
+            <li class={a.status}>
+              <span class="icon"><Icon name={ACTIVITY_ICONS[a.status]} size={14} stroke={1.9} /></span>
+              <span class="what">
+                <span class="summary"><span class="tool">{toolLabel(a.tool)}</span><code>{a.detail}</code></span>
+                <small>{activityMeta(a)}</small>
+                {#if a.error}<small class="error">{a.error}</small>{/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="note">{t('agents.activityEmpty')}</p>
+      {/if}
+    {/if}
   {:else}
     <div class="about">
       <img src={logo} alt="" />
@@ -612,5 +881,177 @@
     margin: 16px 0 0;
     color: var(--text-3);
     font-size: 12px;
+  }
+  .row small.ok {
+    color: var(--green);
+    overflow-wrap: anywhere;
+  }
+  .connect {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 16px 0 8px;
+  }
+  .snippet {
+    position: relative;
+  }
+  .snippet pre {
+    margin: 0;
+    padding: 10px 12px;
+    padding-right: 116px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-soft);
+    background: var(--surface);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .snippet .copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    height: 28px;
+  }
+  .note {
+    margin: 8px 0 0;
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .note.warn {
+    color: var(--amber);
+  }
+  .token {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .connect + .snippet + .note + .rows,
+  .token + .rows,
+  .note + .rows {
+    margin-top: 10px;
+  }
+  .input.port {
+    width: 90px;
+    text-align: right;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    max-width: 380px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 3px 9px;
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 12.5px;
+  }
+  button.chip:hover {
+    background: var(--hover);
+  }
+  .chip small {
+    color: var(--text-2);
+    font-size: 11px;
+  }
+  .empty {
+    max-width: 320px;
+    color: var(--text-2);
+    font-size: 12px;
+    text-align: right;
+  }
+  .activity-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 16px 0 4px;
+    min-height: 28px;
+  }
+  .activity-head .btn.small {
+    height: 26px;
+    padding: 0 8px;
+    color: var(--text-2);
+  }
+  .activity {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .activity li {
+    display: flex;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .activity li:last-child {
+    border-bottom: 0;
+  }
+  .activity .icon {
+    flex: none;
+    display: grid;
+    padding-top: 2px;
+    color: var(--text-2);
+  }
+  .activity .done .icon {
+    color: var(--green);
+  }
+  .activity .failed .icon {
+    color: var(--red);
+  }
+  .activity .denied .icon {
+    color: var(--amber);
+  }
+  .activity .running .icon {
+    color: var(--text);
+    animation: pulse 1.4s var(--ease) infinite;
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+  .what {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .what .summary {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+  }
+  .what .tool {
+    flex: none;
+    color: var(--text-2);
+  }
+  .what code {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .what small {
+    color: var(--text-3);
+    font-size: 11.5px;
+  }
+  .what small.error {
+    color: var(--red);
+    overflow-wrap: anywhere;
   }
 </style>

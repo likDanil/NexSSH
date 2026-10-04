@@ -351,6 +351,11 @@ messages! {
         ru: "на этот запрос уже ответили",
     }
 
+    fn exec_refused() {
+        en: "the server refused to run the command",
+        ru: "сервер отказался выполнить команду",
+    }
+
     // ---- port forwarding -------------------------------------------------------------
 
     fn forwarding(description: &str) {
@@ -467,6 +472,10 @@ messages! {
         en: "{path}: permission denied",
         ru: "{path}: нет доступа",
     }
+    fn sftp_is_folder(path: &str) {
+        en: "{path} is a folder",
+        ru: "{path} — это папка",
+    }
     fn sftp_exists(path: &str) {
         en: "{path} already exists",
         ru: "{path} уже существует",
@@ -524,6 +533,13 @@ messages! {
     fn update_not_downloaded() {
         en: "the update has not been downloaded yet",
         ru: "обновление ещё не скачано",
+    }
+
+    // ---- AI agents -------------------------------------------------------------------
+
+    fn agents_port_busy(port: u16) {
+        en: "port {port} is taken by another program; choose another one",
+        ru: "порт {port} занят другой программой — выберите другой",
     }
 
     // ---- local terminals -------------------------------------------------------------

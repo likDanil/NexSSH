@@ -31,6 +31,7 @@ NexSSH/
 │   │   ├── keys.rs       private key discovery/loading (OpenSSH, PEM, PKCS#8, PPK)
 │   │   ├── forward.rs    -L / -R / -D (SOCKS5) forwarding
 │   │   ├── sftp.rs       files over SFTP: list, create, rename, delete, chmod, transfers
+│   │   ├── exec.rs       commands on a session's connection without a terminal (AI agents)
 │   │   ├── local.rs      shells on this computer (PowerShell, cmd, WSL, Git Bash, /etc/shells)
 │   │   ├── i18n.rs       user-facing messages in every language
 │   │   └── session/
@@ -41,7 +42,8 @@ NexSSH/
 │   │       ├── shell.rs  session task: PTY, I/O, reconnect loop
 │   │       └── local.rs  local terminal task: a program in a pseudo-terminal (ConPTY)
 │   └── tests/            integration tests: real OpenSSH servers (sshd.rs, sftp.rs), real shells (local.rs),
-│                         an SFTP server in the test process behind a latency proxy (sftp_local.rs)
+│                         an SSH server in the test process behind a latency proxy (sftp_local.rs,
+│                         exec_local.rs)
 ├── desktop/              Tauri application ("nexssh" crate)
 │   ├── src/lib.rs        builder, window creation
 │   ├── src/commands.rs   IPC commands: servers, settings, sessions, window
@@ -50,6 +52,8 @@ NexSSH/
 │   ├── src/explorer.rs   "Open with NexSSH" in Windows Explorer's menu for folders
 │   ├── src/links.rs      web links from the terminal, opened in the default browser
 │   ├── src/updates.rs    in-app updates (check, download, install)
+│   ├── src/agents/       AI agents: MCP over HTTP (http.rs), its JSON-RPC (rpc.rs), the tools
+│   │                     (tools.rs), the stdio bridge `NexSSH mcp` (bridge.rs)
 │   ├── src/sink.rs       EventSink → Tauri Channel
 │   ├── src/settings.rs   settings.json (UI-owned schema)
 │   ├── tauri.conf.json   bundle config (NSIS installer), updater key, CSP
@@ -74,7 +78,7 @@ NexSSH/
 │           ├── popup.ts  lists that open under a control, rendered on <body>
 │           ├── i18n.svelte.ts t(), plurals, language detection
 │           ├── locales/  en.ts (reference), ru.ts
-│           ├── state/    app, servers, sessions, shells, files, updates, toasts (Svelte runes)
+│           ├── state/    app, servers, sessions, shells, files, updates, agents, toasts (Svelte runes)
 │           └── components/
 ├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (packs and signs the package),
 │                         installer-test.ps1 (the installer and the Explorer menu entry, Windows CI)
@@ -94,6 +98,7 @@ NexSSH/
 | `session` | One Tokio task per session. See below. |
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
 | `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders; the files being written when an upload fails or is cancelled are removed. Transfers keep many requests in flight and move several files at a time (see "Transfer speed"). A recursive `chmod` lists everything first, then changes files and folders deepest first, and also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
+| `exec` | Commands run on a connected session's connection, each on a channel of its own and without a terminal (`SessionManager::exec`), for AI agents: standard input ends after what the caller gives, the output keeps its beginning and end (a quarter and three quarters of the limit), a command that runs too long is stopped (its channel closed, `SIGKILL` asked for). `SessionManager::connected` finds the connected session of a saved server, `live_changes` tells when one connects or its connection ends. |
 | `local` | Shells for local terminals, found per system: PowerShell 7 (Program Files, else `PATH`), Windows PowerShell, `%ComSpec%`, WSL distributions (from the registry, `HKCU\…\Lxss`; Docker's are skipped), Git Bash (registry `GitForWindows`, then the usual folders); elsewhere the login shell and `/etc/shells`, one entry per real file. The first found is the default. `LocalCommand` is what a local session runs: a shell in a folder, or a command line from the settings (words split at spaces, quotes group, backslashes stay: Windows paths need no escaping). |
 | `i18n` | Every user-facing message with all its translations; process-wide language set by the app. |
 
@@ -246,6 +251,8 @@ App.svelte
 ├── SettingsDialog   themes, font, terminal (and the local terminal's shell, Explorer menu),
 │                    keyboard, about
 ├── ForwardsDialog   active forwards of the session, add -L / -R / SOCKS
+├── AgentRequest     an AI agent's question: the command, the file and its new content, or the
+│                    upload; Deny has the focus and Allow waits a moment (no stray Enter)
 ├── ConfirmDialog, ContextMenu, Toasts
 ├── Select, Suggest  drop-down list / text field with suggestions in the app's style: the
 │                  popups of a native <select> or <datalist> cannot be themed
@@ -294,9 +301,11 @@ kept outside reactive state; backend output is written straight into them.
   any host's without one) and the password is asked on connect.
 * `alias`: the `Host` alias when imported from `~/.ssh/config`; re-importing updates
   connection fields but keeps the name, group and history.
+* `agents`: what AI agents may do there, `ask` or `allow`; left out for no access.
 
 `settings.json` belongs to the UI; for local terminals it keeps `localShell` (a shell's id, `''`
-for the default, or `custom`), `localShellCommand` (the custom command line) and `explorerMenu`.
+for the default, or `custom`), `localShellCommand` (the custom command line) and `explorerMenu`;
+the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents").
 
 A session (runtime only) is identified by a numeric id and reports:
 
@@ -368,6 +377,7 @@ type SessionEvent =
 | SSH | **russh** (ring backend) | Pure Rust, async (Tokio, like Tauri), actively maintained, used in production (e.g. Warpgate). No OpenSSL/libssh2 C toolchain, trivial Windows builds. Supports agent (incl. Pageant and Windows named pipes), certificates, keyboard-interactive, direct-tcpip, remote forwarding. `ring` instead of the default `aws-lc-rs` avoids CMake/NASM on Windows. |
 | SFTP | **russh-sftp** | The SFTP protocol of the russh ecosystem, on a channel of the existing connection. NexSSH uses its raw session and does the pipelining itself (see "Transfer speed"). |
 | Local PTY | **portable-pty** | WezTerm's pseudo-terminals: ConPTY on Windows (Windows 10 1809+), `openpty` elsewhere; years of use in WezTerm. Writing ConPTY by hand is easy to get subtly wrong (cursor inheritance, draining on close). |
+| AI agents' HTTP | **hyper** (http1 server and client) | Already in the tree through the updater's HTTP client; a framework (axum) would add a router and middleware for one endpoint. The MCP messages are plain `serde_json`: no MCP SDK. |
 | Updates | **tauri-plugin-updater** | Minisign-verified updates from a static `latest.json`; runs the NSIS installer silently. Built with rustls on `ring` (no OpenSSL, no second crypto backend). |
 | Keychain | **keyring-core** + native stores | Windows Credential Manager, macOS Keychain, Secret Service. Linking the stores directly (instead of `keyring`'s all-in-one feature) avoids the zbus async stack. |
 | GUI shell | **Tauri 2** | System webview (WebView2 / WKWebView / WebKitGTK): a few MB installer, no bundled Chromium, far lower RAM than Electron. |
@@ -409,6 +419,13 @@ into, files or a folder to upload.
   own commands are not granted either: the UI can only use NexSSH's commands.
 * Updates run only if their minisign signature matches the public key built into the app
   (`plugins.updater.pubkey`); the private key exists only as a GitHub Actions secret.
+* AI agents (MCP) are off until the user turns them on, and see only the servers the user
+  shares with them. The server listens on `127.0.0.1` only; every request needs the bearer token
+  (256 random bits, compared in constant time, kept in the keychain as `agents-token`), and its
+  `Host` and `Origin` must name this computer, so a web page cannot reach it through DNS
+  rebinding. On servers set to ask, commands, file writes and uploads wait for the user (5
+  minutes at most), and the server's access is checked again after the answer. Agents run as
+  the user on the server, like the user's own terminal; downloads never overwrite local files.
 * Links in the terminal open only with Ctrl+click (Cmd+click), and only web ones: the page
   hands the address to `open_link`, which accepts nothing but an `http` or `https` URL with a
   host (no `file:`, no other programs' protocol handlers) and gives the default browser the
@@ -427,6 +444,39 @@ into, files or a folder to upload.
   dragged in (on Windows the paths of a drop come from WebView2 for the `File`s of that drop,
   which a page cannot make up). A compromised page could not make NexSSH write or send other
   local files.
+
+## AI agents (MCP)
+
+NexSSH serves AI agents over MCP (`desktop/src/agents`). The page owns nothing of it but the
+settings (`agentsEnabled`, `agentsPort`, `Server::agents`) and what it shows: the backend sends
+one status object (`agents` event, `agents_status`) on every change — what listens and where,
+recent agents, questions for the user, tabs to open, activity — so a page that loads late
+misses nothing.
+
+* **Transport:** Streamable HTTP, `POST /mcp` on `127.0.0.1:<agentsPort>` (7422), answered with
+  JSON (NexSSH never sends requests to agents, so there is no event stream; `GET` gets 405).
+  `NexSSH mcp` is the stdio transport: a bridge that passes every message to the running app
+  with the token from the keychain, so agents' configurations hold no secret. Agents start
+  their servers when they start: until a tool is called the bridge answers `initialize`,
+  `tools/list` and the like itself, and a tool call starts NexSSH if needed (outside the agent's
+  job object, without its pipes) and waits for it to listen. A cancelled request
+  (`notifications/cancelled`) closes its connection, which stops it in the app.
+* **Protocol:** revisions 2024-11-05 to 2025-11-25 start with `initialize`, which gets an MCP
+  session (`Mcp-Session-Id`, 404 once unknown: the client starts a new one; the bridge does that
+  by itself); 2026-07-28 has no sessions, carries the version and the client's name in `_meta`,
+  and has `server/discover`. Both work side by side; the name the client gives is what the user
+  sees ("Claude Code").
+* **Tools:** `list_servers`, `run_command`, `read_file`, `write_file`, `list_directory`,
+  `upload`, `download`. Each finds the server among the shared ones (by id, name, alias or host),
+  notes it in the activity, asks the user if the server says so, then needs a connected session
+  of it: an existing tab's, or one the page opens (`opens` in the status; behind the active tab,
+  brought forward when it shows a prompt). Commands use `SessionManager::exec`, files the
+  session's SFTP client (`read_part`, `write_whole`, which unlike uploads never removes a file it
+  failed to write, and the transfers of the files drawer). What agents read is English and
+  says how to go on (`more from offset=…`, why something was refused).
+* **Questions** (`requests` in the status) wait for `agents_answer`; "don't ask again" holds for
+  that agent (its MCP session, or its name) and that server until NexSSH quits or the server's
+  access changes. A question nobody waits for any more (the agent gave up) leaves the page.
 
 ## Languages
 

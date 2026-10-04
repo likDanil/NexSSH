@@ -5,7 +5,7 @@
   import { t, tn, type MessageKey } from '../i18n.svelte';
   import { app, type EditorState } from '../state/app.svelte';
   import { servers, suggestedGroups } from '../state/servers.svelte';
-  import type { AuthKind, ForwardKind, ForwardSpec, KeyInfo, Server } from '../types';
+  import type { AgentAccess, AuthKind, ForwardKind, ForwardSpec, KeyInfo, Server } from '../types';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import Select from './Select.svelte';
@@ -51,11 +51,20 @@
   let keepalive = $state(initial.keepaliveSecs != null ? String(initial.keepaliveSecs) : '');
   let timeout = $state(initial.connectTimeoutSecs != null ? String(initial.connectTimeoutSecs) : '');
   let forwards = $state<ForwardSpec[]>(initial.forwards ? [...initial.forwards] : []);
+  let agentAccess = $state<AgentAccess>(initial.agents ?? 'off');
   let password = $state('');
   let hasPassword = $state(false);
   let forgetPassword = $state(false);
   let keyList = $state<KeyInfo[]>([]);
-  let advanced = $state(!!(initial.jumpHost || initial.forwards?.length || initial.keepaliveSecs != null || initial.connectTimeoutSecs != null));
+  let advanced = $state(
+    !!(
+      initial.jumpHost ||
+      initial.forwards?.length ||
+      initial.keepaliveSecs != null ||
+      initial.connectTimeoutSecs != null ||
+      (initial.agents && initial.agents !== 'off')
+    ),
+  );
   let error = $state<string | null>(null);
   let saving = $state(false);
 
@@ -66,6 +75,13 @@
     { id: 'agent', label: 'auth.agent', hint: 'auth.agent.hint' },
   ];
   const authHint = $derived(AUTH.find((a) => a.id === auth)?.hint);
+
+  const AGENT_ACCESS: { id: AgentAccess; label: MessageKey; hint: MessageKey }[] = [
+    { id: 'off', label: 'editor.agentsOff', hint: 'editor.agentsOff.hint' },
+    { id: 'ask', label: 'editor.agentsAsk', hint: 'editor.agentsAsk.hint' },
+    { id: 'allow', label: 'editor.agentsAllow', hint: 'editor.agentsAllow.hint' },
+  ];
+  const agentHint = $derived(AGENT_ACCESS.find((a) => a.id === agentAccess)?.hint);
 
   const groupOptions = $derived([...new Set([...servers.groupNames, ...suggestedGroups()])].map((value) => ({ value })));
   const jumpOptions = $derived(
@@ -174,6 +190,7 @@
       forwards: forwards
         .filter((f) => f.bindPort > 0 || f.kind === 'remote')
         .map((f) => ({ ...f, bindPort: Number(f.bindPort), targetPort: Number(f.targetPort) })),
+      agents: agentAccess === 'off' ? undefined : agentAccess,
     };
     try {
       const saved = await servers.save(server, {
@@ -380,6 +397,27 @@
         <button type="button" class="btn ghost add-fwd" onclick={() => addForward()}>
           <Icon name="plus" size={13} /> {t('editor.addForward')}
         </button>
+      </div>
+
+      <div class="section">
+        <span class="label">{t('editor.agents')}</span>
+        <div class="segmented" role="radiogroup" aria-label={t('editor.agents')}>
+          {#each AGENT_ACCESS as a (a.id)}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={agentAccess === a.id}
+              class:on={agentAccess === a.id}
+              onclick={() => (agentAccess = a.id)}
+            >
+              {t(a.label)}
+            </button>
+          {/each}
+        </div>
+        <p class="hint">{agentHint ? t(agentHint) : ''}</p>
+        {#if agentAccess !== 'off' && !app.settings.agentsEnabled}
+          <p class="warn"><Icon name="alert" size={13} /> {t('editor.agentsDisabled')}</p>
+        {/if}
       </div>
     {/if}
 

@@ -22,6 +22,8 @@
   import TerminalPane from './lib/components/TerminalPane.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import { isMac, shortcutKey } from './lib/platform';
+  import AgentRequest from './lib/components/AgentRequest.svelte';
+  import { agents } from './lib/state/agents.svelte';
   import { app } from './lib/state/app.svelte';
   import { files } from './lib/state/files.svelte';
   import { sessions } from './lib/state/sessions.svelte';
@@ -156,7 +158,7 @@
 <svelte:window onkeydowncapture={onkeydown} />
 
 <div class="app">
-  {#if !app.settings.sidebarHidden}
+  {#if !app.sidebarHidden}
     <Sidebar />
   {/if}
   <main>
@@ -183,6 +185,9 @@
 {#if app.forwardsOpen}<ForwardsDialog />{/if}
 {#if app.confirmation}<ConfirmDialog request={app.confirmation} />{/if}
 {#if app.permissions}<PermissionsDialog request={app.permissions} />{/if}
+{#if agents.request}
+  {#key agents.request.id}<AgentRequest request={agents.request} />{/key}
+{/if}
 <ContextMenu />
 <Toasts />
 

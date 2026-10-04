@@ -9,12 +9,14 @@
 //! * [`local`] — shells on this computer, run in local terminals like sessions
 //! * [`forward`] — local/remote/dynamic port forwarding
 //! * [`sftp`] — files over SFTP on a session's connection
+//! * [`exec`] — commands run on a session's connection without a terminal (for AI agents)
 //! * [`i18n`] — user-facing messages and their translations
 //!
 //! The crate has no dependency on Tauri or any GUI toolkit: a front-end creates a
 //! [`Core`], opens sessions with an [`EventSink`] and answers [`Prompt`]s.
 
 pub mod error;
+pub mod exec;
 pub mod forward;
 pub mod i18n;
 pub mod keys;
@@ -33,7 +35,7 @@ use std::sync::Arc;
 
 pub use error::{Error, Result};
 pub use local::{LocalCommand, ShellKind, ShellProfile};
-pub use model::{AuthKind, Destination, ForwardKind, ForwardSpec, PtySize, Server};
+pub use model::{AgentAccess, AuthKind, Destination, ForwardKind, ForwardSpec, PtySize, Server};
 pub use session::{
     EventSink, KbdPrompt, LogLevel, Prompt, PromptReply, SessionEvent, SessionId, SessionManager,
     SessionStatus,

@@ -24,6 +24,25 @@ pub enum AuthKind {
     Agent,
 }
 
+/// What AI agents connected to NexSSH (over MCP) may do on a server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentAccess {
+    /// Agents do not see the server.
+    #[default]
+    Off,
+    /// Agents may look (list folders, read files); commands and changes wait for the user.
+    Ask,
+    /// Agents may run commands and change files without asking.
+    Allow,
+}
+
+impl AgentAccess {
+    pub fn is_off(&self) -> bool {
+        *self == AgentAccess::Off
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ForwardKind {
@@ -127,6 +146,9 @@ pub struct Server {
     /// Unix time of the last successful connection.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used: Option<u64>,
+    /// What AI agents may do here (see `desktop/src/agents`).
+    #[serde(skip_serializing_if = "AgentAccess::is_off")]
+    pub agents: AgentAccess,
 }
 
 impl Default for Server {
@@ -147,6 +169,7 @@ impl Default for Server {
             forwards: Vec::new(),
             alias: None,
             last_used: None,
+            agents: AgentAccess::Off,
         }
     }
 }
@@ -406,5 +429,11 @@ mod tests {
         assert_eq!(s.auth, AuthKind::Auto);
         let json = serde_json::to_string(&s).unwrap();
         assert!(!json.contains("identityFile"));
+        assert!(
+            !json.contains("agents"),
+            "no access is the default and not written"
+        );
+        let s: Server = serde_json::from_str(r#"{"id":"x","host":"h","agents":"ask"}"#).unwrap();
+        assert_eq!(s.agents, AgentAccess::Ask);
     }
 }

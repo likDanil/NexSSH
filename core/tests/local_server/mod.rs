@@ -2,6 +2,7 @@
 //! proxy that adds network latency and can cap bandwidth: transfer tests and speed
 //! measurements without an sshd. The SFTP side answers like OpenSSH's sftp-server: one
 //! request at a time, `limits@openssh.com` (8.6+) or the 64 KiB reads of older versions.
+//! A few made-up commands run without a terminal (see [`run_command`]).
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -268,6 +269,75 @@ impl russh::server::Handler for SshHandler {
         }
         Ok(())
     }
+
+    async fn exec_request(
+        &mut self,
+        id: ChannelId,
+        data: &[u8],
+        session: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        match self.channels.remove(&id) {
+            Some(channel) => {
+                let command = String::from_utf8_lossy(data).into_owned();
+                if command == "early" {
+                    // Something on the channel before the answer to the request, as OpenSSH
+                    // does when it widens the window of a new channel.
+                    session.data(id, b"early\n".to_vec())?;
+                }
+                session.channel_success(id)?;
+                tokio::spawn(run_command(channel, command));
+            }
+            None => session.channel_failure(id)?,
+        }
+        Ok(())
+    }
+}
+
+/// Commands the server knows, instead of a shell:
+///
+/// * `echo <text>` — the text and a line break, exit 0
+/// * `early` — `early` sent before the request is answered, exit 0
+/// * `fail` — `boom` on standard error, exit 3
+/// * `cat` — standard input back once it ends, exit 0
+/// * `flood <bytes>` — that many digits, exit 0
+/// * `hang` — nothing, ever
+/// * anything else — `unknown command` on standard error, exit 127
+async fn run_command(mut channel: Channel<Msg>, command: String) {
+    let (name, arg) = command.split_once(' ').unwrap_or((command.as_str(), ""));
+    let (out, err, code): (Vec<u8>, &[u8], u32) = match name {
+        "echo" => (format!("{arg}\n").into_bytes(), b"", 0),
+        "early" => (Vec::new(), b"", 0),
+        "fail" => (Vec::new(), b"boom\n", 3),
+        "cat" => {
+            let mut input = Vec::new();
+            loop {
+                match channel.wait().await {
+                    Some(russh::ChannelMsg::Data { data }) => input.extend_from_slice(&data),
+                    Some(russh::ChannelMsg::Eof) | None => break,
+                    Some(_) => {}
+                }
+            }
+            (input, b"", 0)
+        }
+        "flood" => {
+            let len: usize = arg.parse().unwrap_or(0);
+            ((0..len).map(|i| b'0' + (i % 10) as u8).collect(), b"", 0)
+        }
+        "hang" => {
+            while channel.wait().await.is_some() {}
+            return;
+        }
+        _ => (Vec::new(), b"unknown command\n", 127),
+    };
+    if !out.is_empty() {
+        let _ = channel.data_bytes(out).await;
+    }
+    if !err.is_empty() {
+        let _ = channel.extended_data_bytes(1, err.to_vec()).await;
+    }
+    let _ = channel.exit_status(code).await;
+    let _ = channel.eof().await;
+    let _ = channel.close().await;
 }
 
 // ---- SFTP ---------------------------------------------------------------------------

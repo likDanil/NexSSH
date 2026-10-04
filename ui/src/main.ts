@@ -3,6 +3,7 @@ import './app.css';
 import App from './App.svelte';
 import { openRequestedFolders } from './lib/actions';
 import { api } from './lib/api';
+import { agents } from './lib/state/agents.svelte';
 import { app } from './lib/state/app.svelte';
 import { servers } from './lib/state/servers.svelte';
 import { shells } from './lib/state/shells.svelte';
@@ -16,6 +17,7 @@ await Promise.all([app.init(), servers.load()]);
 mount(App, { target: document.getElementById('app')! });
 updates.start();
 void shells.load();
+void agents.start();
 
 // "Open with NexSSH" in Explorer (`NexSSH --cwd <folder>`): the folders of this start, and of
 // later ones, which hand them over to this window.

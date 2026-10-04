@@ -165,7 +165,8 @@ async fn interactive(
         }
     }
     forwards.publish();
-    ctx.shared.set_live(ctx.id, Arc::clone(&conn.handle));
+    ctx.shared
+        .set_live(ctx.id, &server.id, Arc::clone(&conn.handle));
     // Announced after saved forwards are listening, so "connected" means fully ready.
     ctx.status(SessionStatus::Connected);
 

@@ -1,5 +1,6 @@
 //! NexSSH desktop shell: creates the window and exposes the core over Tauri IPC.
 
+mod agents;
 mod commands;
 #[cfg(windows)]
 mod explorer;
@@ -20,6 +21,10 @@ use commands::AppState;
 use settings::{Settings, theme_background};
 
 pub fn run() {
+    // An agent started NexSSH as its MCP server: a bridge to the running app, no window.
+    if matches!(std::env::args().nth(1).as_deref(), Some("mcp" | "--mcp")) {
+        std::process::exit(agents::run_bridge());
+    }
     #[cfg(windows)]
     {
         let args: Vec<String> = std::env::args().collect();
@@ -60,6 +65,7 @@ pub fn run() {
         .manage(updates::Updates::default())
         .manage(sftp::Transfers::default())
         .manage(local::Launches::default())
+        .manage(agents::Agents::default())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { paths, .. }) => {
                 sftp::dragged(window, paths)
@@ -78,11 +84,14 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
             app.state::<local::Launches>().add(&args, &cwd);
+            let agents_settings = settings.value().clone();
             app.manage(AppState {
                 core,
                 settings: Mutex::new(settings),
                 restore_maximized: Default::default(),
             });
+            app.state::<agents::Agents>()
+                .init(app.handle(), &agents_settings);
             create_main_window(app, Color(r, g, b, 255))?;
             Ok(())
         })
@@ -143,6 +152,12 @@ pub fn run() {
             updates::update_check,
             updates::update_download,
             updates::update_install,
+            agents::agents_status,
+            agents::agents_token,
+            agents::agents_new_token,
+            agents::agents_answer,
+            agents::agents_open_failed,
+            agents::agents_clear_activity,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start NexSSH");
