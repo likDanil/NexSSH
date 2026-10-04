@@ -204,6 +204,13 @@ page opens a local terminal there.
 
 ### Authentication order
 
+A host without a user name asks for one first (`Prompt::User`, like PuTTY's *login as:*).
+OpenSSH would take this computer's user name, which is rarely the server's (on Windows least
+of all), and a password the server then refuses says nothing about the name being wrong. The
+local name is suggested; a name that worked is kept for the session's reconnects, one that did
+not is suggested next time, and the page writes it into a saved server (`serverId`) if the user
+asks it to remember, once logging in worked.
+
 `Auto` behaves like the `ssh` command:
 
 1. a password remembered for this server (so unrelated keys don't use up `MaxAuthTries`);
@@ -282,8 +289,8 @@ kept outside reactive state; backend output is written straight into them.
   in with its own settings.
 * `jumpUser`: login on a jump host typed as an address (a single one, not a chain); its
   password, if remembered, is in the keychain as `jump-password:<id>` of the server that
-  uses it. Without them the login comes from `user@` in `jumpHost` (else the local user name)
-  and the password is asked on connect.
+  uses it. Without them the login comes from `user@` in `jumpHost` (else it is asked for, like
+  any host's without one) and the password is asked on connect.
 * `alias`: the `Host` alias when imported from `~/.ssh/config`; re-importing updates
   connection fields but keeps the name, group and history.
 

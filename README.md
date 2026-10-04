@@ -35,7 +35,8 @@
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,
   PEM, PKCS#8, PuTTY `.ppk`) — the passphrase is asked only if the server accepts the key;
   pick a key from those found in `~/.ssh` or with *Browse…* — passwords and
-  keyboard-interactive / 2FA.
+  keyboard-interactive / 2FA. A server without a user name asks for one when connecting (like
+  PuTTY's *login as:*) and can remember it.
 * `known_hosts` support (hashed entries, wildcards) with a clear warning when a host key changes.
 * Jump hosts (including chains): a saved server, or an address with its own login and
   password (kept in the keychain like the others); keepalive, connection timeouts, custom ports.

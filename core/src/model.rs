@@ -209,15 +209,6 @@ impl Server {
         Ok(())
     }
 
-    /// The user name used to log in.
-    pub fn effective_user(&self) -> String {
-        if self.user.is_empty() {
-            util::local_username()
-        } else {
-            self.user.clone()
-        }
-    }
-
     /// `user@host[:port]` (port omitted when 22).
     pub fn destination(&self) -> String {
         let host = if self.host.contains(':') {

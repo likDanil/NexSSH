@@ -229,7 +229,7 @@
       </label>
       <label class="field c4">
         <span>{t('editor.user')}</span>
-        <input class="input" bind:value={user} placeholder="root" spellcheck="false" />
+        <input class="input" bind:value={user} placeholder={t('editor.userPlaceholder')} spellcheck="false" />
       </label>
       <label class="field c4">
         <span>{t('editor.group')}</span>
@@ -317,7 +317,7 @@
         {#if jump.kind === 'typed'}
           <label class="field c5">
             <span>{t('editor.jumpUser')}</span>
-            <input class="input" bind:value={jumpUser} placeholder={t('editor.jumpUserPlaceholder')} spellcheck="false" />
+            <input class="input" bind:value={jumpUser} placeholder={t('editor.userPlaceholder')} spellcheck="false" />
           </label>
           <label class="field c7">
             <span>{t('editor.jumpPassword')}</span>

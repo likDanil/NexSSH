@@ -6,7 +6,7 @@ import { api, Channel, errorMessage, type LocalTarget, type OpenTarget, type Ses
 import { t } from '../i18n.svelte';
 import type { ForwardInfo, Prompt, PromptReply, Server, SessionEvent, ShellProfile } from '../types';
 import { app } from './app.svelte';
-import { destination } from './servers.svelte';
+import { destination, servers } from './servers.svelte';
 import { CUSTOM_SHELL, commandName, missingShellName, shellName, shells } from './shells.svelte';
 import { toasts } from './toasts.svelte';
 
@@ -30,6 +30,9 @@ export interface Tab {
   failed: boolean;
   prompts: { id: number; prompt: Prompt }[];
   forwards: ForwardInfo[];
+  /** The user name typed for a host without one (a `user` prompt), until the session connects;
+   * `server`: the saved server to remember it for. */
+  typedUser: { name: string; host: string; server: string | null } | null;
 }
 
 /** What the session layer needs from a terminal view. */
@@ -181,6 +184,7 @@ class SessionsState {
       failed: false,
       prompts: [],
       forwards: [],
+      typedUser: null,
     };
     this.tabs.push(tab);
     this.activeKey = tab.key;
@@ -241,6 +245,7 @@ class SessionsState {
           tab.status = 'connected';
           tab.message = null;
           tab.failed = false;
+          this.#keepTypedUser(tab);
         } else if (ev.status === 'disconnected') {
           tab.status = 'disconnected';
           tab.message = sentence(ev.message ?? t('session.disconnected'));
@@ -319,6 +324,36 @@ class SessionsState {
   answer(tab: Tab, promptId: number, reply: PromptReply) {
     tab.prompts = tab.prompts.filter((p) => p.id !== promptId);
     void api.answer(promptId, reply).catch(() => {});
+  }
+
+  /** Answers a `user` prompt with `name`; `remember`: also for the saved server it is about,
+   * once logging in with it worked. */
+  answerUser(tab: Tab, promptId: number, prompt: Extract<Prompt, { kind: 'user' }>, name: string, remember: boolean) {
+    tab.typedUser = { name, host: prompt.host, server: remember ? (prompt.serverId ?? null) : null };
+    this.answer(tab, promptId, { kind: 'user', name });
+  }
+
+  /** After logging in with a typed user name: the address typed for the tab gets it, so that
+   * duplicating the tab or saving it as a server keeps it, and so does the saved server it was
+   * to be remembered for. */
+  #keepTypedUser(tab: Tab) {
+    const typed = tab.typedUser;
+    if (!typed) return;
+    tab.typedUser = null;
+    const typedHost = tab.target.destination?.replace(/:22$/, '');
+    if (typedHost && typedHost === typed.host) {
+      tab.target.destination = `${typed.name}@${tab.target.destination}`;
+      tab.subtitle = tab.target.destination;
+    }
+    const server = typed.server ? servers.byId.get(typed.server) : undefined;
+    if (server && !server.user) {
+      servers
+        .save({ ...$state.snapshot(server), user: typed.name })
+        .then((saved) => {
+          for (const other of this.forServer(saved.id)) other.subtitle = destination(saved);
+        })
+        .catch((e) => toasts.error(errorMessage(e)));
+    }
   }
 
   close(key: string) {

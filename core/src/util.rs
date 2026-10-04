@@ -64,8 +64,8 @@ pub fn contract_tilde(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// The name of the local user, used when a server entry has no username
-/// (same behaviour as OpenSSH).
+/// The name of the local user: what OpenSSH logs in as when a server entry has no username,
+/// which NexSSH suggests when it asks for one.
 pub fn local_username() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))

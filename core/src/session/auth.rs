@@ -16,7 +16,7 @@ use russh::{MethodKind, MethodSet};
 use zeroize::Zeroizing;
 
 use super::handler::ClientHandler;
-use super::{KbdPrompt, LogLevel, Prompt, PromptReply, SessionCtx, lock};
+use super::{KbdPrompt, LogLevel, Prompt, PromptReply, SessionCtx, TypedUser, lock};
 use crate::error::{Error, Result};
 use crate::i18n;
 use crate::keys::{self, KeyFile, UnlockError};
@@ -28,41 +28,70 @@ type Agent = AgentClient<Box<dyn AgentStream + Send + Unpin + 'static>>;
 
 /// Authenticates `hop` on an established (not yet authenticated) connection. Its password
 /// may be remembered in the keychain under `password_account`.
+///
+/// A host without a user name gets one from the user, like PuTTY's "login as:": this
+/// computer's user name, which OpenSSH would take, is rarely the server's (on Windows least
+/// of all), and a password the server then refuses says nothing about the name being wrong.
+/// A name that worked is kept for the session's reconnects.
 pub(crate) async fn authenticate(
     handle: &mut Handle<ClientHandler>,
     hop: &Server,
     password_account: Option<&str>,
     ctx: &Arc<SessionCtx>,
 ) -> Result<()> {
+    let asked = hop.user.is_empty();
+    let user = if asked {
+        user_for(ctx, hop).await?
+    } else {
+        hop.user.clone()
+    };
     let mut auth = Auth {
         handle,
         ctx,
         hop,
-        user: hop.effective_user(),
+        user,
         password_account: password_account.map(str::to_string),
         remaining: None,
         failed: Vec::new(),
         rsa_hash: None,
     };
-    if auth.none().await? {
-        return Ok(());
+    let result = auth.run().await;
+    if asked {
+        let typed = TypedUser {
+            name: auth.user.clone(),
+            worked: result.is_ok(),
+        };
+        lock(&ctx.cache).users.insert(user_key(hop), typed);
     }
-    let done = match hop.auth {
-        AuthKind::Agent => auth.agent(None).await?,
-        AuthKind::Key => {
-            let path = util::expand_tilde(hop.identity_file.as_deref().unwrap_or_default());
-            auth.key_file(&path, true).await?
-        }
-        AuthKind::Password => auth.password().await?,
-        AuthKind::Auto => auth.automatic().await?,
+    result
+}
+
+/// The user name for a host that has none: the one that worked before in this session, else
+/// the user's answer.
+async fn user_for(ctx: &Arc<SessionCtx>, hop: &Server) -> Result<String> {
+    let typed = lock(&ctx.cache)
+        .users
+        .get(&user_key(hop))
+        .map(|u| (u.name.clone(), u.worked));
+    let suggestion = match typed {
+        Some((name, true)) => return Ok(name),
+        Some((name, false)) => name,
+        None => util::local_username(),
     };
-    if done {
-        Ok(())
-    } else if auth.failed.is_empty() {
-        Err(Error::AuthFailed(i18n::auth_no_method(&auth.offered())))
-    } else {
-        Err(Error::AuthFailed(i18n::auth_tried(&auth.failed.join(", "))))
+    let saved = !hop.id.is_empty() && ctx.shared.store.get(&hop.id).is_some();
+    let prompt = Prompt::User {
+        host: short_host(hop),
+        suggestion,
+        server_id: saved.then(|| hop.id.clone()),
+    };
+    match ctx.ask(prompt).await {
+        Some(PromptReply::User { name }) if !name.trim().is_empty() => Ok(name.trim().to_string()),
+        _ => Err(Error::Cancelled),
     }
+}
+
+fn user_key(hop: &Server) -> String {
+    util::host_port(&hop.host, hop.port)
 }
 
 struct Auth<'a> {
@@ -79,6 +108,30 @@ struct Auth<'a> {
 }
 
 impl Auth<'_> {
+    /// Signs in the way the server's settings say.
+    async fn run(&mut self) -> Result<()> {
+        if self.none().await? {
+            return Ok(());
+        }
+        let hop = self.hop;
+        let done = match hop.auth {
+            AuthKind::Agent => self.agent(None).await?,
+            AuthKind::Key => {
+                let path = util::expand_tilde(hop.identity_file.as_deref().unwrap_or_default());
+                self.key_file(&path, true).await?
+            }
+            AuthKind::Password => self.password().await?,
+            AuthKind::Auto => self.automatic().await?,
+        };
+        if done {
+            Ok(())
+        } else if self.failed.is_empty() {
+            Err(Error::AuthFailed(i18n::auth_no_method(&self.offered())))
+        } else {
+            Err(Error::AuthFailed(i18n::auth_tried(&self.failed.join(", "))))
+        }
+    }
+
     fn allows(&self, method: MethodKind) -> bool {
         self.remaining.as_ref().is_none_or(|r| r.contains(&method))
     }

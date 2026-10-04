@@ -69,6 +69,17 @@ pub enum Prompt {
         fingerprint: String,
         check: HostKeyStatus,
     },
+    /// The host has no user name: which one to log in as (PuTTY's "login as:").
+    #[serde(rename_all = "camelCase")]
+    User {
+        host: String,
+        /// The name typed last for it in this session, else this computer's user name, which
+        /// OpenSSH would take.
+        suggestion: String,
+        /// The saved server it is, which the page may remember the name for once it worked.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        server_id: Option<String>,
+    },
     #[serde(rename_all = "camelCase")]
     Password {
         user: String,
@@ -116,6 +127,9 @@ pub enum PromptReply {
     },
     Answers {
         values: Vec<String>,
+    },
+    User {
+        name: String,
     },
     Cancel,
 }
@@ -359,6 +373,15 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub(crate) struct CredCache {
     pub passwords: HashMap<String, Zeroizing<String>>,
     pub passphrases: HashMap<PathBuf, Zeroizing<String>>,
+    /// User names typed for hosts without one (`Prompt::User`), by `host:port`.
+    pub users: HashMap<String, TypedUser>,
+}
+
+/// A user name typed for a host without one.
+pub(crate) struct TypedUser {
+    pub name: String,
+    /// Logging in with it worked: reconnects use it without asking.
+    pub worked: bool,
 }
 
 /// Per-session state shared by the connection, handler and auth code.
