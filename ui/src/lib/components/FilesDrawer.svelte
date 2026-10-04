@@ -15,10 +15,11 @@
     formatDuration,
     formatSize,
     isDirLike,
-    itemsFromDrop,
-    itemsFromFiles,
     joinPath,
+    pathsOfDrop,
+    readDrop,
     sortEntries,
+    takeDrop,
     type Transfer,
   } from '../state/files.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
@@ -43,7 +44,6 @@
 
   let list = $state<HTMLDivElement>();
   let pane = $state<HTMLDivElement>();
-  let filePicker = $state<HTMLInputElement>();
   let pathInput = $state('');
 
   const connected = $derived(tab.status === 'connected' && tab.sessionId != null);
@@ -202,7 +202,7 @@
     const path = view.path;
     selectOnly(null);
     app.showMenu(ev.clientX, ev.clientY, [
-      { label: t('files.uploadFiles'), icon: 'upload', action: () => filePicker?.click() },
+      { label: t('files.uploadFiles'), icon: 'upload', action: () => void files.uploadFiles(tab) },
       { label: t('files.uploadFolder'), icon: 'folder', action: () => void files.uploadFolder(tab) },
       'separator',
       { label: t('files.newFolder'), icon: 'folderPlus', action: () => void files.mkdir(tab) },
@@ -223,16 +223,9 @@
   function uploadMenu(ev: MouseEvent) {
     const button = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     app.showMenu(button.left, button.bottom + 4, [
-      { label: t('files.uploadFiles'), icon: 'file', action: () => filePicker?.click() },
+      { label: t('files.uploadFiles'), icon: 'file', action: () => void files.uploadFiles(tab) },
       { label: t('files.uploadFolder'), icon: 'folder', action: () => void files.uploadFolder(tab) },
     ]);
-  }
-
-  function picked(ev: Event) {
-    const input = ev.currentTarget as HTMLInputElement;
-    const items = itemsFromFiles(Array.from(input.files ?? []));
-    input.value = '';
-    void files.upload(tab, items);
   }
 
   function sortBy(id: FilesSort) {
@@ -398,8 +391,12 @@
       void files.uploadPicked(tab, items, dir);
       return;
     }
-    itemsFromDrop(ev.dataTransfer)
-      .then((items) => files.upload(tab, items, dir))
+    // Uploaded from disk where the app can tell the files' paths, else sent from the page.
+    const dropped = takeDrop(ev.dataTransfer);
+    pathsOfDrop(dropped)
+      .then((picked) =>
+        picked ? files.uploadPicked(tab, picked, dir) : readDrop(dropped).then((items) => files.upload(tab, items, dir)),
+      )
       .catch((e) => toasts.error(errorMessage(e)));
   }
 
@@ -630,7 +627,6 @@
     </footer>
   {/if}
 
-  <input bind:this={filePicker} type="file" multiple hidden onchange={picked} />
 </aside>
 
 <style>

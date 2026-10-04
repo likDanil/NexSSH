@@ -17,13 +17,17 @@
   let remember = $state(false);
   let answers = $state<string[]>([]);
   let form = $state<HTMLFormElement>();
+  let selected = false;
 
-  // Fresh fields for every new prompt, and focus the first input.
+  // Fresh fields for every new prompt, and focus the first input. A user name starts as the
+  // suggested one, to be remembered for its saved server.
   $effect.pre(() => {
     void entry.id;
-    secret = '';
-    remember = false;
-    answers = entry.prompt.kind === 'keyboardInteractive' ? entry.prompt.prompts.map(() => '') : [];
+    const prompt = entry.prompt;
+    secret = prompt.kind === 'user' ? prompt.suggestion : '';
+    remember = prompt.kind === 'user';
+    selected = false;
+    answers = prompt.kind === 'keyboardInteractive' ? prompt.prompts.map(() => '') : [];
   });
 
   $effect(() => {
@@ -45,12 +49,29 @@
     reply({ kind: 'cancel' });
   }
 
+  /** Selects the suggested name when the field first gets focus, so typing replaces it. */
+  function selectOnce(e: FocusEvent) {
+    if (selected) return;
+    selected = true;
+    (e.currentTarget as HTMLInputElement).select();
+  }
+
+  function replyUser(name: string) {
+    if (p.kind !== 'user') return;
+    sessions.answerUser(tab, entry.id, p, name, remember);
+    secret = '';
+    requestAnimationFrame(() => sessions.focusActive());
+  }
+
   function submit(e: SubmitEvent) {
     e.preventDefault();
     switch (p.kind) {
       case 'hostKey':
         if (p.check.status === 'changed') cancel();
         else reply({ kind: 'hostKey', accept: true, remember: true });
+        break;
+      case 'user':
+        if (secret.trim()) replyUser(secret.trim());
         break;
       case 'password':
       case 'passphrase':
@@ -126,6 +147,29 @@
           <button type="submit" class="btn primary" data-default>{t('prompt.newHost.trust')}</button>
         </div>
       {/if}
+    {:else if p.kind === 'user'}
+      <div class="head"><Icon name="user" size={18} /><h3>{t('prompt.user.title')}</h3></div>
+      <p><Rich key="prompt.user.body" params={{ host: p.host }} tags={{ host: 'b' }} /></p>
+      <input
+        class="input"
+        bind:value={secret}
+        placeholder={t('prompt.user.placeholder')}
+        autocomplete="username"
+        spellcheck="false"
+        onfocus={selectOnce}
+      />
+      {#if p.serverId}
+        <label class="check remember">
+          <input type="checkbox" bind:checked={remember} />
+          {t('prompt.user.remember')}
+        </label>
+      {:else}
+        <p class="hint">{t('prompt.user.hint', { host: p.host })}</p>
+      {/if}
+      <div class="buttons">
+        <button type="button" class="btn ghost" onclick={cancel}>{t('common.cancel')}</button>
+        <button type="submit" class="btn primary" disabled={!secret.trim()}>{t('common.continue')}</button>
+      </div>
     {:else if p.kind === 'password' || p.kind === 'passphrase'}
       <div class="head">
         <Icon name={p.kind === 'password' ? 'lock' : 'key'} size={18} />
@@ -276,6 +320,9 @@
   }
   .remember {
     color: var(--text-2);
+  }
+  .hint {
+    font-size: 12px;
   }
   .buttons {
     display: flex;

@@ -50,6 +50,8 @@ export type HostKeyCheck =
 
 export type Prompt =
   | { kind: 'hostKey'; host: string; port: number; keyType: string; fingerprint: string; check: HostKeyCheck }
+  /** The host has no user name: which one to log in as. `serverId`: the saved server it is. */
+  | { kind: 'user'; host: string; suggestion: string; serverId?: string }
   | { kind: 'password'; user: string; host: string; canRemember: boolean; error?: string }
   | { kind: 'passphrase'; keyPath: string; canRemember: boolean; error?: string }
   | {
@@ -64,6 +66,7 @@ export type PromptReply =
   | { kind: 'hostKey'; accept: boolean; remember: boolean }
   | { kind: 'secret'; value: string; remember: boolean }
   | { kind: 'answers'; values: string[] }
+  | { kind: 'user'; name: string }
   | { kind: 'cancel' };
 
 export interface ForwardInfo {

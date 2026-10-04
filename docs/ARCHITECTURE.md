@@ -40,7 +40,8 @@ NexSSH/
 │   │       ├── handler.rs russh callbacks (host key, banner, remote forwards)
 │   │       ├── shell.rs  session task: PTY, I/O, reconnect loop
 │   │       └── local.rs  local terminal task: a program in a pseudo-terminal (ConPTY)
-│   └── tests/            integration tests: real OpenSSH servers (sshd.rs, sftp.rs), real shells (local.rs)
+│   └── tests/            integration tests: real OpenSSH servers (sshd.rs, sftp.rs), real shells (local.rs),
+│                         an SFTP server in the test process behind a latency proxy (sftp_local.rs)
 ├── desktop/              Tauri application ("nexssh" crate)
 │   ├── src/lib.rs        builder, window creation
 │   ├── src/commands.rs   IPC commands: servers, settings, sessions, window
@@ -92,7 +93,7 @@ NexSSH/
 | `keys` | Finds keys in `~/.ssh`, reads public halves without the passphrase (OpenSSH format or `.pub`). |
 | `session` | One Tokio task per session. See below. |
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
-| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders; the file being written when an upload fails or is cancelled is removed. A recursive `chmod` also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
+| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders; the files being written when an upload fails or is cancelled are removed. Transfers keep many requests in flight and move several files at a time (see "Transfer speed"). A recursive `chmod` lists everything first, then changes files and folders deepest first, and also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
 | `local` | Shells for local terminals, found per system: PowerShell 7 (Program Files, else `PATH`), Windows PowerShell, `%ComSpec%`, WSL distributions (from the registry, `HKCU\…\Lxss`; Docker's are skipped), Git Bash (registry `GitForWindows`, then the usual folders); elsewhere the login shell and `/etc/shells`, one entry per real file. The first found is the default. `LocalCommand` is what a local session runs: a shell in a folder, or a command line from the settings (words split at spaces, quotes group, backslashes stay: Windows paths need no escaping). |
 | `i18n` | Every user-facing message with all its translations; process-wide language set by the app. |
 
@@ -204,6 +205,13 @@ page opens a local terminal there.
 
 ### Authentication order
 
+A host without a user name asks for one first (`Prompt::User`, like PuTTY's *login as:*).
+OpenSSH would take this computer's user name, which is rarely the server's (on Windows least
+of all), and a password the server then refuses says nothing about the name being wrong. The
+local name is suggested; a name that worked is kept for the session's reconnects, one that did
+not is suggested next time, and the page writes it into a saved server (`serverId`) if the user
+asks it to remember, once logging in worked.
+
 `Auto` behaves like the `ssh` command:
 
 1. a password remembered for this server (so unrelated keys don't use up `MaxAuthTries`);
@@ -282,8 +290,8 @@ kept outside reactive state; backend output is written straight into them.
   in with its own settings.
 * `jumpUser`: login on a jump host typed as an address (a single one, not a chain); its
   password, if remembered, is in the keychain as `jump-password:<id>` of the server that
-  uses it. Without them the login comes from `user@` in `jumpHost` (else the local user name)
-  and the password is asked on connect.
+  uses it. Without them the login comes from `user@` in `jumpHost` (else it is asked for, like
+  any host's without one) and the password is asked on connect.
 * `alias`: the `Host` alias when imported from `~/.ssh/config`; re-importing updates
   connection fields but keeps the name, group and history.
 
@@ -318,18 +326,32 @@ type SessionEvent =
 * **File transfers:** downloads run in the backend straight into the Downloads folder (or a
   folder picked with *Download to…*), with progress on a `Channel` (at most every 100 ms).
   Uploads take two routes:
-  * files from the webview (the file dialog, and drops on WebView2 / WKWebView, where
-    `webkitGetAsEntry` walks dropped folders) arrive as `File` objects: `sftp_ensure_dir` for
-    their folders, then per file `sftp_upload_begin`, 1 MiB pieces as raw IPC bodies
-    (`ArrayBuffer`, no JSON or base64) with the transfer id in a header, and
-    `sftp_upload_end`;
-  * a folder picked in the native dialog (*Upload folder…*: the webview's folder picking
-    differs per system), and on Linux whatever is dropped (WebKitGTK shows the page such a drop
-    without its files, see below), is read from disk by the backend: `sftp_upload_path`.
+  * whatever has a local path is read from disk by the backend (`sftp_upload_path`): files
+    and folders picked in the native dialogs (*Upload files…*, *Upload folder…*), drops on
+    Windows (the page posts the dropped `File`s with WebView2's
+    `postMessageWithAdditionalObjects`, which tells the app their paths: `files-picked`), and
+    on Linux whatever is dropped (WebKitGTK shows the page such a drop without its files, see
+    below);
+  * the rest of the drops (WKWebView, where `webkitGetAsEntry` walks dropped folders) arrive
+    as `File` objects: `sftp_ensure_dirs` for their folders, then per file (four at a time)
+    `sftp_upload_begin`, 1 MiB pieces as raw IPC bodies (`ArrayBuffer`, no JSON or base64)
+    with the upload id in a header, and `sftp_upload_end`. A piece returns once it is on
+    its way, so the next one is read and sent meanwhile.
 
   A transfer id chosen by the UI lets `sftp_cancel` stop any of them; a cancelled upload
-  deletes its partial file. The UI measures the speed from the progress (over ½ s, smoothed)
+  deletes its partial files. The UI measures the speed from the progress (over ½ s, smoothed)
   and shows the time left.
+* **Transfer speed:** waiting for each SFTP reply before the next request would make every
+  chunk cost a round trip. Transfers keep requests in flight instead, like OpenSSH's sftp:
+  about half a second's worth at the speed measured so far (256 KiB at first, 8 MiB at most),
+  so a fast link fills within a few round trips and a slow one never queues long enough for
+  requests to time out. Reads and writes are as large as the server's `limits@openssh.com`
+  allows (255 KiB on OpenSSH), else 32 KiB. Folders move 16 files at a time, and the close
+  of an upload follows its last write without waiting, so a small file costs two round trips
+  (open, then read or write and close). Channels get a 16 MiB receive window (russh's 2 MiB
+  capped downloads at about 1.5 MiB per round trip). `cargo test --release -p nexssh-core
+  --test sftp_local transfer_speed -- --ignored --nocapture` measures it against a server in
+  the test process behind a proxy that adds latency.
 * **Dropping files:** the page handles drag & drop itself (tab reordering needs it, and the
   native handler would take every drag from WebView2). WebKitGTK never gives the page the
   files of a drop from outside, so on Linux the native handler stays enabled: it reports the
@@ -344,7 +366,7 @@ type SessionEvent =
 | Need | Choice | Why |
 | --- | --- | --- |
 | SSH | **russh** (ring backend) | Pure Rust, async (Tokio, like Tauri), actively maintained, used in production (e.g. Warpgate). No OpenSSL/libssh2 C toolchain, trivial Windows builds. Supports agent (incl. Pageant and Windows named pipes), certificates, keyboard-interactive, direct-tcpip, remote forwarding. `ring` instead of the default `aws-lc-rs` avoids CMake/NASM on Windows. |
-| SFTP | **russh-sftp** | The SFTP client of the russh ecosystem: runs on a channel of the existing connection, pipelines reads and writes (fast on high-latency links). |
+| SFTP | **russh-sftp** | The SFTP protocol of the russh ecosystem, on a channel of the existing connection. NexSSH uses its raw session and does the pipelining itself (see "Transfer speed"). |
 | Local PTY | **portable-pty** | WezTerm's pseudo-terminals: ConPTY on Windows (Windows 10 1809+), `openpty` elsewhere; years of use in WezTerm. Writing ConPTY by hand is easy to get subtly wrong (cursor inheritance, draining on close). |
 | Updates | **tauri-plugin-updater** | Minisign-verified updates from a static `latest.json`; runs the NSIS installer silently. Built with rustls on `ring` (no OpenSSL, no second crypto backend). |
 | Keychain | **keyring-core** + native stores | Windows Credential Manager, macOS Keychain, Secret Service. Linking the stores directly (instead of `keyring`'s all-in-one feature) avoids the zbus async stack. |
@@ -358,7 +380,7 @@ Deliberately **not** used: icon libraries (hand-drawn inline SVG), UI kits, stat
 fuzzy-search libraries (30 lines in `fuzzy.ts`), clipboard/shell plugins (`navigator.clipboard`
 with Tauri's clipboard access), logging frameworks. The dialog plugin is used only from Rust,
 for native pickers: a key file (a webview file input gives no path), a folder to download
-into, a folder to upload.
+into, files or a folder to upload.
 
 ## 7. Credentials and security
 
@@ -402,7 +424,9 @@ into, a folder to upload.
 * "Show in folder" opens only files this run of the app downloaded itself. The same goes for
   local paths the page hands back: a download goes only to Downloads or a folder the user
   picked in the native dialog, and an upload by path reads only what the user picked or
-  dragged in. A compromised page could not make NexSSH write or send other local files.
+  dragged in (on Windows the paths of a drop come from WebView2 for the `File`s of that drop,
+  which a page cannot make up). A compromised page could not make NexSSH write or send other
+  local files.
 
 ## Languages
 

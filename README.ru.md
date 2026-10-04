@@ -37,7 +37,8 @@
 * Аутентификация: SSH-агент (OpenSSH agent, Pageant, 1Password…), ключи (OpenSSH, PEM,
   PKCS#8, PuTTY `.ppk`) — passphrase спрашивается, только если сервер принимает ключ;
   ключ выбирается из найденных в `~/.ssh` или кнопкой *Обзор…* — пароль и
-  keyboard-interactive / 2FA.
+  keyboard-interactive / 2FA. Если у сервера не указан пользователь, NexSSH спросит имя при
+  подключении (как *login as:* в PuTTY) и может его запомнить.
 * `known_hosts` (хэшированные записи, шаблоны) и понятное предупреждение при смене ключа хоста.
 * Jump-хосты (в том числе цепочки): сохранённый сервер или адрес со своим логином и паролем
   (пароль — в системном хранилище, как и остальные); keepalive, таймауты подключения,
@@ -156,6 +157,15 @@ cargo test --workspace
 sudo scripts/test-sshd.sh
 eval "$(sudo scripts/test-sshd.sh env)"
 cargo test -p nexssh-core --test sshd --test sftp
+```
+
+Тестам передачи файлов в `sftp_local` сервер не нужен: он работает в самом тесте, за прокси,
+который добавляет задержку. Они же замеряют скорость и поднимают «медленный канал», чтобы
+проверить на нём приложение:
+
+```sh
+NEXSSH_BENCH_DELAY_MS=25 cargo test --release -p nexssh-core --test sftp_local transfer_speed -- --ignored --nocapture
+cargo test -p nexssh-core --test sftp_local serve -- --ignored --nocapture
 ```
 
 Переменные окружения: `NEXSSH_DATA_DIR` — другая папка данных (портативный режим, тесты),

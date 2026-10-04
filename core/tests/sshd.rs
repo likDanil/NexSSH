@@ -82,6 +82,80 @@ async fn password_shell_resize_exit_and_reconnect() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn missing_user_is_asked_for() {
+    let Some(env) = env() else { return };
+    let core = Arc::new(core());
+    let mut srv = server(&env, AuthKind::Password);
+    srv.user.clear();
+    let mut s = Session::open(Arc::clone(&core), srv);
+    s.accept_host_key().await;
+
+    // Asked for, suggesting this computer's user name; the password is then asked for the
+    // name typed, and cancelling ends the attempt.
+    let (id, prompt) = s.expect_prompt().await;
+    match prompt {
+        Prompt::User {
+            suggestion,
+            server_id,
+            ..
+        } => {
+            assert!(!suggestion.is_empty());
+            assert_eq!(server_id, None, "the server is not saved");
+        }
+        other => panic!("{other:?}"),
+    }
+    s.answer(
+        id,
+        PromptReply::User {
+            name: "nobody-here".into(),
+        },
+    );
+    let (id, prompt) = s.expect_prompt().await;
+    assert!(
+        matches!(&prompt, Prompt::Password { user, .. } if user == "nobody-here"),
+        "{prompt:?}"
+    );
+    s.answer(id, PromptReply::Cancel);
+    s.expect_status(SessionStatus::Disconnected).await;
+
+    // A name that did not work is asked for again, suggested.
+    core.sessions.reconnect(s.id).unwrap();
+    let (id, prompt) = s.expect_prompt().await;
+    assert!(
+        matches!(&prompt, Prompt::User { suggestion, .. } if suggestion == "nobody-here"),
+        "{prompt:?}"
+    );
+    s.answer(
+        id,
+        PromptReply::User {
+            name: env.user.clone(),
+        },
+    );
+    let (id, prompt) = s.expect_prompt().await;
+    assert!(
+        matches!(&prompt, Prompt::Password { user, .. } if *user == env.user),
+        "{prompt:?}"
+    );
+    s.answer(
+        id,
+        PromptReply::Secret {
+            value: env.password.clone(),
+            remember: false,
+        },
+    );
+    s.expect_status(SessionStatus::Connected).await;
+
+    // One that worked is not, nor the password typed in this session.
+    core.sessions.disconnect(s.id).unwrap();
+    s.expect_status(SessionStatus::Disconnected).await;
+    core.sessions.reconnect(s.id).unwrap();
+    s.expect_status(SessionStatus::Connected).await;
+    s.write("whoami\n");
+    s.wait_output(&env.user).await;
+    s.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn public_key_ed25519_and_rsa() {
     let Some(env) = env() else { return };
     let core = Arc::new(core());

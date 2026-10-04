@@ -111,8 +111,9 @@ export const api = {
   sftpResolve: (sessionId: number, path: string) => invoke<string>('sftp_resolve', { sessionId, path }),
   sftpList: (sessionId: number, path: string) => invoke<SftpEntry[]>('sftp_list', { sessionId, path }),
   sftpMkdir: (sessionId: number, path: string) => invoke<void>('sftp_mkdir', { sessionId, path }),
-  /** Creates the folder unless it exists (folder uploads merge into existing ones). */
-  sftpEnsureDir: (sessionId: number, path: string) => invoke<void>('sftp_ensure_dir', { sessionId, path }),
+  /** Creates the folders that do not exist (folder uploads merge into existing ones), parents
+   * first. */
+  sftpEnsureDirs: (sessionId: number, paths: string[]) => invoke<void>('sftp_ensure_dirs', { sessionId, paths }),
   /** An empty file; never replaces one. */
   sftpNewFile: (sessionId: number, path: string) => invoke<void>('sftp_new_file', { sessionId, path }),
   sftpChmod: (sessionId: number, path: string, mode: number, recursive: boolean) =>
@@ -131,7 +132,10 @@ export const api = {
   ) => invoke<Downloaded>('sftp_download', { sessionId, path, dest, transferId, onProgress }),
   /** The system folder dialog for an upload; `null` when cancelled. */
   sftpPickUpload: (title: string) => invoke<PickedUpload | null>('sftp_pick_upload', { title }),
-  /** Uploads a folder from `sftpPickUpload` into `dir`; returns the remote path. */
+  /** The system file dialog for an upload (any number of files); empty when cancelled. */
+  sftpPickFiles: (title: string) => invoke<PickedUpload[]>('sftp_pick_files', { title }),
+  /** Uploads a file or folder from `sftpPickUpload`/`sftpPickFiles` (or dropped on the window)
+   * into `dir`; returns the remote path. */
   sftpUploadPath: (
     sessionId: number,
     path: string,

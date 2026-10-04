@@ -342,6 +342,38 @@ pub(crate) async fn choose_folder(
         .map_err(|e| CmdError::from(e.to_string()))
 }
 
+/// Asks for any number of local files; empty when cancelled.
+pub(crate) async fn choose_files(
+    window: &tauri::WebviewWindow,
+    title: String,
+    start: std::path::PathBuf,
+) -> CmdResult<Vec<std::path::PathBuf>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let dialog = window
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_title(title)
+        .set_directory(start);
+    // The dialog runs on the main thread; wait for its answer here.
+    let (tx, mut rx) = tauri::async_runtime::channel(1);
+    dialog.pick_files(move |picked| {
+        let _ = tx.try_send(picked);
+    });
+    rx.recv()
+        .await
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|picked| {
+            picked
+                .into_path()
+                .map_err(|e| CmdError::from(e.to_string()))
+        })
+        .collect()
+}
+
 /// A picked `.pub` file stands for the private key next to it.
 fn private_key_for(path: &std::path::Path) -> std::path::PathBuf {
     if path.extension().is_some_and(|e| e == "pub") {

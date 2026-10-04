@@ -1,6 +1,7 @@
 //! SFTP commands for the files drawer. The logic lives in `nexssh_core::sftp`; this module
-//! keeps transfers (cancel flags, uploads fed chunk by chunk from the UI, folders picked
-//! for upload) and reveals downloaded files in the system file manager.
+//! keeps transfers (cancel flags, uploads fed chunk by chunk from the UI, files and folders
+//! picked or dropped for upload, which are read from disk here) and reveals downloaded files
+//! in the system file manager.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ use crate::commands::{AppState, CmdError, CmdResult};
 #[derive(Default)]
 pub struct Transfers {
     cancel: Mutex<HashMap<u64, Arc<AtomicBool>>>,
-    uploads: Mutex<HashMap<u64, (Arc<Sftp>, Upload)>>,
+    uploads: Mutex<HashMap<u64, Upload>>,
     /// Files this app downloaded: the only paths it will reveal.
     downloaded: Mutex<HashSet<PathBuf>>,
     /// Folders the user picked to download into: besides Downloads, the only places a
@@ -86,14 +87,18 @@ pub async fn sftp_mkdir(
     Ok(client(&state, session_id).await?.mkdir(&path).await?)
 }
 
-/// Creates a folder unless it exists already (folder uploads merge into existing ones).
+/// Creates the folders of an upload that do not exist yet (folder uploads merge into existing
+/// ones), parents first, many at a time.
 #[tauri::command]
-pub async fn sftp_ensure_dir(
+pub async fn sftp_ensure_dirs(
     state: State<'_, AppState>,
     session_id: SessionId,
-    path: String,
+    paths: Vec<String>,
 ) -> CmdResult<()> {
-    Ok(client(&state, session_id).await?.ensure_dir(&path).await?)
+    Ok(client(&state, session_id)
+        .await?
+        .ensure_dirs(&paths)
+        .await?)
 }
 
 #[tauri::command]
@@ -263,6 +268,112 @@ pub fn dropped(window: &tauri::Window, paths: &[PathBuf], position: tauri::Physi
     }
 }
 
+/// What the page posts with files dropped on it, followed by a number for the answer.
+#[cfg(windows)]
+const DROP_MESSAGE: &str = "nexssh-drop:";
+
+/// Windows: files dropped on the page come to the app too. The page posts them with
+/// `chrome.webview.postMessageWithAdditionalObjects("nexssh-drop:<id>", files)`, WebView2
+/// tells their paths, and the page hears back as `files-picked` (with those it could tell):
+/// uploaded with `sftp_upload_path`, they are read from disk here, much faster than pieces
+/// sent from the page. A page cannot make such files up, so like the dialogs' these are
+/// paths the user chose.
+///
+/// The message is a string because WebView2 stops at Tauri's own handler for anything else;
+/// Tauri then reports in the console that it is not an IPC call, which does no harm.
+#[cfg(windows)]
+pub fn take_page_drops(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let target = window.clone();
+    window.with_webview(move |webview| {
+        if let Err(e) = listen_for_drops(&webview.controller(), target) {
+            log::warn!("files dropped on the page will be sent from it: {e}");
+        }
+    })
+}
+
+#[cfg(windows)]
+fn listen_for_drops(
+    controller: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
+    window: tauri::WebviewWindow,
+) -> windows::core::Result<()> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2File, ICoreWebView2WebMessageReceivedEventArgs,
+        ICoreWebView2WebMessageReceivedEventArgs2,
+    };
+    use webview2_com::{CoTaskMemPWSTR, WebMessageReceivedEventHandler};
+    use windows::core::{Interface, PWSTR};
+
+    #[derive(Clone, Serialize)]
+    struct PageDrop {
+        id: u64,
+        items: Vec<Picked>,
+    }
+
+    // The bindings mark every WebView2 call unsafe; these use objects WebView2 handed over.
+    fn paths_of(
+        args: &ICoreWebView2WebMessageReceivedEventArgs,
+    ) -> windows::core::Result<Vec<PathBuf>> {
+        let objects = unsafe {
+            args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>()?
+                .AdditionalObjects()?
+        };
+        let mut count = 0;
+        unsafe { objects.Count(&mut count)? };
+        let mut paths = Vec::new();
+        for index in 0..count {
+            // What WebView2 does not give as a file (with a path) is left out; the page then
+            // sends the drop itself.
+            let Ok(file) = unsafe { objects.GetValueAtIndex(index)? }.cast::<ICoreWebView2File>()
+            else {
+                continue;
+            };
+            let mut path = PWSTR::null();
+            unsafe { file.Path(&mut path)? };
+            paths.push(PathBuf::from(CoTaskMemPWSTR::from(path).to_string()));
+        }
+        Ok(paths)
+    }
+
+    let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+        let Some(args) = args else {
+            return Ok(());
+        };
+        let mut text = PWSTR::null();
+        unsafe { args.TryGetWebMessageAsString(&mut text)? };
+        let text = CoTaskMemPWSTR::from(text).to_string();
+        // Other messages (Tauri's own) are not for this handler.
+        let Some(id) = text
+            .strip_prefix(DROP_MESSAGE)
+            .and_then(|id| id.parse::<u64>().ok())
+        else {
+            return Ok(());
+        };
+        let paths: Vec<PathBuf> = paths_of(&args)
+            .unwrap_or_else(|e| {
+                log::warn!("no paths for the files dropped on the page: {e}");
+                Vec::new()
+            })
+            .into_iter()
+            .filter(|p| p.exists())
+            .collect();
+        lock(&window.state::<Transfers>().picked).extend(paths.iter().cloned());
+        let drop = PageDrop {
+            id,
+            items: paths.iter().map(|p| Picked::new(p)).collect(),
+        };
+        if let Err(e) = window.emit("files-picked", drop) {
+            log::warn!("could not pass dropped files back to the page: {e}");
+        }
+        Ok(())
+    }));
+    let mut token = 0;
+    unsafe {
+        controller
+            .CoreWebView2()?
+            .add_WebMessageReceived(&handler, &mut token)
+    }
+}
+
 /// Asks for a local folder to upload (the page cannot pick folders the same way on every
 /// system); `None` when cancelled. Upload it with `sftp_upload_path`.
 #[tauri::command]
@@ -271,17 +382,39 @@ pub async fn sftp_pick_upload(
     transfers: State<'_, Transfers>,
     title: String,
 ) -> CmdResult<Option<Picked>> {
-    let start = lock(&transfers.last_pick)
-        .clone()
-        .filter(|d| d.is_dir())
-        .or_else(nexssh_core::home_dir)
-        .unwrap_or_else(sftp::download_dir);
+    let start = pick_start(&transfers);
     let Some(path) = crate::commands::choose_folder(&window, title, start).await? else {
         return Ok(None);
     };
     *lock(&transfers.last_pick) = path.parent().map(Path::to_path_buf);
     lock(&transfers.picked).insert(path.clone());
     Ok(Some(Picked::new(&path)))
+}
+
+/// Asks for local files to upload; empty when cancelled. Upload them with `sftp_upload_path`:
+/// read from disk here, they go much faster than pieces sent from the page.
+#[tauri::command]
+pub async fn sftp_pick_files(
+    window: tauri::WebviewWindow,
+    transfers: State<'_, Transfers>,
+    title: String,
+) -> CmdResult<Vec<Picked>> {
+    let start = pick_start(&transfers);
+    let paths = crate::commands::choose_files(&window, title, start).await?;
+    if let Some(dir) = paths.first().and_then(|p| p.parent()) {
+        *lock(&transfers.last_pick) = Some(dir.to_path_buf());
+    }
+    lock(&transfers.picked).extend(paths.iter().cloned());
+    Ok(paths.iter().map(|p| Picked::new(p)).collect())
+}
+
+/// Where the upload dialogs open: where the last pick was, else the home folder.
+fn pick_start(transfers: &Transfers) -> PathBuf {
+    lock(&transfers.last_pick)
+        .clone()
+        .filter(|d| d.is_dir())
+        .or_else(nexssh_core::home_dir)
+        .unwrap_or_else(sftp::download_dir)
 }
 
 /// Uploads a folder picked with `sftp_pick_upload` (or a file or folder dropped on the
@@ -320,13 +453,14 @@ pub async fn sftp_upload_begin(
     path: String,
     transfer_id: u64,
 ) -> CmdResult<()> {
-    let sftp = client(&state, session_id).await?;
-    let upload = sftp.create(&path).await?;
-    lock(&transfers.uploads).insert(transfer_id, (sftp, upload));
+    let upload = client(&state, session_id).await?.create(&path).await?;
+    lock(&transfers.uploads).insert(transfer_id, upload);
     Ok(())
 }
 
 /// A piece of an upload: the raw request body, the transfer in the `x-transfer-id` header.
+/// It returns once the piece is on its way (unless much is in flight already), so the page
+/// can send the next one meanwhile.
 #[tauri::command]
 pub async fn sftp_upload_chunk(
     request: Request<'_>,
@@ -342,26 +476,25 @@ pub async fn sftp_upload_chunk(
         return Err(CmdError::from("expected binary data"));
     };
     // Taken out while writing, so the lock is not held across the await.
-    let (sftp, mut upload) = lock(&transfers.uploads)
+    let mut upload = lock(&transfers.uploads)
         .remove(&id)
         .ok_or_else(|| CmdError::from(i18n::cancelled()))?;
     match upload.write(data).await {
         Ok(()) => {
-            lock(&transfers.uploads).insert(id, (sftp, upload));
+            lock(&transfers.uploads).insert(id, upload);
             Ok(())
         }
         Err(e) => {
-            let path = upload.path().to_string();
-            drop(upload);
-            sftp.discard(&path).await;
+            upload.cancel().await;
             Err(e.into())
         }
     }
 }
 
+/// Waits for the upload's writes and closes the file (a failed upload is removed).
 #[tauri::command]
 pub async fn sftp_upload_end(transfers: State<'_, Transfers>, transfer_id: u64) -> CmdResult<()> {
-    let (_, upload) = lock(&transfers.uploads)
+    let upload = lock(&transfers.uploads)
         .remove(&transfer_id)
         .ok_or_else(|| CmdError::from(i18n::cancelled()))?;
     Ok(upload.finish().await?)
@@ -374,10 +507,8 @@ pub async fn sftp_cancel(transfers: State<'_, Transfers>, transfer_id: u64) -> C
         flag.store(true, Ordering::Relaxed);
     }
     let upload = lock(&transfers.uploads).remove(&transfer_id);
-    if let Some((sftp, upload)) = upload {
-        let path = upload.path().to_string();
-        drop(upload);
-        sftp.discard(&path).await;
+    if let Some(upload) = upload {
+        upload.cancel().await;
     }
     Ok(())
 }
