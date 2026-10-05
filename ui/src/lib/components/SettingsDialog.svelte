@@ -5,7 +5,7 @@
   import { formatNumber, i18n, LANGUAGES, t, timeAgo, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
   import { agents } from '../state/agents.svelte';
-  import { edits } from '../state/edits.svelte';
+  import { associations, edits, parseExtensions } from '../state/edits.svelte';
   import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
   import { servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
@@ -13,7 +13,7 @@
   import { toasts } from '../state/toasts.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
-  import type { AgentActivity, Server, Settings } from '../types';
+  import type { AgentActivity, EditorAssociation, Server, Settings } from '../types';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import Select from './Select.svelte';
@@ -48,13 +48,70 @@
     windows ? String.raw`"C:\Program Files\Notepad++\notepad++.exe" -multiInst {file}` : 'subl {file}',
   );
 
-  async function browseEditor() {
+  /** A program picked in the file dialog, as a command line; `null` when cancelled. */
+  async function pickEditor(): Promise<string | null> {
     try {
       const path = await api.pickProgram(t('settings.editorPick'));
-      if (path) app.update({ editorCommand: /\s/.test(path) ? `"${path}"` : path });
+      return path ? (/\s/.test(path) ? `"${path}"` : path) : null;
     } catch (e) {
       toasts.error(errorMessage(e));
+      return null;
     }
+  }
+
+  async function browseEditor() {
+    const command = await pickEditor();
+    if (command) app.update({ editorCommand: command });
+  }
+
+  // ---- programs by file type ------------------------------------------------------------
+
+  const associationList = $derived(associations());
+
+  /** What a file type may open in: the editors found, the file's default program, or a
+   * command line (an editor saved but not found any more stays listed as such). */
+  function programOptions(current: string): { value: string; label: string }[] {
+    const options = edits.editors.map((e) => ({ value: e.id, label: e.name }));
+    if (current && current !== 'system' && current !== 'custom' && !edits.editors.some((e) => e.id === current)) {
+      options.push({ value: current, label: t('settings.editorMissing', { name: current }) });
+    }
+    options.push({ value: 'system', label: t('settings.editorSystem') }, { value: 'custom', label: t('settings.editorCustom') });
+    return options;
+  }
+
+  let newExtensions = $state('');
+  let newEditor = $state('');
+  let newCommand = $state('');
+  const addEditor = $derived(newEditor || (edits.editors[0]?.id ?? 'system'));
+  const typedExtensions = $derived(parseExtensions(newExtensions));
+  const canAdd = $derived(typedExtensions.length > 0 && (addEditor !== 'custom' || newCommand.trim() !== ''));
+
+  function addAssociation(ev: SubmitEvent) {
+    ev.preventDefault();
+    if (!canAdd) return;
+    // An extension opens in one program: the new association takes it from the others.
+    const kept = associations()
+      .map((a) => ({ ...a, extensions: a.extensions.filter((ext) => !typedExtensions.includes(ext)) }))
+      .filter((a) => a.extensions.length > 0);
+    const added = { extensions: typedExtensions, editor: addEditor, command: addEditor === 'custom' ? newCommand.trim() : '' };
+    app.update({ editorAssociations: [...kept, added] });
+    newExtensions = '';
+    newCommand = '';
+  }
+
+  function changeAssociation(index: number, patch: Partial<EditorAssociation>) {
+    app.update({ editorAssociations: associations().map((a, i) => (i === index ? { ...a, ...patch } : a)) });
+  }
+
+  function removeAssociation(index: number) {
+    app.update({ editorAssociations: associations().filter((_, i) => i !== index) });
+  }
+
+  async function browseAssociation(index: number | null) {
+    const command = await pickEditor();
+    if (!command) return;
+    if (index === null) newCommand = command;
+    else changeAssociation(index, { command });
   }
 
   const shellOptions: { value: string; label: string }[] = $derived.by(() => {
@@ -563,6 +620,81 @@
         </div>
       </div>
     </div>
+    <section class="types" aria-labelledby="file-types">
+      <h3 id="file-types">{t('settings.associations')}</h3>
+      <p class="types-hint">{t('settings.associationsHint')}</p>
+      <div class="type-list">
+        {#each associationList as association, i (i)}
+          {@const extensions = association.extensions.map((ext) => `.${ext}`).join(' ')}
+          <div class="type">
+            <span class="extensions mono" title={extensions}>{extensions}</span>
+            <span class="arrow" aria-hidden="true">→</span>
+            <Select
+              value={association.editor}
+              options={programOptions(association.editor)}
+              onchange={(editor) => changeAssociation(i, { editor })}
+              label={t('settings.associationProgram', { extensions })}
+              width={210}
+            />
+            <span class="end">
+              <button class="icon-btn small" title={t('common.remove')} aria-label={t('common.remove')} onclick={() => removeAssociation(i)}>
+                <Icon name="x" size={13} />
+              </button>
+            </span>
+          </div>
+          {#if association.editor === 'custom'}
+            <div class="type-command">
+              <input
+                class="input mono"
+                value={association.command}
+                placeholder={editorExample}
+                aria-label={t('settings.associationCommand', { extensions })}
+                spellcheck="false"
+                autocomplete="off"
+                onchange={(e) => changeAssociation(i, { command: e.currentTarget.value.trim() })}
+              />
+              <button class="btn" onclick={() => browseAssociation(i)}>{t('editor.browse')}</button>
+            </div>
+          {/if}
+        {:else}
+          <p class="types-empty">{t('settings.associationsEmpty')}</p>
+        {/each}
+        <form class="type add" onsubmit={addAssociation}>
+          <input
+            class="input mono extensions"
+            bind:value={newExtensions}
+            placeholder={t('settings.associationExtensionsExample')}
+            aria-label={t('settings.associationExtensions')}
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <span class="arrow" aria-hidden="true">→</span>
+          <Select
+            value={addEditor}
+            options={programOptions(addEditor)}
+            onchange={(editor) => (newEditor = editor)}
+            label={t('settings.associationNewProgram')}
+            width={210}
+          />
+          <span class="end">
+            <button class="btn" type="submit" disabled={!canAdd}>{t('settings.associationAdd')}</button>
+          </span>
+        </form>
+        {#if addEditor === 'custom'}
+          <div class="type-command">
+            <input
+              class="input mono"
+              bind:value={newCommand}
+              placeholder={editorExample}
+              aria-label={t('settings.associationNewCommand')}
+              spellcheck="false"
+              autocomplete="off"
+            />
+            <button class="btn" onclick={() => browseAssociation(null)}>{t('editor.browse')}</button>
+          </div>
+        {/if}
+      </div>
+    </section>
   {:else if section === 'keyboard'}
     {#if !isMac()}
       <label class="row top">
@@ -1066,6 +1198,70 @@
     color: var(--text-2);
     font-size: 12px;
     text-align: right;
+  }
+  .types {
+    margin-top: 18px;
+  }
+  .types h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .types-hint,
+  .types-empty {
+    margin: 2px 0 10px;
+    color: var(--text-2);
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+  .types-empty {
+    margin: 0;
+    padding: 8px 0;
+  }
+  .type-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .type {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .type .extensions {
+    flex: 1;
+    min-width: 0;
+  }
+  span.extensions {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+  }
+  .type .arrow {
+    flex: none;
+    color: var(--text-3);
+  }
+  .type.add {
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-soft);
+  }
+  /* The same width in every row, so the programs line up. */
+  .type .end {
+    display: flex;
+    flex: none;
+    justify-content: flex-end;
+    width: 96px;
+  }
+  .type-command {
+    display: flex;
+    gap: 6px;
+    padding-left: 24px;
+  }
+  .type-command .input {
+    flex: 1;
+    min-width: 0;
   }
   .activity-head {
     display: flex;

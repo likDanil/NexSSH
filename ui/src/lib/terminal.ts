@@ -8,6 +8,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
 import { isMac, mod, shortcutKey } from './platform';
+import { readRows } from './screen';
 import type { Settings, TerminalSnapshot } from './types';
 
 export const BUNDLED_FONT = 'JetBrains Mono Variable';
@@ -219,31 +220,22 @@ export class TermView {
     this.term.write(data);
   }
 
-  /** The text of the screen, or of the last `lines` lines with the scrollback, as the user sees
-   * it: rows a long line was wrapped into are joined again, blank lines at the end dropped. */
+  /** The text of the screen, or of the last `lines` lines of the output with the scrollback
+   * (counted back from the last line that shows something), as the user sees it: rows a long
+   * line was wrapped into are joined again (see `readRows`). */
   snapshot(lines: number | null): TerminalSnapshot {
     const buffer = this.term.buffer.active;
-    const end = buffer.length;
-    const from = lines ? Math.max(0, end - lines) : buffer.baseY;
-    const out: string[] = [];
-    for (let y = from; y < end; y++) {
-      const line = buffer.getLine(y);
-      if (!line) continue;
-      const text = line.translateToString(true);
-      if (line.isWrapped && out.length) out[out.length - 1] += text;
-      else out.push(text);
-    }
-    while (out.length && !out[out.length - 1].trim()) out.pop();
+    const { text, from, last } = readRows(buffer, buffer.baseY, lines);
     return {
-      text: out.join('\n'),
+      text,
       cols: this.term.cols,
       rows: this.term.rows,
       cursorRow: buffer.cursorY + 1,
       cursorCol: buffer.cursorX + 1,
       alternate: buffer.type === 'alternate',
       above: buffer.baseY,
-      from: from + 1,
-      total: end,
+      from,
+      total: last,
     };
   }
 

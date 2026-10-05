@@ -5,11 +5,42 @@
 
 import { api, errorMessage } from '../api';
 import { t } from '../i18n.svelte';
-import type { EditInfo, EditorInfo, EditRefusal } from '../types';
+import type { EditInfo, EditorAssociation, EditorInfo, EditRefusal } from '../types';
 import { app } from './app.svelte';
 import { files, parentPath } from './files.svelte';
 import type { Tab } from './sessions.svelte';
 import { toasts } from './toasts.svelte';
+
+/** Extensions as typed (`.yml, yaml`), as associations keep them: lowercase, without the
+ * dot, each once. Commas, semicolons and spaces separate them; a slash is no extension. */
+export function parseExtensions(text: string): string[] {
+  const list = text
+    .split(/[\s,;]+/)
+    .map((ext) => ext.replace(/^\.+/, '').toLowerCase())
+    .filter((ext) => ext !== '' && !/[\\/]/.test(ext));
+  return [...new Set(list)];
+}
+
+/** The associations of the settings that read as ones, extensions as `parseExtensions`
+ * leaves them (settings.json may have been edited by hand). */
+export function associations(): EditorAssociation[] {
+  const list: unknown = app.settings.editorAssociations;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((item: Partial<EditorAssociation> | null) => {
+    if (!item || typeof item !== 'object' || !Array.isArray(item.extensions)) return [];
+    const extensions = parseExtensions(item.extensions.filter((e) => typeof e === 'string').join(' '));
+    const editor = typeof item.editor === 'string' ? item.editor : '';
+    const command = typeof item.command === 'string' ? item.command : '';
+    return [{ extensions, editor, command }];
+  });
+}
+
+/** A command line's program by its file name: `"C:\…\Typora.exe" {file}` → `Typora`. */
+function programName(command: string): string {
+  const line = command.trim();
+  const first = line.startsWith('"') ? line.slice(1).split('"')[0] : line.split(/\s+/)[0];
+  return (first.split(/[\\/]/).pop() ?? '').replace(/\.(exe|cmd|bat|com|app)$/i, '');
+}
 
 function refusal(e: unknown): EditRefusal | null {
   return e && typeof e === 'object' && 'kind' in e ? (e as EditRefusal) : null;
@@ -36,10 +67,40 @@ class EditsState {
     this.editors = await api.editEditors().catch(() => []);
   }
 
-  /** The editor files open in, as the settings choose it. */
-  editorName(): string {
-    const { editor } = app.settings;
-    if (editor === 'custom') return t('edit.customEditor');
+  /** Whether a program can open files here: a custom one needs its command, an editor must
+   * be found (`Program::usable` in desktop/src/edit.rs). */
+  usable(editor: string, command: string): boolean {
+    if (editor === 'custom') return command.trim() !== '';
+    return editor === 'system' || this.editors.some((e) => e.id === editor);
+  }
+
+  /** The association the file `name` opens with, as the backend chooses it: the one with the
+   * longest extension the name has (the first of equals), passing over programs that cannot
+   * open files here. */
+  associationFor(name: string): EditorAssociation | null {
+    const lower = name.toLowerCase();
+    let best: EditorAssociation | null = null;
+    let longest = 0;
+    for (const association of associations()) {
+      if (!this.usable(association.editor, association.command)) continue;
+      for (const ext of association.extensions) {
+        if (ext.length > longest && lower.endsWith(`.${ext}`)) {
+          best = association;
+          longest = ext.length;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** The program the file `name` opens in (without a name, the default editor). */
+  editorName(name?: string): string {
+    const association = name ? this.associationFor(name) : null;
+    const editor = association ? association.editor : app.settings.editor;
+    if (editor === 'custom') {
+      const command = association ? association.command : app.settings.editorCommand;
+      return programName(command) || t('edit.customEditor');
+    }
     if (editor === 'system') return t('edit.defaultProgram');
     const found = this.editors.find((e) => e.id === editor) ?? this.editors[0];
     return found?.name ?? t('edit.defaultProgram');

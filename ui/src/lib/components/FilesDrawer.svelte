@@ -195,7 +195,7 @@
       }
       if (!isDirLike(e)) {
         items.push(
-          { label: t('files.editIn', { editor: edits.editorName() }), icon: 'external', hint: 'F4', action: () => edit(e) },
+          { label: t('files.editIn', { editor: edits.editorName(e.name) }), icon: 'external', hint: 'F4', action: () => edit(e) },
           'separator',
         );
       }
@@ -656,8 +656,8 @@
             <span class="eactions">
               <button
                 class="icon-btn small"
-                title={t('edit.openAgain', { editor: edits.editorName() })}
-                aria-label={t('edit.openAgain', { editor: edits.editorName() })}
+                title={t('edit.openAgain', { editor: edits.editorName(edit.name) })}
+                aria-label={t('edit.openAgain', { editor: edits.editorName(edit.name) })}
                 onclick={() => edits.show(edit)}
               >
                 <Icon name="external" size={12} />

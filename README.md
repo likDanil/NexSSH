@@ -35,6 +35,8 @@
   the right-click menu on a link opens or copies it. Before several lines are pasted, NexSSH
   shows them and asks, unless the program takes pastes as text (bracketed paste); pastes leave
   control characters out.
+* On Windows 11 the maximize button of NexSSH's own title bar offers the snap layouts, as any
+  window's does: rest the mouse on it.
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,
   PEM, PKCS#8, PuTTY `.ppk`) — the passphrase is asked only if the server accepts the key;
   pick a key from those found in `~/.ssh` or with *Browse…* — passwords and
@@ -62,6 +64,7 @@
   was until its upload is complete, so a cancelled or broken upload loses nothing.
 * **Edit server files in your own editor:** *Edit in…* (<kbd>F4</kbd>) in the files drawer
   opens a file in VS Code, Cursor, Notepad++ or the editor of your choice (*Settings → Files*),
+  also per file type (`.log` in Notepad++, `.yml` in VS Code, the rest in the default editor),
   and every save goes back to the server. A file someone changed on the server meanwhile is not
   overwritten without asking, saves made while disconnected go up on reconnect, and a file only
   root may write can be opened and saved with `sudo` (its password, if it needs one, stays in
