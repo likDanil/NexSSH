@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use common::{Session, core, env, server};
-use nexssh_core::sftp::{EntryKind, Progress, Sftp, base_name, join};
+use nexssh_core::exec::{ExecOptions, Exit};
+use nexssh_core::sftp::{Entry, EntryKind, Progress, Sftp, base_name, join};
 use nexssh_core::{AuthKind, SessionStatus};
 
 fn local_dir(tag: &str) -> std::path::PathBuf {
@@ -320,6 +321,131 @@ async fn upload_local_folders() {
     sftp.remove(&dir).await.unwrap();
     let _ = std::fs::remove_dir_all(&local);
     s.close().await;
+}
+
+/// The whole content of a remote file.
+async fn content(sftp: &Sftp, path: &str) -> Vec<u8> {
+    sftp.read_part(path, 0, u64::MAX).await.unwrap().0
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replacing_keeps_the_file_until_done_with_its_permissions_and_links() {
+    let Some(env) = env() else { return };
+    let core = Arc::new(core());
+    let mut srv = server(&env, AuthKind::Key);
+    srv.identity_file = Some(env.key.clone());
+    let mut s = Session::open(Arc::clone(&core), srv);
+    s.accept_host_key().await;
+    s.expect_status(SessionStatus::Connected).await;
+    let sftp = core.sessions.sftp(s.id).await.unwrap();
+    let dir = join(
+        &sftp.home().await.unwrap(),
+        &format!("nexssh-sftp-replace-{}", std::process::id()),
+    );
+    let _ = sftp.remove(&dir).await;
+    sftp.mkdir(&dir).await.unwrap();
+    let names = |entries: &[Entry]| {
+        let mut names: Vec<_> = entries.iter().map(|e| e.name.clone()).collect();
+        names.sort();
+        names
+    };
+    let file = join(&dir, "run.sh");
+    let old = pattern(300_000);
+    upload(&sftp, &file, &old).await;
+    sftp.chmod(&file, 0o750, false).await.unwrap();
+
+    // Abandoned on its way: the file stays as it was, and no copy is left beside it.
+    let mut up = sftp.create(&file).await.unwrap();
+    up.write(&b"partial".repeat(30_000)).await.unwrap();
+    up.cancel().await;
+    assert_eq!(names(&sftp.list(&dir).await.unwrap()), ["run.sh"]);
+    assert!(content(&sftp, &file).await == old);
+
+    // Complete: the new content, with the file's permissions.
+    let new = b"#!/bin/sh\necho new\n".repeat(20_000);
+    upload(&sftp, &file, &new).await;
+    let listed = sftp.list(&dir).await.unwrap();
+    assert_eq!(names(&listed), ["run.sh"]);
+    assert_eq!(listed[0].mode, Some(0o750));
+    assert!(content(&sftp, &file).await == new);
+
+    // Through a symlink: the file it points to is replaced, and the link stays.
+    let link = join(&dir, "link.sh");
+    let made = core
+        .sessions
+        .exec(
+            s.id,
+            &format!("ln -s run.sh '{link}'"),
+            ExecOptions::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(made.exit, Some(Exit::Code(0)));
+    upload(&sftp, &link, &old).await;
+    let listed = sftp.list(&dir).await.unwrap();
+    assert_eq!(names(&listed), ["link.sh", "run.sh"]);
+    assert_eq!(kind(&listed, "link.sh").0, EntryKind::Link);
+    assert_eq!(kind(&listed, "run.sh"), (EntryKind::File, Some(0o750)));
+    assert!(content(&sftp, &file).await == old);
+
+    // In a folder upload that merges into this folder, where files are likely there and their
+    // copies are made right away: through the link, a new file, and a file replaced directly.
+    let home = sftp.home().await.unwrap();
+    let mirror = |tag: &str, files: &[(&str, &[u8])]| {
+        let root = local_dir(tag).join(base_name(&dir));
+        std::fs::create_dir_all(&root).unwrap();
+        for (name, data) in files {
+            std::fs::write(root.join(name), data).unwrap();
+        }
+        root
+    };
+    let cancel = AtomicBool::new(false);
+    let through = mirror("replace-a", &[("link.sh", &new), ("added.txt", b"added")]);
+    sftp.upload_path(&through, &home, &mut |_| {}, &cancel)
+        .await
+        .unwrap();
+    let listed = sftp.list(&dir).await.unwrap();
+    assert_eq!(names(&listed), ["added.txt", "link.sh", "run.sh"]);
+    assert_eq!(kind(&listed, "link.sh").0, EntryKind::Link);
+    assert_eq!(kind(&listed, "run.sh"), (EntryKind::File, Some(0o750)));
+    assert!(content(&sftp, &file).await == new);
+    assert_eq!(content(&sftp, &join(&dir, "added.txt")).await, b"added");
+    let direct = mirror("replace-b", &[("run.sh", &old)]);
+    sftp.upload_path(&direct, &home, &mut |_| {}, &cancel)
+        .await
+        .unwrap();
+    let listed = sftp.list(&dir).await.unwrap();
+    assert_eq!(names(&listed), ["added.txt", "link.sh", "run.sh"]);
+    assert_eq!(kind(&listed, "run.sh"), (EntryKind::File, Some(0o750)));
+    assert!(content(&sftp, &file).await == old);
+
+    // A file this user may not write is not replaced, on its own or in a folder.
+    sftp.chmod(&file, 0o444, false).await.unwrap();
+    let err = sftp.create(&file).await.err().expect("a read-only file");
+    assert!(matches!(err, nexssh_core::Error::Denied(_)), "{err}");
+    let err = sftp
+        .upload_path(&direct, &home, &mut |_| {}, &cancel)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, nexssh_core::Error::Denied(_)), "{err}");
+    assert_eq!(
+        names(&sftp.list(&dir).await.unwrap()),
+        ["added.txt", "link.sh", "run.sh"]
+    );
+    assert!(content(&sftp, &file).await == old);
+
+    sftp.chmod(&file, 0o644, false).await.unwrap();
+    sftp.remove(&dir).await.unwrap();
+    for tag in ["replace-a", "replace-b"] {
+        let _ = std::fs::remove_dir_all(local_dir(tag));
+    }
+    s.close().await;
+}
+
+/// The kind and permission bits of the entry `name`.
+fn kind(entries: &[Entry], name: &str) -> (EntryKind, Option<u32>) {
+    let entry = entries.iter().find(|e| e.name == name).expect(name);
+    (entry.kind, entry.mode)
 }
 
 #[tokio::test(flavor = "multi_thread")]

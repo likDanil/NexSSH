@@ -9,8 +9,12 @@
 //! far (see [`Flow`]). Folders move several files at a time, and are listed, created,
 //! deleted and changed several requests at a time, so small files do not cost a few round
 //! trips one after another either.
+//!
+//! An upload that replaces a file writes a hidden copy beside it, which takes the file's
+//! place once complete (see [`Sftp::open_upload`]): a cancelled or failed upload leaves the
+//! file as it was.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -25,9 +29,12 @@ use russh_sftp::client::RawSftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::client::rawsession::{Limits, SftpResult};
 use russh_sftp::extensions;
-use russh_sftp::protocol::{FileAttributes, FilePermissions, OpenFlags, Status, StatusCode};
+use russh_sftp::protocol::{
+    FileAttributes, FilePermissions, Handle as FileHandle, OpenFlags, Packet, StatusCode,
+};
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::error::{Error, Result};
 use crate::i18n;
@@ -35,6 +42,14 @@ use crate::session::handler::ClientHandler;
 
 /// Permission bits, including setuid, setgid and sticky (the rest of `st_mode` is the type).
 const MODE_BITS: u32 = 0o7777;
+/// The type in `st_mode`, and the types an upload tells apart.
+const TYPE_BITS: u32 = 0o170000;
+const TYPE_FILE: u32 = 0o100000;
+const TYPE_DIR: u32 = 0o040000;
+const TYPE_LINK: u32 = 0o120000;
+
+/// OpenSSH's rename that replaces the target in one step (plain SFTP renames refuse to).
+const POSIX_RENAME: &str = "posix-rename@openssh.com";
 
 /// Read and write size when the server does not announce its limits: what OpenSSH's sftp
 /// uses then, and what every server takes.
@@ -115,6 +130,8 @@ pub struct Sftp {
     write_len: u64,
     /// Files of a folder moved at the same time (fewer if the server allows few open files).
     parallel: usize,
+    /// Whether the server has [`POSIX_RENAME`].
+    posix_rename: bool,
 }
 
 impl Sftp {
@@ -128,10 +145,8 @@ impl Sftp {
             .map_err(|e| Error::invalid(i18n::sftp_unavailable(e)))?;
         let (mut read_len, mut write_len) = (DEFAULT_IO_LEN, DEFAULT_IO_LEN);
         let mut parallel = PARALLEL_FILES;
-        let has_limits = version
-            .extensions
-            .get(extensions::LIMITS)
-            .is_some_and(|v| v == "1");
+        let has = |extension: &str| version.extensions.get(extension).is_some_and(|v| v == "1");
+        let (has_limits, posix_rename) = (has(extensions::LIMITS), has(POSIX_RENAME));
         if has_limits {
             match raw.limits().await {
                 Ok(announced) => {
@@ -159,6 +174,7 @@ impl Sftp {
             read_len,
             write_len,
             parallel,
+            posix_rename,
         })
     }
 
@@ -257,12 +273,17 @@ impl Sftp {
 
     /// Creates the folder unless it already exists (an upload merges into it).
     pub async fn ensure_dir(&self, path: &str) -> Result<()> {
+        self.make_dir(path).await.map(drop)
+    }
+
+    /// [`Sftp::ensure_dir`]: `true` when the folder was there already.
+    async fn make_dir(&self, path: &str) -> Result<bool> {
         // Usually the folder is new: creating it right away saves a round trip.
         let Err(e) = self.raw.mkdir(path, FileAttributes::empty()).await else {
-            return Ok(());
+            return Ok(false);
         };
         match self.raw.stat(path).await {
-            Ok(found) if found.attrs.is_dir() => Ok(()),
+            Ok(found) if found.attrs.is_dir() => Ok(true),
             Ok(_) => Err(Error::invalid(i18n::sftp_exists(path))),
             Err(_) => Err(fail(path, e)),
         }
@@ -271,16 +292,29 @@ impl Sftp {
     /// Creates the folders that do not exist yet (they merge into existing ones). A folder
     /// may be inside another one of them: parents are created first.
     pub async fn ensure_dirs(&self, paths: &[String]) -> Result<()> {
+        self.make_dirs(paths).await.map(drop)
+    }
+
+    /// [`Sftp::ensure_dirs`]: returns the folders that were there already.
+    async fn make_dirs(&self, paths: &[String]) -> Result<HashSet<String>> {
         let mut levels: BTreeMap<usize, Vec<String>> = BTreeMap::new();
         for path in paths {
             let depth = path.split('/').filter(|p| !p.is_empty()).count();
             levels.entry(depth).or_default().push(path.clone());
         }
+        let mut existed = HashSet::new();
         for level in levels.into_values() {
-            self.each(level, |path| async move { self.ensure_dir(&path).await })
-                .await?;
+            let mut making = stream::iter(level)
+                .map(|path| async move {
+                    let there = self.make_dir(&path).await?;
+                    Ok::<_, Error>(there.then_some(path))
+                })
+                .buffer_unordered(PARALLEL_REQUESTS);
+            while let Some(made) = making.next().await {
+                existed.extend(made?);
+            }
         }
-        Ok(())
+        Ok(existed)
     }
 
     /// Creates an empty file; never replaces an existing one.
@@ -553,8 +587,9 @@ impl Sftp {
     /// Uploads a local file or folder into `remote_dir` under its own name and returns the
     /// remote path. Folders merge into existing ones and files replace existing files (the
     /// UI asks first). Inside folders, symlinks to files are followed and symlinks to
-    /// folders skipped (they may loop). A cancelled or failed upload removes the files it was
-    /// writing; what was uploaded before stays.
+    /// folders skipped (they may loop). A cancelled or failed upload removes the new files it
+    /// was writing and leaves the files it was replacing as they were; what was uploaded
+    /// before stays.
     pub async fn upload_path(
         &self,
         local: &Path,
@@ -603,23 +638,45 @@ impl Sftp {
         let total = files.iter().map(|f| f.2).sum();
         on_progress(Progress { done: 0, total });
         job.check()?;
-        self.ensure_dirs(&dirs).await?;
-        let sends = files
-            .into_iter()
-            .map(|(path, remote, _)| async move { self.send(job, &path, &remote).await });
-        job.run(total, self.parallel, sends, on_progress).await?;
+        let existed = self.make_dirs(&dirs).await?;
+        // Files are open `parallel` at a time. A copy that then takes the place of the file
+        // it replaces does so outside of that, so twice as many are on their way.
+        let slots = &Semaphore::new(self.parallel);
+        let sends = files.into_iter().map(|(path, remote, _)| {
+            // In a folder that was there already, the file likely is too.
+            let likely_there = remote
+                .rsplit_once('/')
+                .is_some_and(|(dir, _)| existed.contains(dir));
+            async move { self.send(job, slots, &path, &remote, likely_there).await }
+        });
+        job.run(total, 2 * self.parallel, sends, on_progress)
+            .await?;
         Ok(target)
     }
 
-    /// Uploads one local file to `remote`.
-    async fn send(&self, job: &Job<'_>, local: &Path, remote: &str) -> Result<()> {
+    /// Uploads one local file to `remote`, with its file open while it holds one of `slots`;
+    /// `likely_there`: whether a file is probably there already (see [`Sftp::open_upload`]).
+    async fn send(
+        &self,
+        job: &Job<'_>,
+        slots: &Semaphore,
+        local: &Path,
+        remote: &str,
+        likely_there: bool,
+    ) -> Result<()> {
+        job.check()?;
+        let Ok(slot) = slots.acquire().await else {
+            return Err(Error::Cancelled);
+        };
         job.check()?;
         let input = tokio::fs::File::open(local)
             .await
             .map_err(|e| local_read_fail(local, e))?;
         let mut input = BufReader::with_capacity(LOCAL_READ, input);
-        let mut writer = self.create_writer(remote, Arc::clone(&job.flow)).await?;
-        let sent: Result<()> = async {
+        let (mut writer, unused) = self
+            .create_writer(remote, Arc::clone(&job.flow), likely_there)
+            .await?;
+        let sending = async {
             let mut piece = vec![0u8; self.write_len as usize];
             loop {
                 job.check()?;
@@ -627,14 +684,15 @@ impl Sftp {
                     .await
                     .map_err(|e| local_read_fail(local, e))?;
                 if n == 0 {
-                    return Ok(());
+                    return Ok::<(), Error>(());
                 }
                 writer.push(piece[..n].to_vec()).await?;
             }
-        }
-        .await;
+        };
+        // What was opened for nothing is closed meanwhile.
+        let (sent, ()) = futures_util::join!(sending, self.discard(unused));
         match sent {
-            Ok(()) => writer.finish().await,
+            Ok(()) => writer.finish(Some(slot)).await,
             Err(e) => {
                 writer.abandon().await;
                 Err(e)
@@ -642,16 +700,172 @@ impl Sftp {
         }
     }
 
-    /// Creates (or replaces) a remote file to upload into.
+    /// Starts an upload to the remote file `path`, which it creates, or replaces once the
+    /// upload is complete (see [`Sftp::open_upload`]).
     pub async fn create(&self, path: &str) -> Result<Upload> {
-        let writer = self.create_writer(path, Arc::new(Flow::default())).await?;
+        let (writer, unused) = self
+            .create_writer(path, Arc::new(Flow::default()), false)
+            .await?;
+        self.discard(unused).await;
         Ok(Upload {
             writer,
             write_len: self.write_len as usize,
         })
     }
 
-    async fn create_writer(&self, path: &str, flow: Arc<Flow>) -> Result<Writer> {
+    /// A writer for an upload to `path`, and the files opened for nothing on the way, for
+    /// [`Sftp::discard`].
+    async fn create_writer(
+        &self,
+        path: &str,
+        flow: Arc<Flow>,
+        likely_there: bool,
+    ) -> Result<(Writer, Vec<Unused>)> {
+        let opened = self.open_upload(path, likely_there).await?;
+        let writer = Writer {
+            raw: Arc::clone(&self.raw),
+            handle: Some(opened.handle),
+            path: path.to_string(),
+            file: opened.file,
+            placement: opened.placement,
+            posix_rename: self.posix_rename,
+            offset: 0,
+            replies: FuturesUnordered::new(),
+            mine: 0,
+            flow,
+        };
+        Ok((writer, opened.unused))
+    }
+
+    /// Opens what an upload to `path` writes into. A new file is written where it goes. An
+    /// existing one stays as it is until the upload is complete: the data goes into a hidden
+    /// copy beside it, which then takes its place, so an upload that is cancelled or fails
+    /// leaves the original as it was. Only where the folder lets no copy be made beside the
+    /// file is the file itself written over. As before, a file this user may not write is not
+    /// replaced.
+    ///
+    /// Finding out costs a round trip, and making the copy another. With `likely_there` (a
+    /// file in a folder that was there already), the copy is made right away, for nothing if
+    /// the file turns out new: the caller then closes and removes it ([`Opened::unused`]).
+    async fn open_upload(&self, path: &str, likely_there: bool) -> Result<Opened> {
+        let create = OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE;
+        let new = self.raw.open(path, create, FileAttributes::empty());
+        let what = self.raw.lstat(path);
+        // Usually the file is new; what is there otherwise is asked at the same time. Asked
+        // ahead along with the copy: whether this user may write the file. Until the copy gets
+        // the original's permissions, it is this user's alone.
+        let (created, found, early) = if likely_there {
+            let copy = side_name(path);
+            let private = FileAttributes {
+                permissions: Some(0o600),
+                ..FileAttributes::empty()
+            };
+            let (created, found, allowed, made) = futures_util::join!(
+                new,
+                what,
+                self.raw
+                    .open(path, OpenFlags::WRITE, FileAttributes::empty()),
+                self.raw.open(copy.as_str(), create, private),
+            );
+            (
+                created,
+                found,
+                Some(Early {
+                    allowed,
+                    made,
+                    copy,
+                }),
+            )
+        } else {
+            let (created, found) = futures_util::join!(new, what);
+            (created, found, None)
+        };
+        let refused = match created {
+            Ok(created) => {
+                return Ok(Opened {
+                    handle: created.handle,
+                    file: path.to_string(),
+                    placement: Placement::New,
+                    unused: unused(early),
+                });
+            }
+            Err(e) => e,
+        };
+        let found = found.map(|found| found.attrs);
+        let kind = found.as_ref().ok().map(file_type);
+        // Only a file right where the copy was made can use what was asked ahead.
+        let early = match early {
+            Some(early) if kind == Some(Some(TYPE_FILE)) => Some(early),
+            other => {
+                self.discard(unused(other)).await;
+                None
+            }
+        };
+        // Not there, and not created either: the open's error says why.
+        let Ok(found) = found else {
+            return Err(fail(path, refused));
+        };
+        let (target, original) = match file_type(&found) {
+            Some(TYPE_DIR) => return Err(Error::invalid(i18n::sftp_is_folder(path))),
+            // The file a symlink points to is replaced, and the link stays.
+            Some(TYPE_LINK) => match self.follow(path).await {
+                Some(followed) => followed,
+                None => return self.open_over(path).await,
+            },
+            Some(TYPE_FILE) | None => (path.to_string(), found),
+            // A device or a pipe takes what is written into it.
+            Some(_) => return self.open_over(path).await,
+        };
+        let (allowed, made, copy) = match early {
+            Some(Early {
+                allowed,
+                made,
+                copy,
+            }) => (allowed, made, copy),
+            None => {
+                let copy = side_name(&target);
+                // The copy starts with the original's permissions (less what the server's
+                // umask takes away), so it is never readable by more people than the original.
+                let start = FileAttributes {
+                    permissions: original.permissions.map(|p| p & 0o777),
+                    ..FileAttributes::empty()
+                };
+                // Whether this user may write the file is asked while the copy is made.
+                let (allowed, made) = futures_util::join!(
+                    self.raw
+                        .open(target.as_str(), OpenFlags::WRITE, FileAttributes::empty()),
+                    self.raw.open(copy.as_str(), create, start),
+                );
+                (allowed, made, copy)
+            }
+        };
+        match (allowed, made) {
+            (Ok(allowed), Ok(made)) => {
+                self.close_later(allowed.handle);
+                Ok(Opened {
+                    handle: made.handle,
+                    file: copy,
+                    placement: Placement::Beside { target, original },
+                    unused: Vec::new(),
+                })
+            }
+            (Ok(allowed), Err(e)) => {
+                log::info!("no copy can be made beside {target} ({e}): it is written over");
+                self.close_later(allowed.handle);
+                self.open_over(&target).await
+            }
+            (Err(e), made) => {
+                if let Ok(made) = made {
+                    let _ = self.raw.close(made.handle).await;
+                    let _ = self.raw.remove(copy).await;
+                }
+                Err(fail(path, e))
+            }
+        }
+    }
+
+    /// Opens the existing file `path` to write it over (see [`Placement::InPlace`]).
+    async fn open_over(&self, path: &str) -> Result<Opened> {
         let flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
         let handle = self
             .raw
@@ -659,15 +873,40 @@ impl Sftp {
             .await
             .map_err(|e| fail(path, e))?
             .handle;
-        Ok(Writer {
-            raw: Arc::clone(&self.raw),
-            handle: Some(handle),
-            path: path.to_string(),
-            offset: 0,
-            replies: FuturesUnordered::new(),
-            mine: 0,
-            flow,
+        Ok(Opened {
+            handle,
+            file: path.to_string(),
+            placement: Placement::InPlace,
+            unused: Vec::new(),
         })
+    }
+
+    /// The file the symlink `path` points to, if it is a file: its path and attributes.
+    async fn follow(&self, path: &str) -> Option<(String, FileAttributes)> {
+        // OpenSSH resolves symlinks here; a server that does not gives back a link.
+        let real = self.resolve(path).await.ok()?;
+        let found = self.raw.lstat(real.as_str()).await.ok()?.attrs;
+        (file_type(&found) == Some(TYPE_FILE)).then_some((real, found))
+    }
+
+    /// Closes files opened for nothing, and removes the copies among them.
+    async fn discard(&self, unused: Vec<Unused>) {
+        let raw = &self.raw;
+        let closing = unused.into_iter().map(|file| async move {
+            let _ = raw.close(file.handle).await;
+            if let Some(copy) = file.copy {
+                let _ = raw.remove(copy).await;
+            }
+        });
+        futures_util::future::join_all(closing).await;
+    }
+
+    /// Closes a file in the background (nothing waits for the reply).
+    fn close_later(&self, handle: String) {
+        drop(OpenFile {
+            raw: Arc::clone(&self.raw),
+            handle,
+        });
     }
 
     // ---- small files, whole in memory -----------------------------------------------
@@ -1028,15 +1267,78 @@ impl<'a> Job<'a> {
 
 // ---- writing ------------------------------------------------------------------------
 
-type WriteReply = Pin<Box<dyn Future<Output = (u64, SftpResult<Status>)> + Send>>;
+type WriteReply = Pin<Box<dyn Future<Output = (u64, SftpResult<()>)> + Send>>;
+
+/// What an upload writes into, and what becomes of it (see [`Sftp::open_upload`]).
+enum Placement {
+    /// A new file, written where it goes: removed again if the upload does not complete.
+    New,
+    /// A hidden copy beside the existing file `target` (the file a symlink points to, where
+    /// the upload's path is one), which takes its place once complete, with the original's
+    /// permissions, and its owner and group where the server lets them be kept. If the upload
+    /// does not complete, the copy is removed and the original stays as it was.
+    Beside {
+        target: String,
+        original: FileAttributes,
+    },
+    /// The existing file itself, where the folder lets no copy be made beside it: what an
+    /// upload that does not complete wrote stays.
+    InPlace,
+}
+
+/// A file opened for an upload (see [`Sftp::open_upload`]).
+struct Opened {
+    handle: String,
+    /// Its path.
+    file: String,
+    placement: Placement,
+    /// What was opened ahead and turned out not to be needed, for [`Sftp::discard`].
+    unused: Vec<Unused>,
+}
+
+/// What [`Sftp::open_upload`] asks ahead for a file likely there: whether this user may write
+/// it (the file, opened for writing), and the copy beside it.
+struct Early {
+    allowed: SftpResult<FileHandle>,
+    made: SftpResult<FileHandle>,
+    copy: String,
+}
+
+/// A file opened for nothing: to close, and to remove if it is a copy.
+struct Unused {
+    handle: String,
+    copy: Option<String>,
+}
+
+/// What of `early` was opened, now unused.
+fn unused(early: Option<Early>) -> Vec<Unused> {
+    let Some(early) = early else {
+        return Vec::new();
+    };
+    let allowed = early.allowed.ok().map(|file| Unused {
+        handle: file.handle,
+        copy: None,
+    });
+    let made = early.made.ok().map(|file| Unused {
+        handle: file.handle,
+        copy: Some(early.copy),
+    });
+    allowed.into_iter().chain(made).collect()
+}
 
 /// Writes into an open remote file with many writes in flight. Dropped before
-/// [`Writer::finish`], it closes and removes the file in the background.
+/// [`Writer::finish`], it closes the file and removes what it wrote, in the background.
 struct Writer {
     raw: Arc<RawSftpSession>,
     /// `None` once closed.
     handle: Option<String>,
+    /// The file the upload is for, as it was asked for (for messages).
     path: String,
+    /// The file written: `path`, or a copy beside the file it replaces.
+    file: String,
+    placement: Placement,
+    /// Whether the server has [`POSIX_RENAME`].
+    posix_rename: bool,
     offset: u64,
     replies: FuturesUnordered<WriteReply>,
     /// Bytes in flight.
@@ -1056,7 +1358,7 @@ impl Writer {
         };
         let (raw, offset, len) = (Arc::clone(&self.raw), self.offset, data.len() as u64);
         self.replies.push(Box::pin(async move {
-            (len, raw.write(handle, offset, data).await)
+            (len, raw.write(handle, offset, data).await.map(drop))
         }));
         self.offset += len;
         self.mine += len;
@@ -1080,7 +1382,7 @@ impl Writer {
         Ok(())
     }
 
-    fn take(&mut self, (len, reply): (u64, SftpResult<Status>)) -> Result<()> {
+    fn take(&mut self, (len, reply): (u64, SftpResult<()>)) -> Result<()> {
         self.mine -= len;
         self.flow.in_flight.fetch_sub(len, Ordering::Relaxed);
         reply.map_err(|e| fail(&self.path, e))?;
@@ -1090,20 +1392,55 @@ impl Writer {
         Ok(())
     }
 
-    /// Waits for every write and closes the file; on failure the file is removed. The close
-    /// goes right behind the writes, without waiting for them: the server takes a file's
-    /// requests in order, so it closes the file complete, and a small file costs one round
-    /// trip less.
-    async fn finish(mut self) -> Result<()> {
+    /// Waits for every write and closes the file, then gives up `slot`; a copy then takes the
+    /// place of the file it replaces. On failure, what was written is removed. The close goes
+    /// right behind the writes, without waiting for them: the server takes a file's requests
+    /// in order, so it closes the file complete, and a small file costs one round trip less.
+    async fn finish(mut self, slot: Option<SemaphorePermit<'_>>) -> Result<()> {
         if let Some(handle) = self.handle.take() {
+            if let Placement::Beside { original, .. } = &self.placement {
+                // The copy gets the original's owner and group (only root may give a file to
+                // another user; others may give it a group they are in), then its permissions
+                // (a change of owner clears setuid and setgid). Neither is worth failing the
+                // upload over.
+                let owner =
+                    (original.uid.is_some() && original.gid.is_some()).then(|| FileAttributes {
+                        uid: original.uid,
+                        gid: original.gid,
+                        ..FileAttributes::empty()
+                    });
+                let mode = original.permissions.map(|p| FileAttributes {
+                    permissions: Some(p & MODE_BITS),
+                    ..FileAttributes::empty()
+                });
+                for attrs in [owner, mode].into_iter().flatten() {
+                    let (raw, handle) = (Arc::clone(&self.raw), handle.clone());
+                    let path = self.path.clone();
+                    self.replies.push(Box::pin(async move {
+                        if let Err(e) = raw.fsetstat(handle, attrs).await {
+                            log::info!("{path} is replaced without all of its attributes: {e}");
+                        }
+                        (0, Ok(()))
+                    }));
+                }
+            }
             let raw = Arc::clone(&self.raw);
-            self.replies
-                .push(Box::pin(async move { (0, raw.close(handle).await) }));
+            self.replies.push(Box::pin(
+                async move { (0, raw.close(handle).await.map(drop)) },
+            ));
         }
         let mut result = Ok(());
         while !self.replies.is_empty() {
             // Every reply is waited for, the close's too, before anything is removed.
             result = result.and(self.settle().await);
+        }
+        drop(slot);
+        if result.is_ok()
+            && let Placement::Beside { target, .. } = &self.placement
+        {
+            result = replace(&self.raw, self.posix_rename, &self.file, target)
+                .await
+                .map_err(|e| fail(&self.path, e));
         }
         if result.is_err() {
             self.abandon().await;
@@ -1111,13 +1448,23 @@ impl Writer {
         result
     }
 
-    /// Gives up: closes the file and removes it.
+    /// Gives up: closes the file and removes what was written (see [`Placement`]).
     async fn abandon(mut self) {
         self.forget_replies();
         if let Some(handle) = self.handle.take() {
             let _ = self.raw.close(handle).await;
         }
-        let _ = self.raw.remove(self.path.as_str()).await;
+        if let Some(file) = self.leftover() {
+            let _ = self.raw.remove(file).await;
+        }
+    }
+
+    /// What to remove when the upload does not complete: a new file, or the copy.
+    fn leftover(&mut self) -> Option<String> {
+        match self.placement {
+            Placement::New | Placement::Beside { .. } => Some(std::mem::take(&mut self.file)),
+            Placement::InPlace => None,
+        }
     }
 
     fn forget_replies(&mut self) {
@@ -1133,11 +1480,13 @@ impl Drop for Writer {
         let Some(handle) = self.handle.take() else {
             return;
         };
-        let (raw, path) = (Arc::clone(&self.raw), std::mem::take(&mut self.path));
+        let (raw, leftover) = (Arc::clone(&self.raw), self.leftover());
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(async move {
                 let _ = raw.close(handle).await;
-                let _ = raw.remove(path).await;
+                if let Some(file) = leftover {
+                    let _ = raw.remove(file).await;
+                }
             });
         }
     }
@@ -1159,13 +1508,15 @@ impl Upload {
         self.writer.send_queued()
     }
 
-    /// Waits for every write to be acknowledged and closes the file. A failed upload
-    /// removes the file.
+    /// Waits for every write to be acknowledged and closes the file, which then replaces the
+    /// file that was there. A failed upload removes what it wrote, and the file it was to
+    /// replace stays as it was.
     pub async fn finish(self) -> Result<()> {
-        self.writer.finish().await
+        self.writer.finish(None).await
     }
 
-    /// Abandons the upload: closes and removes the file.
+    /// Abandons the upload: what it wrote is removed, and the file it was to replace stays
+    /// as it was.
     pub async fn cancel(self) {
         self.writer.abandon().await
     }
@@ -1198,6 +1549,84 @@ fn kind_of(meta: &FileAttributes) -> EntryKind {
         EntryKind::File
     } else {
         EntryKind::Other
+    }
+}
+
+/// The type bits of `st_mode` (`TYPE_FILE`…), if the server gives the mode.
+fn file_type(meta: &FileAttributes) -> Option<u32> {
+    meta.permissions.map(|p| p & TYPE_BITS)
+}
+
+/// A hidden name beside `path` for a file on its way in or out: `.name.nexssh-1f3a9c2b`,
+/// different every time.
+fn side_name(path: &str) -> String {
+    let (dir, name) = match path.rsplit_once('/') {
+        Some((dir, name)) => (Some(dir), name),
+        None => (None, path),
+    };
+    let suffix = format!(".nexssh-{}", &crate::util::random_id()[..8]);
+    // Names are at most 255 bytes on most file systems.
+    let mut keep = name.len().min(255 - 1 - suffix.len());
+    while !name.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    let side = format!(".{}{suffix}", &name[..keep]);
+    match dir {
+        Some(dir) => format!("{dir}/{side}"),
+        None => side,
+    }
+}
+
+/// Puts the complete copy `copy` in the place of `target`: in one step with
+/// [`POSIX_RENAME`], so that there is a file at `target` all along. Plain renames do not
+/// replace: the original moves aside first, and back if the copy cannot take its place.
+async fn replace(
+    raw: &RawSftpSession,
+    posix_rename: bool,
+    copy: &str,
+    target: &str,
+) -> SftpResult<()> {
+    if posix_rename {
+        match rename_over(raw, copy, target).await {
+            Ok(()) => return Ok(()),
+            // Refused (a server may announce what it then cannot do): the original moves
+            // aside. A lost connection or a timeout is not retried that way.
+            Err(SftpError::Status(status)) => log::info!(
+                "{target} is not replaced in one step ({}: {}): it moves aside",
+                status.status_code,
+                status.error_message
+            ),
+            Err(e) => return Err(e),
+        }
+    }
+    let aside = side_name(target);
+    match raw.rename(target, aside.as_str()).await {
+        Ok(_) => {}
+        // Removed meanwhile: the place is free.
+        Err(SftpError::Status(s)) if s.status_code == StatusCode::NoSuchFile => {
+            return raw.rename(copy, target).await.map(drop);
+        }
+        Err(e) => return Err(e),
+    }
+    if let Err(e) = raw.rename(copy, target).await {
+        let _ = raw.rename(aside.as_str(), target).await;
+        return Err(e);
+    }
+    let _ = raw.remove(aside).await;
+    Ok(())
+}
+
+/// [`POSIX_RENAME`]: renames `from` to `to`, replacing what is there.
+async fn rename_over(raw: &RawSftpSession, from: &str, to: &str) -> SftpResult<()> {
+    let mut data = Vec::with_capacity(8 + from.len() + to.len());
+    for path in [from, to] {
+        data.extend_from_slice(&(path.len() as u32).to_be_bytes());
+        data.extend_from_slice(path.as_bytes());
+    }
+    match raw.extended(POSIX_RENAME, data).await? {
+        Packet::Status(status) if status.status_code == StatusCode::Ok => Ok(()),
+        Packet::Status(status) => Err(SftpError::Status(status)),
+        _ => Err(SftpError::UnexpectedPacket),
     }
 }
 
@@ -1312,6 +1741,24 @@ mod tests {
         assert_eq!(base_name("/"), "root");
         assert_eq!(safe_name("a:b?.txt"), "a_b_.txt");
         assert_eq!(safe_name("trailing. "), "trailing");
+    }
+
+    #[test]
+    fn copies_get_hidden_names_beside_the_file() {
+        let side = side_name("/srv/app/config.yml");
+        assert!(side.starts_with("/srv/app/.config.yml.nexssh-"), "{side}");
+        assert_eq!(side.len(), "/srv/app/.config.yml.nexssh-".len() + 8);
+        assert_ne!(side_name("/a"), side_name("/a"), "different every time");
+        assert!(side_name("/top").starts_with("/.top.nexssh-"));
+        assert!(side_name("notes.txt").starts_with(".notes.txt.nexssh-"));
+        // A long name is shortened to fit in 255 bytes, at a character boundary.
+        let side = side_name(&format!("/d/{}", "€".repeat(100)));
+        let name = side.strip_prefix("/d/").unwrap();
+        assert!(name.len() <= 255, "{}", name.len());
+        assert!(
+            name.starts_with(".€€") && name.contains("€.nexssh-"),
+            "{name}"
+        );
     }
 
     #[test]

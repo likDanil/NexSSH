@@ -246,26 +246,28 @@
 </script>
 
 <Modal title={t(existing ? 'editor.titleEdit' : 'editor.titleNew')} width={600} onclose={() => (app.editor = null)}>
-  <div class="tabs segmented" role="tablist">
-    {#each SECTIONS as sec (sec.id)}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={section === sec.id}
-        class:on={section === sec.id}
-        onclick={() => (section = sec.id)}
-      >
-        {t(sec.label)}
-        {#if problems[sec.id] && (tried || sec.id !== 'general')}
-          <span class="problem" aria-hidden="true"></span>
-        {:else if sec.id === 'forwarding' && forwards.length}
-          <span class="count">{forwards.length}</span>
-        {:else if sec.id === 'commands' && commandCount}
-          <span class="count">{commandCount}</span>
-        {/if}
-      </button>
-    {/each}
-  </div>
+  {#snippet toolbar()}
+    <div class="tabs segmented" role="tablist">
+      {#each SECTIONS as sec (sec.id)}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === sec.id}
+          class:on={section === sec.id}
+          onclick={() => (section = sec.id)}
+        >
+          {t(sec.label)}
+          {#if problems[sec.id] && (tried || sec.id !== 'general')}
+            <span class="problem" aria-hidden="true"></span>
+          {:else if sec.id === 'forwarding' && forwards.length}
+            <span class="count">{forwards.length}</span>
+          {:else if sec.id === 'commands' && commandCount}
+            <span class="count">{commandCount}</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/snippet}
 
   <form id="server-form" class="panel" {onsubmit} autocomplete="off">
     {#if section === 'general'}
@@ -554,8 +556,23 @@
 </Modal>
 
 <style>
+  /* One line whatever the labels: a strip that would not fit scrolls rather than wraps. */
   .tabs {
-    margin-bottom: 14px;
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tabs button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .tabs button:focus-visible {
+    outline-offset: -2px;
   }
   .tabs button {
     display: inline-flex;

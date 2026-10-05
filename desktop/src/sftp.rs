@@ -491,7 +491,8 @@ pub async fn sftp_upload_chunk(
     }
 }
 
-/// Waits for the upload's writes and closes the file (a failed upload is removed).
+/// Waits for the upload's writes and closes the file, which then replaces the file that was
+/// there (a failed upload removes what it wrote).
 #[tauri::command]
 pub async fn sftp_upload_end(transfers: State<'_, Transfers>, transfer_id: u64) -> CmdResult<()> {
     let upload = lock(&transfers.uploads)
@@ -500,7 +501,8 @@ pub async fn sftp_upload_end(transfers: State<'_, Transfers>, transfer_id: u64) 
     Ok(upload.finish().await?)
 }
 
-/// Stops a download, or abandons an upload and removes its partial file.
+/// Stops a download, or abandons an upload: what it wrote is removed, and a file it was to
+/// replace stays as it was.
 #[tauri::command]
 pub async fn sftp_cancel(transfers: State<'_, Transfers>, transfer_id: u64) -> CmdResult<()> {
     if let Some(flag) = lock(&transfers.cancel).get(&transfer_id) {

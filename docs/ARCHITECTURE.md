@@ -99,7 +99,7 @@ NexSSH/
 | `keys` | Finds keys in `~/.ssh`, reads public halves without the passphrase (OpenSSH format or `.pub`). |
 | `session` | One Tokio task per session. See below. |
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
-| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders; the files being written when an upload fails or is cancelled are removed. Transfers keep many requests in flight and move several files at a time (see "Transfer speed"). A recursive `chmod` lists everything first, then changes files and folders deepest first, and also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
+| `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders. A file that replaces another goes into a hidden copy beside it (`.name.nexssh-<random>`), which takes the original's place once complete (`posix-rename@openssh.com`; without it, the original moves aside first and back if the copy cannot take its place) and gets its permissions, and its owner and group where the server allows. So an upload that fails or is cancelled removes the new files and the copies it was writing, and the files it was replacing stay as they were. Files in folders that existed already have their copy made right away, with the question whether the file is there and may be written (one round trip, not two). Only where a folder lets no copy be made is a file written over in place; a file the user may not write is not replaced, as before. Transfers keep many requests in flight and move several files at a time (see "Transfer speed"). A recursive `chmod` lists everything first, then changes files and folders deepest first, and also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
 | `exec` | Commands run on a connected session's connection, each on a channel of its own and without a terminal (`SessionManager::exec`), for AI agents: standard input ends after what the caller gives, the output keeps its beginning and end (a quarter and three quarters of the limit), a command that runs too long is stopped (its channel closed, `SIGKILL` asked for). `SessionManager::connected` finds the connected session of a saved server, `live_changes` tells when one connects or its connection ends. |
 | `edit` | Remote files edited in a program of this computer: a copy in a folder of its own under the temporary folder, polled (editors save in place or through a rename) and sent once a save is over. The server's copy is compared first (size and time of change), so a file changed there meanwhile waits for the user (overwrite, or take theirs); saves of a disconnected session go up when it connects again; what SFTP may not read or write goes through `sudo cat` and `sudo tee` on an exec channel. See "Editing remote files". |
 | `local` | Shells for local terminals, found per system: PowerShell 7 (Program Files, else `PATH`), Windows PowerShell, `%ComSpec%`, WSL distributions (from the registry, `HKCU\…\Lxss`; Docker's are skipped), Git Bash (registry `GitForWindows`, then the usual folders); elsewhere the login shell and `/etc/shells`, one entry per real file. The first found is the default. `LocalCommand` is what a local session runs: a shell in a folder, or a command line from the settings (words split at spaces, quotes group, backslashes stay: Windows paths need no escaping). |
@@ -209,8 +209,11 @@ administrator rights once), and removes the classic entries itself too.
   cannot does it start NexSSH itself; such a NexSSH leaves the package alone
   (`register::runs_in_package`).
 * The classic entries are used instead when the user brought back Windows 10's menu with the
-  well-known registry tweak, when a build has no package (development builds) and when
-  registering it fails; the settings show why then.
+  well-known registry tweak, when a build has no package and when registering it fails; the
+  settings show why then.
+* Development (debug) builds leave the entries alone: they have no package, so they would
+  remove the installed NexSSH's and point the classic entries at themselves.
+  `NEXSSH_EXPLORER_MENU=1` lets one manage them, to work on this feature.
 
 A second start hands its `--cwd` over to the running window (single-instance plugin), and the
 page opens a local terminal there.
@@ -361,8 +364,8 @@ type SessionEvent =
     its way, so the next one is read and sent meanwhile.
 
   A transfer id chosen by the UI lets `sftp_cancel` stop any of them; a cancelled upload
-  deletes its partial files. The UI measures the speed from the progress (over ½ s, smoothed)
-  and shows the time left.
+  deletes what it wrote, and a file it was replacing stays as it was (see `sftp` above). The
+  UI measures the speed from the progress (over ½ s, smoothed) and shows the time left.
 * **Transfer speed:** waiting for each SFTP reply before the next request would make every
   chunk cost a round trip. Transfers keep requests in flight instead, like OpenSSH's sftp:
   about half a second's worth at the speed measured so far (256 KiB at first, 8 MiB at most),

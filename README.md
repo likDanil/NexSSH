@@ -58,7 +58,8 @@
   <kbd>Ctrl</kbd>/<kbd>Shift</kbd>+click; rename, delete, create files and folders, change
   permissions (also recursively), sort by name, size or date, jump to a name by typing it,
   and *Open in terminal* to `cd` there. Transfers show speed and time left and can be
-  cancelled; nothing is overwritten without asking.
+  cancelled; nothing is overwritten without asking, and a file being replaced stays as it
+  was until its upload is complete, so a cancelled or broken upload loses nothing.
 * **Edit server files in your own editor:** *Edit in…* (<kbd>F4</kbd>) in the files drawer
   opens a file in VS Code, Cursor, Notepad++ or the editor of your choice (*Settings → Files*),
   and every save goes back to the server. A file someone changed on the server meanwhile is not

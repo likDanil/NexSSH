@@ -320,11 +320,15 @@
 </script>
 
 <Modal title={t('settings.title')} width={600} onclose={() => (app.settingsOpen = false)}>
-  <div class="tabs segmented">
-    {#each SECTIONS as sec (sec.id)}
-      <button class:on={section === sec.id} onclick={() => (section = sec.id)}>{t(sec.label)}</button>
-    {/each}
-  </div>
+  {#snippet toolbar()}
+    <div class="tabs segmented" role="tablist">
+      {#each SECTIONS as sec (sec.id)}
+        <button role="tab" aria-selected={section === sec.id} class:on={section === sec.id} onclick={() => (section = sec.id)}>
+          {t(sec.label)}
+        </button>
+      {/each}
+    </div>
+  {/snippet}
 
   {#if section === 'appearance'}
     <div class="row lang">
@@ -744,8 +748,23 @@
 </Modal>
 
 <style>
+  /* One line whatever the labels: a strip that would not fit scrolls rather than wraps. */
   .tabs {
-    margin-bottom: 18px;
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tabs button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .tabs button:focus-visible {
+    outline-offset: -2px;
   }
   .block {
     display: block;

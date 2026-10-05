@@ -8,9 +8,12 @@
     width?: number;
     onclose: () => void;
     children: Snippet;
+    /** Under the title, outside the scrolling content (tabs): always in view, and as wide
+     * whether or not the content has a scrollbar. */
+    toolbar?: Snippet;
     footer?: Snippet;
   }
-  let { title, subtitle, width = 460, onclose, children, footer }: Props = $props();
+  let { title, subtitle, width = 460, onclose, children, toolbar, footer }: Props = $props();
 
   let dialog: HTMLDivElement;
 
@@ -66,6 +69,11 @@
         {#if subtitle}<p>{subtitle}</p>{/if}
       </header>
     {/if}
+    {#if toolbar}
+      <div class="toolbar">
+        {@render toolbar()}
+      </div>
+    {/if}
     <div class="body">
       {@render children()}
     </div>
@@ -113,9 +121,21 @@
     margin: 4px 0 0;
     color: var(--text-2);
   }
+  .toolbar {
+    flex: none;
+    padding: 14px 20px 4px;
+  }
   .body {
     padding: 14px 20px 18px;
     overflow: auto;
+  }
+  /* The scrollbar's place is kept whether it shows or not (the right padding makes up for it),
+     so content does not narrow, or reflow, when it grows long enough to scroll. */
+  @supports (scrollbar-gutter: stable) {
+    .body {
+      padding-right: 10px;
+      scrollbar-gutter: stable;
+    }
   }
   footer {
     display: flex;
