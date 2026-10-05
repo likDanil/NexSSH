@@ -4,7 +4,17 @@
 
 import { api, Channel, errorMessage, type LocalTarget, type OpenTarget, type SessionMessage } from '../api';
 import { t } from '../i18n.svelte';
-import type { AgentOpen, ForwardInfo, Prompt, PromptReply, Server, SessionEvent, ShellProfile } from '../types';
+import type {
+  AgentOpen,
+  AgentScreen,
+  ForwardInfo,
+  Prompt,
+  PromptReply,
+  Server,
+  SessionEvent,
+  ShellProfile,
+  TerminalSnapshot,
+} from '../types';
 import { app } from './app.svelte';
 import { destination, servers } from './servers.svelte';
 import { CUSTOM_SHELL, commandName, missingShellName, shellName, shells } from './shells.svelte';
@@ -42,6 +52,7 @@ export interface TerminalSink {
   write(data: Uint8Array | string): void;
   focus(): void;
   clear(): void;
+  snapshot(lines: number | null): TerminalSnapshot;
 }
 
 const terminals = new Map<string, TerminalSink>();
@@ -141,6 +152,29 @@ class SessionsState {
       tab = this.get(key);
     }
     tab?.agentOpens.push(open.id);
+  }
+
+  /**
+   * What a terminal tab of a saved server shows, for an agent: tab number `tab` of the server
+   * (from 1, in tab bar order), else the one the user is in, else the last; the screen, or the
+   * last `lines` lines. Why not, when it cannot be read.
+   */
+  screen(serverId: string, tab: number | null, lines: number | null): { screen: AgentScreen } | { error: string } {
+    const mine = this.tabs.filter((t) => t.kind === 'ssh' && t.serverId === serverId);
+    if (!mine.length) return { error: 'noTab' };
+    const pick = tab ? mine[tab - 1] : (mine.find((t) => t.key === this.activeKey) ?? mine[mine.length - 1]);
+    if (!pick) return { error: 'noSuchTab' };
+    const terminal = terminals.get(pick.key);
+    if (!terminal) return { error: 'notReady' };
+    return {
+      screen: {
+        ...terminal.snapshot(lines),
+        title: pick.title,
+        status: pick.status,
+        tab: mine.indexOf(pick) + 1,
+        tabs: mine.length,
+      },
+    };
   }
 
   /** Tells the backend that the tab its agents wait for will not connect. */

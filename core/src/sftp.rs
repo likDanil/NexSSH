@@ -187,6 +187,22 @@ impl Sftp {
             .ok_or_else(|| Error::invalid(i18n::sftp_no_such_file(path)))
     }
 
+    /// What `path` is (following symlinks), as an entry named after its last component.
+    pub async fn stat(&self, path: &str) -> Result<Entry> {
+        let meta = self.raw.stat(path).await.map_err(|e| fail(path, e))?.attrs;
+        Ok(Entry {
+            name: base_name(path),
+            kind: kind_of(&meta),
+            link_to_dir: false,
+            size: meta.size.unwrap_or(0),
+            modified: meta.mtime.map(u64::from),
+            permissions: meta
+                .permissions
+                .map(|p| FilePermissions::from(p).to_string()),
+            mode: meta.permissions.map(|p| p & MODE_BITS),
+        })
+    }
+
     /// Entries of `dir`: folders first, then by name.
     pub async fn list(&self, dir: &str) -> Result<Vec<Entry>> {
         let items = self.read_dir(dir).await.map_err(|e| fail(dir, e))?;
@@ -1213,7 +1229,7 @@ pub fn base_name(path: &str) -> String {
 }
 
 /// A remote name as a local file name: characters Windows does not allow are replaced.
-fn safe_name(name: &str) -> String {
+pub(crate) fn safe_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .map(|c| match c {
@@ -1262,7 +1278,9 @@ fn fail(path: &str, e: SftpError) -> Error {
     let message = match &e {
         SftpError::Status(status) => match status.status_code {
             StatusCode::NoSuchFile => i18n::sftp_no_such_file(path),
-            StatusCode::PermissionDenied => i18n::sftp_permission_denied(path),
+            StatusCode::PermissionDenied => {
+                return Error::Denied(i18n::sftp_permission_denied(path));
+            }
             StatusCode::NoConnection | StatusCode::ConnectionLost => i18n::not_connected(),
             _ if !status.error_message.trim().is_empty() => {
                 i18n::sftp_failed(path, status.error_message.trim())

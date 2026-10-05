@@ -25,7 +25,10 @@
 ## Features
 
 * Saved servers with groups, search and live status; **import from `~/.ssh/config`**
-  (`Include`, wildcard `Host` blocks, `ProxyJump`, forwards).
+  (`Include`, wildcard `Host` blocks, `ProxyJump`, forwards). A server's settings are in tabs:
+  general, sign-in, connection, ports, commands, AI agents.
+* **Commands on login:** a server can have commands typed into its terminal after every login
+  (`cd /var/www`, `tmux new -A -s main`…), once the shell has shown its prompt.
 * Tabs with a real terminal (xterm.js, GPU rendering), resize, copy/paste, reconnect with <kbd>Enter</kbd>.
   Web links in the output open with <kbd>Ctrl</kbd>+click (<kbd>⌘</kbd>+click on macOS), and so do
   hyperlinks programs print (OSC 8, e.g. `ls --hyperlink`), which show where they lead first;
@@ -56,6 +59,12 @@
   permissions (also recursively), sort by name, size or date, jump to a name by typing it,
   and *Open in terminal* to `cd` there. Transfers show speed and time left and can be
   cancelled; nothing is overwritten without asking.
+* **Edit server files in your own editor:** *Edit in…* (<kbd>F4</kbd>) in the files drawer
+  opens a file in VS Code, Cursor, Notepad++ or the editor of your choice (*Settings → Files*),
+  and every save goes back to the server. A file someone changed on the server meanwhile is not
+  overwritten without asking, saves made while disconnected go up on reconnect, and a file only
+  root may write can be opened and saved with `sudo` (its password, if it needs one, stays in
+  memory only).
 * **AI agents (MCP):** Claude Code, Codex, Cursor and other agents run commands, read and
   write files and move files and folders on the servers you share with them, through your own
   sessions. Each server says what agents may do there — nothing (the default), ask you first,
@@ -111,8 +120,8 @@ layout: with a Cyrillic one, <kbd>Ctrl+Shift+K</kbd> is the same key as on a US 
 ## AI agents
 
 NexSSH is an MCP server ([Model Context Protocol](https://modelcontextprotocol.io)) for AI
-agents. Turn it on in *Settings → AI agents*, then share servers with agents: edit a server →
-*More options* → *AI agents*:
+agents. Turn it on in *Settings → AI agents*, then share servers with agents: edit a server,
+*AI agents* tab:
 
 * **No access** (the default): agents do not see the server.
 * **Ask first**: agents may list folders and read files; every command, file write and upload
@@ -134,8 +143,10 @@ first tool call starts it. Agents that connect by address use `http://127.0.0.1:
 with the token from the settings (`Authorization: Bearer …`); only this computer can connect.
 
 The tools: `list_servers`, `run_command` (exit code, stdout and stderr; no terminal),
-`read_file`, `write_file`, `list_directory`, and `upload` and `download` for files and whole
-folders at full SFTP speed. They work in your sessions: a command runs on a channel of its own
+`read_file`, `write_file`, `list_directory`, `upload` and `download` for files and whole
+folders at full SFTP speed, and `terminal_read`, which shows an agent what your tab of a server
+shows (as text, the scrollback too if it asks), so you can ask about an error on your screen.
+They work in your sessions: a command runs on a channel of its own
 on a connected tab's connection, so it needs no second login and does not touch what you type.
 A server that is not connected gets a tab, opened behind yours; it comes forward when it needs a
 password or a 2FA code. A tab an agent is working in shows ✦.

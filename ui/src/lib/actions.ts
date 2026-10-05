@@ -4,6 +4,7 @@ import { api, errorMessage } from './api';
 import { t } from './i18n.svelte';
 import { shortcut } from './platform';
 import { app, type MenuEntry, type SettingsSection } from './state/app.svelte';
+import { edits } from './state/edits.svelte';
 import { files } from './state/files.svelte';
 import { destination, servers } from './state/servers.svelte';
 import { sessions, type Tab } from './state/sessions.svelte';
@@ -180,6 +181,13 @@ export function serverMenu(server: Server, x: number, y: number) {
 }
 
 export async function closeTab(tab: Tab) {
+  // Edited files of the session are no longer sent once it closes.
+  const unsent = edits.unsent(tab.sessionId);
+  if (unsent.length) {
+    const names = unsent.map((e) => e.name).join(', ');
+    const ok = await app.confirm(t('edit.closeTitle'), t('edit.closeUnsent', { names }), t('session.closeTab'), true);
+    if (!ok) return;
+  }
   sessions.close(tab.key);
   requestAnimationFrame(() => sessions.focusActive());
 }

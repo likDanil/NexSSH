@@ -26,7 +26,7 @@
   function submit(e?: Event) {
     e?.preventDefault();
     if (request.input !== undefined) {
-      const v = value.trim();
+      const v = request.password ? value : value.trim();
       if (!v) return;
       request.resolve(v);
     } else {
@@ -42,12 +42,18 @@
     {#if request.checkbox}
       <label class="check"><input type="checkbox" bind:checked /> {request.checkbox}</label>
     {/if}
-    {#if request.input !== undefined}
+    {#if request.input !== undefined && request.password}
+      <!-- svelte-ignore a11y_autofocus -->
+      <input class="input" type="password" bind:value autofocus autocomplete="off" />
+    {:else if request.input !== undefined}
       <!-- svelte-ignore a11y_autofocus -->
       <input class="input" bind:value autofocus spellcheck="false" onfocus={selectText} />
     {/if}
     <div class="actions">
       <button type="button" class="btn" onclick={() => request.resolve(null)}>{t('common.cancel')}</button>
+      {#if request.alternative}
+        <button type="button" class="btn" onclick={() => request.resolve('alternative')}>{request.alternative}</button>
+      {/if}
       <!-- svelte-ignore a11y_autofocus -->
       <button
         type="submit"

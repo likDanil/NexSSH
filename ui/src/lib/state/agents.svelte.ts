@@ -18,6 +18,13 @@ class AgentsState {
 
   async start() {
     await api.onAgents((status) => this.#update(status));
+    // An agent reads a terminal tab (`terminal_read`): the page has the terminals.
+    await api.onAgentsRead(({ id, serverId, tab, lines }) => {
+      const result = sessions.screen(serverId, tab, lines);
+      const screen = 'screen' in result ? result.screen : null;
+      const error = 'error' in result ? result.error : null;
+      void api.agentsScreen(id, screen, error).catch(() => {});
+    });
     try {
       this.#update(await api.agentsStatus());
     } catch (e) {

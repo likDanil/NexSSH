@@ -156,6 +156,27 @@ async fn missing_user_is_asked_for() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn login_commands_run_in_the_shell() {
+    let Some(env) = env() else { return };
+    let core = Arc::new(core());
+    let mut srv = server(&env, AuthKind::Key);
+    srv.identity_file = Some(env.key.clone());
+    // Arithmetic, so the typed command (echoed) does not already contain the result.
+    srv.startup_commands = Some("cd /tmp\necho login-$((40 + 2)) $PWD".into());
+    let mut s = Session::open(Arc::clone(&core), srv);
+    if core
+        .known_hosts
+        .known_algorithms(&env.host, env.port)
+        .is_empty()
+    {
+        s.accept_host_key().await;
+    }
+    s.expect_status(SessionStatus::Connected).await;
+    s.wait_output("login-42 /tmp").await;
+    s.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn public_key_ed25519_and_rsa() {
     let Some(env) = env() else { return };
     let core = Arc::new(core());

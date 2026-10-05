@@ -31,6 +31,10 @@ pub enum Error {
     #[error("{0}")]
     NotFound(String),
 
+    /// The server refused access to a file (a complete message): writing it may take sudo.
+    #[error("{0}")]
+    Denied(String),
+
     #[error("{}", i18n::timed_out_after(*.0))]
     Timeout(u32),
 
