@@ -100,6 +100,22 @@ fn make_project(local: &Path) -> std::path::PathBuf {
     proj
 }
 
+/// The names in a folder, hidden ones too, sorted.
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|item| item.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Sets `cancel` after a moment, while a transfer is on its way.
+async fn cancel_soon(cancel: &AtomicBool) {
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    cancel.store(true, Ordering::Relaxed);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn files_and_folders_over_a_slow_link() {
     let server = LocalServer::start(Options {
@@ -301,14 +317,10 @@ async fn cancelled_transfers_leave_nothing_behind() {
     let cancel = AtomicBool::new(false);
     let mut seen = 0;
     let mut progress = |p: Progress| seen = p.done;
-    let cancel_soon = async {
-        tokio::time::sleep(Duration::from_millis(700)).await;
-        cancel.store(true, Ordering::Relaxed);
-    };
     let down = local.join("down");
     let (result, ()) = tokio::join!(
         sftp.download("/big.bin", &down, &mut progress, &cancel),
-        cancel_soon
+        cancel_soon(&cancel)
     );
     assert!(
         matches!(result, Err(nexssh_core::Error::Cancelled)),
@@ -324,14 +336,10 @@ async fn cancelled_transfers_leave_nothing_behind() {
         std::fs::write(proj.join(format!("{i}.bin")), &data[..4 * 1024 * 1024]).unwrap();
     }
     cancel.store(false, Ordering::Relaxed);
-    let cancel_soon = async {
-        tokio::time::sleep(Duration::from_millis(700)).await;
-        cancel.store(true, Ordering::Relaxed);
-    };
     let mut progress = no_progress();
     let (result, ()) = tokio::join!(
         sftp.upload_path(&proj, "/", &mut progress, &cancel),
-        cancel_soon
+        cancel_soon(&cancel)
     );
     assert!(
         matches!(result, Err(nexssh_core::Error::Cancelled)),
@@ -342,6 +350,139 @@ async fn cancelled_transfers_leave_nothing_behind() {
         assert_eq!(content.as_deref(), Some(&data[..4 * 1024 * 1024]), "{name}");
     }
     let _ = std::fs::remove_dir_all(&local);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replaced_files_stay_until_the_upload_is_complete() {
+    // OpenSSH replaces in one rename; without that, the original moves aside first.
+    for posix_rename in [true, false] {
+        let server = LocalServer::start(Options {
+            delay: Duration::from_millis(10),
+            bandwidth: Some(4 * 1024 * 1024),
+            posix_rename,
+            ..Options::default()
+        })
+        .await;
+        let (_session, sftp) = server.connect().await;
+        let local = common::temp_dir();
+        let old = pattern(100_000, 1);
+        let new = pattern(8 * 1024 * 1024, 2);
+        std::fs::write(server.local("/keep.bin"), &old).unwrap();
+        let src = local.join("keep.bin");
+        std::fs::write(&src, &new).unwrap();
+        let on_server = || std::fs::read(server.local("/keep.bin")).unwrap();
+
+        // Cancelled on its way: the file is as it was, and no copy is left beside it.
+        let cancel = AtomicBool::new(false);
+        let mut seen = 0;
+        let mut progress = |p: Progress| seen = p.done;
+        let (result, ()) = tokio::join!(
+            sftp.upload_path(&src, "/", &mut progress, &cancel),
+            cancel_soon(&cancel)
+        );
+        assert!(
+            matches!(result, Err(nexssh_core::Error::Cancelled)),
+            "{result:?}"
+        );
+        assert!(seen > 0 && seen < new.len() as u64, "{seen}");
+        assert!(on_server() == old, "posix-rename {posix_rename}");
+        assert_eq!(names(&server.root), ["keep.bin"]);
+
+        // Pieces from the page, abandoned.
+        let mut upload = sftp.create("/keep.bin").await.unwrap();
+        upload.write(&new[..1024 * 1024]).await.unwrap();
+        upload.cancel().await;
+        assert!(on_server() == old);
+        assert_eq!(names(&server.root), ["keep.bin"]);
+
+        // Complete: replaced, and nothing else left.
+        cancel.store(false, Ordering::Relaxed);
+        sftp.upload_path(&src, "/", &mut no_progress(), &cancel)
+            .await
+            .unwrap();
+        assert!(on_server() == new);
+        let mut upload = sftp.create("/keep.bin").await.unwrap();
+        upload.write(&old).await.unwrap();
+        upload.finish().await.unwrap();
+        assert!(on_server() == old);
+        assert_eq!(names(&server.root), ["keep.bin"]);
+
+        // A file this user may not write is not replaced.
+        let file = server.local("/keep.bin");
+        let mut permissions = std::fs::metadata(&file).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&file, permissions.clone()).unwrap();
+        let err = sftp
+            .upload_path(&src, "/", &mut no_progress(), &cancel)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, nexssh_core::Error::Denied(_)), "{err}");
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&file, permissions).unwrap();
+        assert!(on_server() == old);
+        assert_eq!(names(&server.root), ["keep.bin"]);
+
+        // Nor is a folder.
+        std::fs::create_dir(server.local("/dir.bin")).unwrap();
+        let err = sftp.create("/dir.bin").await.err().expect("a folder");
+        assert!(err.to_string().contains("is a folder"), "{err}");
+        std::fs::remove_dir(server.local("/dir.bin")).unwrap();
+
+        // A folder whose files replace others, cancelled: each file is the old one or the new
+        // one, never part of one or gone, and no copies are left.
+        let proj = local.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::create_dir_all(server.local("/proj")).unwrap();
+        let part = &new[..3 * 1024 * 1024];
+        for i in 0..4 {
+            std::fs::write(proj.join(format!("{i}.bin")), part).unwrap();
+            std::fs::write(server.local(&format!("/proj/{i}.bin")), &old).unwrap();
+        }
+        cancel.store(false, Ordering::Relaxed);
+        let mut progress = no_progress();
+        let (result, ()) = tokio::join!(
+            sftp.upload_path(&proj, "/", &mut progress, &cancel),
+            cancel_soon(&cancel)
+        );
+        assert!(
+            matches!(result, Err(nexssh_core::Error::Cancelled)),
+            "{result:?}"
+        );
+        let after = tree(&server.local("/proj"));
+        assert_eq!(after.len(), 4, "{:?}", after.keys());
+        for (name, content) in after {
+            let content = content.unwrap();
+            assert!(content == old || content == part, "{name}");
+        }
+
+        // Complete, with a file the folder did not have: all there, and nothing else.
+        std::fs::write(proj.join("added.txt"), b"added").unwrap();
+        cancel.store(false, Ordering::Relaxed);
+        sftp.upload_path(&proj, "/", &mut no_progress(), &cancel)
+            .await
+            .unwrap();
+        assert_eq!(tree(&server.local("/proj")), tree(&proj));
+
+        // A file in it this user may not write stops the upload and stays as it was.
+        let file = server.local("/proj/0.bin");
+        let mut permissions = std::fs::metadata(&file).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&file, permissions.clone()).unwrap();
+        std::fs::write(proj.join("0.bin"), &old).unwrap();
+        let err = sftp
+            .upload_path(&proj, "/", &mut no_progress(), &cancel)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, nexssh_core::Error::Denied(_)), "{err}");
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&file, permissions).unwrap();
+        assert!(std::fs::read(&file).unwrap() == part);
+        let expected = ["0.bin", "1.bin", "2.bin", "3.bin", "added.txt"];
+        assert_eq!(names(&server.local("/proj")), expected);
+        let _ = std::fs::remove_dir_all(&local);
+    }
 }
 
 /// The link from `NEXSSH_BENCH_DELAY_MS` (one way) and `NEXSSH_BENCH_BW_MBIT`.
@@ -414,6 +555,12 @@ async fn transfer_speed() {
     assert_eq!(std::fs::read(server.local("/up/big.bin")).unwrap(), data);
 
     let started = Instant::now();
+    sftp.upload_path(&got, "/up", &mut no_progress(), &cancel)
+        .await
+        .unwrap();
+    println!("replace a file    {}", rate(size as u64, started.elapsed()));
+
+    let started = Instant::now();
     let mut upload = sftp.create("/up/pieces.bin").await.unwrap();
     for piece in data.chunks(1024 * 1024) {
         upload.write(piece).await.unwrap();
@@ -435,5 +582,11 @@ async fn transfer_speed() {
         .await
         .unwrap();
     println!("upload folder     {}", files_rate(small, started.elapsed()));
+
+    let started = Instant::now();
+    sftp.upload_path(&tree, "/up", &mut no_progress(), &cancel)
+        .await
+        .unwrap();
+    println!("replace folder    {}", files_rate(small, started.elapsed()));
     let _ = std::fs::remove_dir_all(&local);
 }

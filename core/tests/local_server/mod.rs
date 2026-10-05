@@ -47,6 +47,9 @@ pub struct Options {
     pub locked: Option<String>,
     /// What sudo asks for; `None`: sudo without a password.
     pub sudo_password: Option<String>,
+    /// Announces `posix-rename@openssh.com`, a rename that replaces the target (OpenSSH has
+    /// it; plain SFTP renames refuse to replace).
+    pub posix_rename: bool,
 }
 
 impl Default for Options {
@@ -59,6 +62,7 @@ impl Default for Options {
             hide_sizes: false,
             locked: None,
             sudo_password: None,
+            posix_rename: true,
         }
     }
 }
@@ -533,6 +537,20 @@ struct FsHandler {
     next: u64,
 }
 
+const POSIX_RENAME: &str = "posix-rename@openssh.com";
+
+/// The two SSH strings (length, then bytes) of an extension's request.
+fn ssh_strings(mut data: &[u8]) -> Option<[String; 2]> {
+    let mut next = || {
+        let (len, rest) = data.split_first_chunk::<4>()?;
+        let len = u32::from_be_bytes(*len) as usize;
+        let text = String::from_utf8(rest.get(..len)?.to_vec()).ok()?;
+        data = &rest[len..];
+        Some(text)
+    };
+    Some([next()?, next()?])
+}
+
 fn ok(id: u32) -> Status {
     Status {
         id,
@@ -616,6 +634,9 @@ impl russh_sftp::server::Handler for FsHandler {
                 .extensions
                 .insert(russh_sftp::extensions::LIMITS.into(), "1".into());
         }
+        if self.options.posix_rename {
+            version.extensions.insert(POSIX_RENAME.into(), "1".into());
+        }
         Ok(version)
     }
 
@@ -623,21 +644,31 @@ impl russh_sftp::server::Handler for FsHandler {
         &mut self,
         id: u32,
         request: String,
-        _: Vec<u8>,
+        data: Vec<u8>,
     ) -> Result<Packet, Self::Error> {
-        if !self.options.limits || request != russh_sftp::extensions::LIMITS {
-            return Err(StatusCode::OpUnsupported);
+        match request.as_str() {
+            russh_sftp::extensions::LIMITS if self.options.limits => {
+                let limits = LimitsExtension {
+                    max_packet_len: 256 * 1024,
+                    max_read_len: u64::from(self.options.max_read),
+                    max_write_len: 255 * 1024,
+                    max_open_handles: 0,
+                };
+                let data = russh_sftp::ser::to_bytes(&limits)
+                    .map_err(|_| StatusCode::Failure)?
+                    .to_vec();
+                Ok(Packet::ExtendedReply(ExtendedReply { id, data }))
+            }
+            POSIX_RENAME if self.options.posix_rename => {
+                let [from, to] = ssh_strings(&data).ok_or(StatusCode::BadMessage)?;
+                self.check(&from)?;
+                self.check(&to)?;
+                // Replaces what is there, also on Windows.
+                std::fs::rename(self.local(&from), self.local(&to)).map_err(status_of)?;
+                Ok(Packet::Status(ok(id)))
+            }
+            _ => Err(StatusCode::OpUnsupported),
         }
-        let limits = LimitsExtension {
-            max_packet_len: 256 * 1024,
-            max_read_len: u64::from(self.options.max_read),
-            max_write_len: 255 * 1024,
-            max_open_handles: 0,
-        };
-        let data = russh_sftp::ser::to_bytes(&limits)
-            .map_err(|_| StatusCode::Failure)?
-            .to_vec();
-        Ok(Packet::ExtendedReply(ExtendedReply { id, data }))
     }
 
     async fn open(

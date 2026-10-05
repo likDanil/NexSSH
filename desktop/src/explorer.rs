@@ -41,6 +41,12 @@ static BUSY: Mutex<()> = Mutex::new(());
 /// Adds the entries (again: the label follows the interface's language, the command this copy
 /// of NexSSH), or removes them.
 pub fn set(enabled: bool) -> io::Result<MenuState> {
+    // A development build has no package: it would take the installed NexSSH's away and point
+    // the entries at itself. It leaves them alone, unless asked (to work on this very feature).
+    if cfg!(debug_assertions) && std::env::var_os("NEXSSH_EXPLORER_MENU").is_none() {
+        log::info!("a development build leaves the Explorer menu alone (NEXSSH_EXPLORER_MENU=1)");
+        return Ok(MenuState::default());
+    }
     let _busy = BUSY.lock().unwrap_or_else(|e| e.into_inner());
     if register::runs_in_package() {
         return set_in_package(enabled);
