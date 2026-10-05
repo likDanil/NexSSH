@@ -526,7 +526,7 @@ pub fn reveal_download(transfers: State<'_, Transfers>, path: String) -> CmdResu
 }
 
 #[cfg(windows)]
-fn reveal(path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn reveal(path: &std::path::Path) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     // explorer parses its own command line: `/select,"C:\path with spaces\file"`.
     std::process::Command::new("explorer.exe")
@@ -536,7 +536,7 @@ fn reveal(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn reveal(path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn reveal(path: &std::path::Path) -> std::io::Result<()> {
     std::process::Command::new("open")
         .arg("-R")
         .arg(path)
@@ -545,7 +545,7 @@ fn reveal(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn reveal(path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn reveal(path: &std::path::Path) -> std::io::Result<()> {
     let dir = if path.is_dir() {
         path
     } else {

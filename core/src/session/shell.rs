@@ -19,6 +19,13 @@ use crate::model::{PtySize, Server};
 pub(super) const FLUSH_BYTES: usize = 64 * 1024;
 pub(super) const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 
+/// Login commands are typed once the shell has settled: it printed something (its prompt),
+/// then nothing for this long…
+const STARTUP_QUIET: Duration = Duration::from_millis(400);
+/// …or this long after it started, if it prints nothing.
+const STARTUP_MAX_WAIT: Duration = Duration::from_secs(3);
+const STARTUP_CHECK: Duration = Duration::from_millis(100);
+
 enum Outcome {
     Closed,
     Reconnect,
@@ -170,6 +177,14 @@ async fn interactive(
     // Announced after saved forwards are listening, so "connected" means fully ready.
     ctx.status(SessionStatus::Connected);
 
+    // The server's login commands, typed like the user would once the prompt is there (a
+    // command typed before it would show up above the prompt, and some shells drop it).
+    let mut startup = server.startup_input();
+    let shell_started = Instant::now();
+    let mut last_output: Option<Instant> = None;
+    let mut startup_check = tokio::time::interval(STARTUP_CHECK);
+    startup_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
     // Writes go through their own task so a full remote window (e.g. a huge paste)
     // never stops us from reading output, which could otherwise deadlock.
     let (mut reader, writer) = channel.split();
@@ -200,6 +215,7 @@ async fn interactive(
         tokio::select! {
             msg = reader.wait() => match msg {
                 Some(ChannelMsg::Data { data }) | Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    last_output = Some(Instant::now());
                     out.extend_from_slice(&data);
                     if out.len() >= FLUSH_BYTES || (!armed && last_flush.elapsed() >= FLUSH_INTERVAL) {
                         ctx.sink.output(std::mem::take(&mut out));
@@ -215,6 +231,14 @@ async fn interactive(
                 Some(ChannelMsg::Close) | None => break None,
                 Some(_) => {}
             },
+            _ = startup_check.tick(), if startup.is_some() => {
+                let settled = last_output.is_some_and(|at| at.elapsed() >= STARTUP_QUIET);
+                if (settled || shell_started.elapsed() >= STARTUP_MAX_WAIT)
+                    && let Some(input) = startup.take()
+                {
+                    let _ = input_tx.send(Input::Data(input));
+                }
+            }
             () = &mut flush_timer, if armed => {
                 if !out.is_empty() {
                     ctx.sink.output(std::mem::take(&mut out));

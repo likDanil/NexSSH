@@ -1,14 +1,16 @@
 <script lang="ts">
   // Files of the active session over SFTP, next to the terminal (the terminal narrows,
-  // nothing is covered). Double-click opens a folder or downloads a file; Ctrl/Shift+click
+  // nothing is covered). Double-click opens a folder, and downloads a file or opens it in the
+  // editor (as the settings say; F4 edits); Ctrl/Shift+click
   // and Ctrl+A select several entries for one command. Files and folders dropped here are
   // uploaded into the folder shown, or into the folder under the pointer.
   import { listen } from '@tauri-apps/api/event';
   import { keys } from '../actions';
   import { errorMessage } from '../api';
-  import { t, tn, type MessageKey } from '../i18n.svelte';
+  import { i18n, t, tn, type MessageKey } from '../i18n.svelte';
   import { currentOs, mod, shortcut } from '../platform';
   import { app, type MenuEntry } from '../state/app.svelte';
+  import { edits } from '../state/edits.svelte';
   import {
     files,
     formatDate,
@@ -24,7 +26,7 @@
   } from '../state/files.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
   import { toasts } from '../state/toasts.svelte';
-  import type { DroppedFiles, FilesSort, PickedUpload, SftpEntry } from '../types';
+  import type { DroppedFiles, EditInfo, FilesSort, PickedUpload, SftpEntry } from '../types';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -56,6 +58,8 @@
     ),
   );
   const selected = $derived(new Set(view?.selection ?? []));
+  /** Files of this tab's session open in the editor. */
+  const myEdits = $derived(edits.forSession(tab.sessionId));
   /** The selected entries that are shown, in list order: what commands act on. */
   const chosen = $derived(entries.filter((e) => selected.has(e.name)));
   const chosenSize = $derived(chosen.reduce((sum, e) => sum + (isDirLike(e) ? 0 : e.size), 0));
@@ -141,7 +145,14 @@
   function activate(e: SftpEntry) {
     if (!view?.path) return;
     if (isDirLike(e)) void files.openDir(tab, joinPath(view.path, e.name));
+    else if (app.settings.filesDoubleClick === 'edit') edit(e);
     else void files.download(tab, [e]);
+  }
+
+  /** Opens a file in the editor; saves go back to the server. */
+  function edit(e: SftpEntry) {
+    if (!view?.path || isDirLike(e)) return;
+    void edits.open(tab, joinPath(view.path, e.name));
   }
 
   function go(ev: SubmitEvent) {
@@ -179,6 +190,12 @@
         items.push(
           { label: t('files.openItem'), icon: 'folder', action: () => activate(e) },
           { label: t('files.openInTerminal'), icon: 'terminal', action: () => files.openInTerminal(tab, path) },
+          'separator',
+        );
+      }
+      if (!isDirLike(e)) {
+        items.push(
+          { label: t('files.editIn', { editor: edits.editorName() }), icon: 'external', hint: 'F4', action: () => edit(e) },
           'separator',
         );
       }
@@ -311,6 +328,9 @@
       case 'F2':
         if (current) void files.rename(tab, current);
         break;
+      case 'F4':
+        if (current) edit(current);
+        break;
       case ' ':
         if (!withMod && Date.now() - typedAt < TYPE_AHEAD_MS) typeAhead(' ');
         else if (current) toggle(current.name);
@@ -406,6 +426,29 @@
     if (!element || !pane?.contains(element) || !view?.path) return;
     const folder = folderAt(element);
     void files.uploadPicked(tab, items, folder ? joinPath(view.path, folder) : undefined);
+  }
+
+  // ---- edited files ------------------------------------------------------------
+
+  function editState(e: EditInfo): string {
+    switch (e.state) {
+      case 'synced':
+        return e.savedAt
+          ? t('edit.savedAt', {
+              time: new Date(e.savedAt).toLocaleTimeString(i18n.lang, { hour: '2-digit', minute: '2-digit' }),
+            })
+          : t('edit.opened');
+      case 'uploading':
+        return t('edit.uploading');
+      case 'conflict':
+        return t('edit.conflict');
+      case 'denied':
+        return t(e.needsPassword ? 'edit.needsPassword' : 'edit.denied');
+      case 'waiting':
+        return t('edit.waiting');
+      case 'failed':
+        return t('edit.failed');
+    }
   }
 
   // ---- transfers ---------------------------------------------------------------
@@ -590,6 +633,49 @@
     <div class="summary">
       {tn('files.selected', chosen.length)}{chosenSize ? ` · ${formatSize(chosenSize)}` : ''}
     </div>
+  {/if}
+
+  {#if myEdits.length}
+    <footer>
+      <div class="thead"><span>{t('edit.title')}</span></div>
+      <div class="tlist">
+        {#each myEdits as edit (edit.id)}
+          {@const asks = edit.state === 'conflict' || edit.state === 'denied'}
+          <div
+            class="transfer edit"
+            class:failed={edit.state === 'failed'}
+            title={edit.error ? `${edit.remotePath} — ${edit.error}` : edit.remotePath}
+          >
+            <span class="ticon"><Icon name={edit.sudo ? 'shield' : 'external'} size={13} /></span>
+            <span class="tname">{edit.name}</span>
+            {#if asks}
+              <button class="link ask" onclick={() => edits.resolve(edit)}>{editState(edit)}</button>
+            {:else}
+              <span class="tstate">{editState(edit)}</span>
+            {/if}
+            <span class="eactions">
+              <button
+                class="icon-btn small"
+                title={t('edit.openAgain', { editor: edits.editorName() })}
+                aria-label={t('edit.openAgain', { editor: edits.editorName() })}
+                onclick={() => edits.show(edit)}
+              >
+                <Icon name="external" size={12} />
+              </button>
+              <button class="icon-btn small" title={t('edit.reveal')} aria-label={t('edit.reveal')} onclick={() => edits.reveal(edit)}>
+                <Icon name="folder" size={12} />
+              </button>
+              <button class="icon-btn small" title={t('edit.stop')} aria-label={t('edit.stop')} onclick={() => edits.stop(edit)}>
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+            {#if edit.state === 'failed' && edit.error}
+              <span class="terror">{edit.error}</span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </footer>
   {/if}
 
   {#if files.transfers.length}
@@ -951,6 +1037,21 @@
   }
   .transfer.failed .tstate {
     color: var(--red);
+  }
+  .transfer.edit {
+    grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  }
+  .eactions {
+    display: flex;
+  }
+  .link.ask {
+    color: var(--amber);
+    font-size: 11.5px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .link.ask:hover {
+    color: var(--text);
   }
   .tbar {
     grid-column: 2;

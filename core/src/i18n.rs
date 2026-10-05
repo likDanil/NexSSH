@@ -535,6 +535,33 @@ messages! {
         ru: "обновление ещё не скачано",
     }
 
+    // ---- editing remote files ----------------------------------------------------------
+
+    fn edit_too_large(megabytes: u64) {
+        en: "files over {megabytes} MB are not edited in an editor; download the file instead",
+        ru: "файлы больше {megabytes} МБ не открываются в редакторе — скачайте файл",
+    }
+    fn edit_copy_gone(path: &str) {
+        en: "the local copy is gone: {path}",
+        ru: "локальная копия пропала: {path}",
+    }
+    fn edit_not_found() {
+        en: "this file is not being edited any more",
+        ru: "этот файл больше не редактируется",
+    }
+    fn editor_failed(error: impl Display) {
+        en: "could not start the editor: {error}",
+        ru: "не удалось запустить редактор: {error}",
+    }
+    fn sudo_wrong_password() {
+        en: "sudo did not accept the password",
+        ru: "sudo не принял пароль",
+    }
+    fn sudo_failed(detail: impl Display) {
+        en: "sudo failed: {detail}",
+        ru: "sudo не справился: {detail}",
+    }
+
     // ---- AI agents -------------------------------------------------------------------
 
     fn agents_port_busy(port: u16) {

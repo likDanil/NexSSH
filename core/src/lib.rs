@@ -10,11 +10,13 @@
 //! * [`forward`] — local/remote/dynamic port forwarding
 //! * [`sftp`] — files over SFTP on a session's connection
 //! * [`exec`] — commands run on a session's connection without a terminal (for AI agents)
+//! * [`edit`] — remote files edited in a program of this computer, saved back as they change
 //! * [`i18n`] — user-facing messages and their translations
 //!
 //! The crate has no dependency on Tauri or any GUI toolkit: a front-end creates a
 //! [`Core`], opens sessions with an [`EventSink`] and answers [`Prompt`]s.
 
+pub mod edit;
 pub mod error;
 pub mod exec;
 pub mod forward;

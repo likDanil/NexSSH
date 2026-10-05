@@ -6,7 +6,9 @@
 //!   agent's configuration needs no token at all (the argument has no dashes: shells and
 //!   agents' command lines then cannot take it for one of their own options).
 //! * Protocol: JSON-RPC as MCP's revisions from 2024-11-05 to 2026-07-28 speak it ([`rpc`]).
-//! * Tools ([`tools`]): the shared servers, commands, files, folders, uploads and downloads.
+//! * Tools ([`tools`]): the shared servers, commands, files, folders, uploads and downloads,
+//!   and what a server's terminal tab shows (the page reads it from the terminal and answers,
+//!   see [`Agents::read_screen`]).
 //!   They work on the user's own sessions: a command runs on a channel of a connected tab's
 //!   connection (no second login), and for a server without one the page opens a tab, where
 //!   the user answers a password or 2FA prompt like for any other.
@@ -27,8 +29,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nexssh_core::AgentAccess;
 use nexssh_core::secrets::Secrets;
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
@@ -47,6 +49,8 @@ const MAX_ACTIVITY: usize = 60;
 const RECENT_AGENTS: Duration = Duration::from_secs(60 * 60);
 /// MCP sessions remembered (the least recently used one is forgotten).
 const MAX_CLIENTS: usize = 64;
+/// How long the page may take to read a terminal.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The page's settings this module reads (`settings.json` belongs to the page).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +109,32 @@ pub struct Open {
     pub id: u64,
     pub agent: String,
     pub server_id: String,
+}
+
+/// What a terminal tab shows, as the page reads it from the terminal.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Screen {
+    pub title: String,
+    /// `connecting`, `connected` or `disconnected`.
+    pub status: String,
+    /// Which of the server's tabs, and how many it has.
+    pub tab: u32,
+    pub tabs: u32,
+    pub cols: u32,
+    pub rows: u32,
+    /// From 1, on the screen.
+    pub cursor_row: u32,
+    pub cursor_col: u32,
+    /// A full-screen program (vim, htop, less) has the screen.
+    pub alternate: bool,
+    /// Lines in the scrollback above the screen.
+    pub above: u32,
+    /// The first line given (from 1), and how many lines there are.
+    pub from: u32,
+    pub total: u32,
+    /// The lines, without colours; a long line the terminal wrapped is one line again.
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -192,6 +222,8 @@ struct Inner {
     seen: HashMap<String, u64>,
     requests: Vec<(Request, oneshot::Sender<Answer>)>,
     opens: Vec<(Open, oneshot::Sender<String>)>,
+    /// Terminals the page is asked to read; it answers with the text, or why not.
+    reads: HashMap<u64, oneshot::Sender<Result<Screen, String>>>,
     activity: VecDeque<Activity>,
     /// "Don't ask again": caller key and server id.
     trusted: HashSet<(String, String)>,
@@ -284,6 +316,7 @@ impl Agents {
         // Nobody can answer those any more: requests are denied, tabs no longer awaited.
         inner.requests.clear();
         inner.opens.clear();
+        inner.reads.clear();
     }
 
     pub fn status(&self) -> Status {
@@ -574,6 +607,44 @@ impl Agents {
         self.changed();
     }
 
+    // ---- terminals ------------------------------------------------------------------
+
+    /// Has the page read a terminal tab of the server: tab number `tab` (from 1), else the
+    /// active one, else the last; the screen, or the last `lines` lines. `Err` holds the page's
+    /// reason (`noTab`, `noSuchTab`, `notReady`) or a message.
+    pub(crate) async fn read_screen(
+        &self,
+        server_id: &str,
+        tab: Option<u64>,
+        lines: Option<u64>,
+    ) -> Result<Screen, String> {
+        let Some(app) = self.app.get() else {
+            return Err(tools::PAGE_SILENT.to_string());
+        };
+        let (tx, rx) = oneshot::channel();
+        let id = {
+            let mut inner = lock(&self.inner);
+            let id = inner.next_id();
+            inner.reads.insert(id, tx);
+            id
+        };
+        let request = json!({ "id": id, "serverId": server_id, "tab": tab, "lines": lines });
+        let _ = app.emit("agents-read", request);
+        let answer = tokio::time::timeout(READ_TIMEOUT, rx).await;
+        lock(&self.inner).reads.remove(&id);
+        match answer {
+            Ok(Ok(result)) => result,
+            _ => Err(tools::PAGE_SILENT.to_string()),
+        }
+    }
+
+    /// The page's answer to [`Agents::read_screen`].
+    pub fn screen_read(&self, id: u64, screen: Option<Screen>, error: Option<String>) {
+        if let Some(tx) = lock(&self.inner).reads.remove(&id) {
+            let _ = tx.send(screen.ok_or_else(|| error.unwrap_or_default()));
+        }
+    }
+
     // ---- activity ---------------------------------------------------------------------
 
     fn begin(
@@ -736,6 +807,17 @@ pub fn agents_answer(agents: tauri::State<'_, Agents>, id: u64, allow: bool, rem
 #[tauri::command]
 pub fn agents_open_failed(agents: tauri::State<'_, Agents>, id: u64, message: String) {
     agents.open_failed(id, message);
+}
+
+/// What a terminal tab shows, read by the page for an agent (`agents-read`).
+#[tauri::command]
+pub fn agents_screen(
+    agents: tauri::State<'_, Agents>,
+    id: u64,
+    screen: Option<Screen>,
+    error: Option<String>,
+) {
+    agents.screen_read(id, screen, error);
 }
 
 #[tauri::command]

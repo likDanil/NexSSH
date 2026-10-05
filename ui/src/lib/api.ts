@@ -3,8 +3,12 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
+  AgentScreen,
+  AgentScreenRequest,
   AgentsStatus,
   AppInfo,
+  EditInfo,
+  EditorInfo,
   Downloaded,
   DownloadProgress,
   ExplorerMenuState,
@@ -158,6 +162,21 @@ export const api = {
   /** Runs the installer; on Windows the app exits and the new version starts by itself. */
   updateInstall: () => invoke<void>('update_install'),
 
+  /** Remote files edited in a program of this computer. */
+  editEditors: () => invoke<EditorInfo[]>('edit_editors'),
+  /** Opens a remote file in the editor of the settings (with sudo: `password`, or one typed
+   * earlier, or none); rejects with an `EditRefusal`. A file edited already opens again. */
+  editOpen: (sessionId: number, path: string, sudo = false, password?: string) =>
+    invoke<EditInfo>('edit_open', { sessionId, path, sudo, password: password ?? null }),
+  editList: () => invoke<EditInfo[]>('edit_list'),
+  onEdits: (handler: (list: EditInfo[]) => void) => listen<EditInfo[]>('edits', (e) => handler(e.payload)),
+  editResolve: (id: number, resolution: 'overwrite' | 'reload') =>
+    invoke<EditInfo | null>('edit_resolve', { id, resolution }),
+  /** Writes the file with sudo from now on (`password`: sudo's) and sends it. */
+  editSudo: (id: number, password?: string) => invoke<EditInfo | null>('edit_sudo', { id, password: password ?? null }),
+  editStop: (id: number) => invoke<void>('edit_stop', { id }),
+  editReveal: (id: number) => invoke<void>('edit_reveal', { id }),
+
   /** AI agents (MCP): everything the page shows about them, sent again on every change. */
   agentsStatus: () => invoke<AgentsStatus>('agents_status'),
   onAgents: (handler: (status: AgentsStatus) => void) =>
@@ -173,6 +192,12 @@ export const api = {
   /** The tab opened for an agent did not connect. */
   agentsOpenFailed: (id: number, message: string) => invoke<void>('agents_open_failed', { id, message }),
   agentsClearActivity: () => invoke<void>('agents_clear_activity'),
+  /** An agent wants to see a terminal tab of a server (`terminal_read`). */
+  onAgentsRead: (handler: (request: AgentScreenRequest) => void) =>
+    listen<AgentScreenRequest>('agents-read', (e) => handler(e.payload)),
+  /** The answer: what the tab shows, or why it cannot be read (`noTab`, `noSuchTab`, `notReady`). */
+  agentsScreen: (id: number, screen: AgentScreen | null, error: string | null) =>
+    invoke<void>('agents_screen', { id, screen, error }),
 
   addForward: (sessionId: number, spec: ForwardSpec, saveTo?: string) =>
     invoke<void>('forward_add', { sessionId, spec, saveTo: saveTo ?? null }),

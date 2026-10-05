@@ -37,8 +37,9 @@ fn web_link(text: &str) -> Option<String> {
     Some(url.into())
 }
 
+/// Opens a URL, or a file, with the system's default program for it.
 #[cfg(windows)]
-fn open(url: &str) -> io::Result<()> {
+pub(crate) fn open(url: &str) -> io::Result<()> {
     use windows::Win32::System::Com::{
         COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
     };
@@ -71,12 +72,12 @@ fn open(url: &str) -> io::Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn open(url: &str) -> io::Result<()> {
+pub(crate) fn open(url: &str) -> io::Result<()> {
     spawn(std::process::Command::new("open").arg(url))
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn open(url: &str) -> io::Result<()> {
+pub(crate) fn open(url: &str) -> io::Result<()> {
     spawn(std::process::Command::new("xdg-open").arg(url))
 }
 

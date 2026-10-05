@@ -5,6 +5,7 @@
   import { formatNumber, i18n, LANGUAGES, t, timeAgo, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
   import { agents } from '../state/agents.svelte';
+  import { edits } from '../state/edits.svelte';
   import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
   import { servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
@@ -25,8 +26,36 @@
   const s = $derived(app.settings);
   const windows = $derived(app.info?.os === 'windows');
 
-  // The shells are looked for again: one may have been installed since.
+  // The shells and editors are looked for again: one may have been installed since.
   void shells.load(true);
+  void edits.loadEditors();
+
+  const editorOptions: { value: string; label: string }[] = $derived.by(() => {
+    const first = edits.editors[0]?.name ?? t('settings.editorSystem');
+    const options = [
+      { value: '', label: t('settings.editorAuto', { name: first }) },
+      ...edits.editors.map((e) => ({ value: e.id, label: e.name })),
+    ];
+    const saved = s.editor;
+    if (saved && saved !== 'system' && saved !== 'custom' && !edits.editors.some((e) => e.id === saved)) {
+      options.push({ value: saved, label: t('settings.editorMissing', { name: saved }) });
+    }
+    options.push({ value: 'system', label: t('settings.editorSystem') }, { value: 'custom', label: t('settings.editorCustom') });
+    return options;
+  });
+
+  const editorExample = $derived(
+    windows ? String.raw`"C:\Program Files\Notepad++\notepad++.exe" -multiInst {file}` : 'subl {file}',
+  );
+
+  async function browseEditor() {
+    try {
+      const path = await api.pickProgram(t('settings.editorPick'));
+      if (path) app.update({ editorCommand: /\s/.test(path) ? `"${path}"` : path });
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
 
   const shellOptions: { value: string; label: string }[] = $derived.by(() => {
     const options = [
@@ -92,6 +121,7 @@
   const SECTIONS: { id: SettingsSection; label: MessageKey }[] = [
     { id: 'appearance', label: 'settings.appearance' },
     { id: 'terminal', label: 'settings.terminal' },
+    { id: 'files', label: 'settings.files' },
     { id: 'keyboard', label: 'settings.keyboard' },
     { id: 'agents', label: 'settings.agents' },
     { id: 'about', label: 'settings.about' },
@@ -221,6 +251,7 @@
     read_file: 'agents.tool.read_file',
     write_file: 'agents.tool.write_file',
     list_directory: 'agents.tool.list_directory',
+    terminal_read: 'agents.tool.terminal_read',
     upload: 'agents.tool.upload',
     download: 'agents.tool.download',
   };
@@ -480,6 +511,53 @@
           />
         </div>
       {/if}
+    </div>
+  {:else if section === 'files'}
+    <div class="rows">
+      <div class="row top">
+        <span>
+          {t('settings.editor')}
+          <small>{t('settings.editorHint')}</small>
+        </span>
+        <Select
+          value={s.editor}
+          options={editorOptions}
+          onchange={(editor) => app.update({ editor })}
+          label={t('settings.editor')}
+          width={240}
+        />
+      </div>
+      {#if s.editor === 'custom'}
+        <div class="row top">
+          <span>
+            {t('settings.editorCommand')}
+            <small>{t('settings.editorCommandHint')}</small>
+          </span>
+          <div class="command">
+            <input
+              class="input mono"
+              value={s.editorCommand}
+              placeholder={editorExample}
+              aria-label={t('settings.editorCommand')}
+              spellcheck="false"
+              autocomplete="off"
+              onchange={(e) => app.update({ editorCommand: e.currentTarget.value.trim() })}
+            />
+            <button class="btn" onclick={browseEditor}>{t('editor.browse')}</button>
+          </div>
+        </div>
+      {/if}
+      <div class="row">
+        <span>{t('settings.doubleClick')}</span>
+        <div class="segmented">
+          <button class:on={s.filesDoubleClick === 'download'} onclick={() => app.update({ filesDoubleClick: 'download' })}>
+            {t('settings.doubleClickDownload')}
+          </button>
+          <button class:on={s.filesDoubleClick === 'edit'} onclick={() => app.update({ filesDoubleClick: 'edit' })}>
+            {t('settings.doubleClickEdit')}
+          </button>
+        </div>
+      </div>
     </div>
   {:else if section === 'keyboard'}
     {#if !isMac()}

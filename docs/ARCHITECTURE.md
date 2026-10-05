@@ -32,6 +32,7 @@ NexSSH/
 │   │   ├── forward.rs    -L / -R / -D (SOCKS5) forwarding
 │   │   ├── sftp.rs       files over SFTP: list, create, rename, delete, chmod, transfers
 │   │   ├── exec.rs       commands on a session's connection without a terminal (AI agents)
+│   │   ├── edit.rs       remote files edited in a local program, saved back as they change
 │   │   ├── local.rs      shells on this computer (PowerShell, cmd, WSL, Git Bash, /etc/shells)
 │   │   ├── i18n.rs       user-facing messages in every language
 │   │   └── session/
@@ -43,7 +44,7 @@ NexSSH/
 │   │       └── local.rs  local terminal task: a program in a pseudo-terminal (ConPTY)
 │   └── tests/            integration tests: real OpenSSH servers (sshd.rs, sftp.rs), real shells (local.rs),
 │                         an SSH server in the test process behind a latency proxy (sftp_local.rs,
-│                         exec_local.rs)
+│                         exec_local.rs, edit_local.rs; it has a made-up sudo too)
 ├── desktop/              Tauri application ("nexssh" crate)
 │   ├── src/lib.rs        builder, window creation
 │   ├── src/commands.rs   IPC commands: servers, settings, sessions, window
@@ -52,6 +53,7 @@ NexSSH/
 │   ├── src/explorer.rs   "Open with NexSSH" in Windows Explorer's menu for folders
 │   ├── src/links.rs      web links from the terminal, opened in the default browser
 │   ├── src/updates.rs    in-app updates (check, download, install)
+│   ├── src/edit.rs       editing remote files: the editors found, starting the chosen one, IPC
 │   ├── src/agents/       AI agents: MCP over HTTP (http.rs), its JSON-RPC (rpc.rs), the tools
 │   │                     (tools.rs), the stdio bridge `NexSSH mcp` (bridge.rs)
 │   ├── src/sink.rs       EventSink → Tauri Channel
@@ -78,7 +80,7 @@ NexSSH/
 │           ├── popup.ts  lists that open under a control, rendered on <body>
 │           ├── i18n.svelte.ts t(), plurals, language detection
 │           ├── locales/  en.ts (reference), ru.ts
-│           ├── state/    app, servers, sessions, shells, files, updates, agents, toasts (Svelte runes)
+│           ├── state/    app, servers, sessions, shells, files, edits, updates, agents, toasts (Svelte runes)
 │           └── components/
 ├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (packs and signs the package),
 │                         installer-test.ps1 (the installer and the Explorer menu entry, Windows CI)
@@ -99,6 +101,7 @@ NexSSH/
 | `forward` | Local listeners (`-L`, SOCKS5 `-D`) and server-side listeners (`-R`) on an authenticated connection. |
 | `sftp` | An SFTP client on a channel of the session's connection, opened on first use (`SessionManager::sftp`) and dropped with the connection. Downloads never overwrite: the local name is reserved atomically (`name (1).ext`…), and a failed or cancelled download removes what it wrote. Uploads of local files and folders (`upload_path`) merge into existing folders; the files being written when an upload fails or is cancelled are removed. Transfers keep many requests in flight and move several files at a time (see "Transfer speed"). A recursive `chmod` lists everything first, then changes files and folders deepest first, and also gives folders `x` wherever they get `r` (like `chmod -R a+X`), so `644` leaves them openable. Symlinks inside folders are not followed into (they may loop). |
 | `exec` | Commands run on a connected session's connection, each on a channel of its own and without a terminal (`SessionManager::exec`), for AI agents: standard input ends after what the caller gives, the output keeps its beginning and end (a quarter and three quarters of the limit), a command that runs too long is stopped (its channel closed, `SIGKILL` asked for). `SessionManager::connected` finds the connected session of a saved server, `live_changes` tells when one connects or its connection ends. |
+| `edit` | Remote files edited in a program of this computer: a copy in a folder of its own under the temporary folder, polled (editors save in place or through a rename) and sent once a save is over. The server's copy is compared first (size and time of change), so a file changed there meanwhile waits for the user (overwrite, or take theirs); saves of a disconnected session go up when it connects again; what SFTP may not read or write goes through `sudo cat` and `sudo tee` on an exec channel. See "Editing remote files". |
 | `local` | Shells for local terminals, found per system: PowerShell 7 (Program Files, else `PATH`), Windows PowerShell, `%ComSpec%`, WSL distributions (from the registry, `HKCU\…\Lxss`; Docker's are skipped), Git Bash (registry `GitForWindows`, then the usual folders); elsewhere the login shell and `/etc/shells`, one entry per real file. The first found is the default. `LocalCommand` is what a local session runs: a shell in a folder, or a command line from the settings (words split at spaces, quotes group, backslashes stay: Windows paths need no escaping). |
 | `i18n` | Every user-facing message with all its translations; process-wide language set by the app. |
 
@@ -118,6 +121,10 @@ open ─► Connecting ─► (prompts) ─► Connected ─► Disconnected ─
   are batched every 8 ms or 64 KB, which keeps IPC traffic and CPU low under `cat bigfile`.
 * Writes go through a separate task so a full remote window (a huge paste) can never
   block reading output.
+* A server's login commands (`startupCommands`) are typed into the shell after every login,
+  each line with Enter, once it has settled: it printed something (its prompt) and then nothing
+  for 400 ms, or 3 s after it started if it prints nothing. Typed before the prompt, a command
+  would show above it, and some shells drop what comes before they read.
 * Timeouts (`connect_timeout`) apply to DNS, TCP, handshake and authentication, but time
   spent waiting for the user (host key, password, 2FA) does not count.
 
@@ -243,11 +250,14 @@ App.svelte
 ├── TerminalPane ×N  one xterm per tab, kept alive while hidden (display: none)
 │   └── PromptCard   host key / password / passphrase / keyboard-interactive, over the terminal
 ├── FilesDrawer      SFTP files of the active tab, right of the terminal (which narrows):
-│                    sortable list with multi-selection, drops, transfers with speed
+│                    sortable list with multi-selection, drops, transfers with speed, the files
+│                    open in an editor (their state, open again, show the copy, stop)
 ├── PermissionsDialog chmod: checkboxes and the octal value, optionally recursive
 ├── Home             welcome screen or server overview when no tab is active
 ├── CommandPalette   Ctrl/Cmd+K: servers, tabs, actions, quick connect, local shells
-├── ServerEditor     add/edit server (auth, key picker, jump host with its login, forwards)
+├── ServerEditor     add/edit server in tabs like the settings: general, sign-in (key picker),
+│                    connection (jump host with its login, keepalive), ports, commands on login,
+│                    AI agents; a tab with something to fix shows a dot, and saving goes to it
 ├── SettingsDialog   themes, font, terminal (and the local terminal's shell, Explorer menu),
 │                    keyboard, about
 ├── ForwardsDialog   active forwards of the session, add -L / -R / SOCKS
@@ -302,10 +312,13 @@ kept outside reactive state; backend output is written straight into them.
 * `alias`: the `Host` alias when imported from `~/.ssh/config`; re-importing updates
   connection fields but keeps the name, group and history.
 * `agents`: what AI agents may do there, `ask` or `allow`; left out for no access.
+* `startupCommands`: commands typed into the shell after every login, one per line (blank
+  lines are dropped when saving).
 
 `settings.json` belongs to the UI; for local terminals it keeps `localShell` (a shell's id, `''`
 for the default, or `custom`), `localShellCommand` (the custom command line) and `explorerMenu`;
-the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents").
+the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents"), and `editor` and
+`editorCommand` (see "Editing remote files").
 
 A session (runtime only) is identified by a numeric id and reports:
 
@@ -419,6 +432,11 @@ into, files or a folder to upload.
   own commands are not granted either: the UI can only use NexSSH's commands.
 * Updates run only if their minisign signature matches the public key built into the app
   (`plugins.updater.pubkey`); the private key exists only as a GitHub Actions secret.
+* Editing remote files: the editor is a program found on the computer or the command line of
+  the settings, which the backend reads itself (like a local terminal's custom shell); the page
+  only names the file. A sudo password is kept in memory for the session and always read by sudo
+  itself (`sudo -k -S`: sudo asks for it even when it remembers the user, so it cannot end up
+  in the file); it is checked with `sudo -v` before any content goes in.
 * AI agents (MCP) are off until the user turns them on, and see only the servers the user
   shares with them. The server listens on `127.0.0.1` only; every request needs the bearer token
   (256 random bits, compared in constant time, kept in the keychain as `agents-token`), and its
@@ -445,6 +463,35 @@ into, files or a folder to upload.
   which a page cannot make up). A compromised page could not make NexSSH write or send other
   local files.
 
+## Editing remote files
+
+*Edit in…* (F4, or a double-click if the settings say so) opens a file of the files drawer in an
+editor of this computer (`core::edit`, `desktop/src/edit.rs`).
+
+* **The copy** goes into `%TEMP%\NexSSH-edit\<random>\<name>`: the editor shows the real name
+  and highlights by it. A file edited already opens its copy again. Copies holding a save that
+  did not reach the server stay when the session or NexSSH ends (folders older than a week are
+  removed at start-up); the others are removed when editing stops.
+* **Saves** are noticed by polling the copy every 400 ms (editors save in place, or write a
+  temporary file and rename it over) and sent once the copy is unchanged across one look:
+  written in place (`write_whole`: permissions and owner stay, and a failed write never removes
+  the file).
+* **Conflicts:** before writing, the server's size and time of change are compared with those of
+  the copy's last download or upload. If they differ, nothing is written and the page asks:
+  write ours over it, or take theirs (the copy is replaced; editors reload it).
+* **Disconnects:** a save of a disconnected session waits (`waiting`) and goes up when the session
+  connects again (`live_changes`), or a few seconds later.
+* **Permissions:** when SFTP may not read a file, the page offers to open it with sudo; when it
+  may not write one, to save it with sudo. sudo runs on exec channels (`sudo cat -- '<path>'`,
+  `sudo tee -- '<path>' > /dev/null`): first without a password (`-n`), else with one the user
+  types (`-k -S -p ''`, checked with `-v` first).
+* **Editors:** the settings name one found here (Windows: VS Code, Cursor, Windsurf, Zed, Sublime
+  Text, Notepad++, Notepad; macOS: the same apps in `/Applications`, TextEdit; Linux: their
+  commands in `PATH`), `system` (the file's default program), or a custom command line where
+  `{file}` stands for the file. Left alone, the first one found opens it.
+* The page gets the list on every change (`edits`): a toast says a save reached the server, the
+  folder shown is reloaded, and conflicts and denials come up as questions.
+
 ## AI agents (MCP)
 
 NexSSH serves AI agents over MCP (`desktop/src/agents`). The page owns nothing of it but the
@@ -467,13 +514,18 @@ misses nothing.
   and has `server/discover`. Both work side by side; the name the client gives is what the user
   sees ("Claude Code").
 * **Tools:** `list_servers`, `run_command`, `read_file`, `write_file`, `list_directory`,
-  `upload`, `download`. Each finds the server among the shared ones (by id, name, alias or host),
+  `upload`, `download`, `terminal_read`. Each finds the server among the shared ones (by id, name, alias or host),
   notes it in the activity, asks the user if the server says so, then needs a connected session
   of it: an existing tab's, or one the page opens (`opens` in the status; behind the active tab,
   brought forward when it shows a prompt). Commands use `SessionManager::exec`, files the
   session's SFTP client (`read_part`, `write_whole`, which unlike uploads never removes a file it
   failed to write, and the transfers of the files drawer). What agents read is English and
   says how to go on (`more from offset=…`, why something was refused).
+* **Terminals:** only the page has a terminal's screen (xterm.js). `terminal_read` emits
+  `agents-read` with an id; the page picks the server's tab (the one asked for, else the active
+  one, else the last), takes the screen or the last lines from xterm's buffer as text (rows of a
+  wrapped line joined again) and answers with `agents_screen` within 5 s. It opens no tab and,
+  like reading files, needs no question on servers set to ask; it is noted in the activity.
 * **Questions** (`requests` in the status) wait for `agents_answer`; "don't ask again" holds for
   that agent (its MCP session, or its name) and that server until NexSSH quits or the server's
   access changes. A question nobody waits for any more (the agent gave up) leaves the page.

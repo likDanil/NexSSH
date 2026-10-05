@@ -347,6 +347,14 @@ class FilesState {
     else void this.goHome(tab);
   }
 
+  /** Reloads the folder `dir` wherever a tab of the session shows it (a file in it changed). */
+  refreshFolder(sessionId: number, dir: string) {
+    for (const tab of sessions.tabs) {
+      const view = this.views[tab.key];
+      if (tab.sessionId === sessionId && view) this.#refreshIn(tab, dir, [...view.selection]);
+    }
+  }
+
   /** Reloads the tab's folder if it still shows `dir`. */
   #refreshIn(tab: Tab, dir: string, select?: string[]) {
     if (this.views[tab.key]?.path === dir) this.refresh(tab, select);

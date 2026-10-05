@@ -149,6 +149,10 @@ pub struct Server {
     /// What AI agents may do here (see `desktop/src/agents`).
     #[serde(skip_serializing_if = "AgentAccess::is_off")]
     pub agents: AgentAccess,
+    /// Typed into the shell after every login, one command per line (see
+    /// [`Server::startup_input`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_commands: Option<String>,
 }
 
 impl Default for Server {
@@ -170,6 +174,7 @@ impl Default for Server {
             alias: None,
             last_used: None,
             agents: AgentAccess::Off,
+            startup_commands: None,
         }
     }
 }
@@ -196,6 +201,15 @@ impl Server {
         trim_opt(&mut self.jump_host);
         trim_opt(&mut self.jump_user);
         trim_opt(&mut self.alias);
+        // Blank lines would only press Enter.
+        self.startup_commands = self.startup_commands.take().and_then(|text| {
+            let lines: Vec<&str> = text
+                .lines()
+                .map(str::trim_end)
+                .filter(|l| !l.trim().is_empty())
+                .collect();
+            (!lines.is_empty()).then(|| lines.join("\n"))
+        });
         if self.jump_host.is_none() {
             self.jump_user = None;
         }
@@ -230,6 +244,19 @@ impl Server {
             fwd.normalize()?;
         }
         Ok(())
+    }
+
+    /// The login commands as they are typed: every line, then Enter (a carriage return, as
+    /// the key sends it).
+    pub fn startup_input(&self) -> Option<Vec<u8>> {
+        let mut input = Vec::new();
+        for line in self.startup_commands.as_deref()?.lines() {
+            if !line.trim().is_empty() {
+                input.extend_from_slice(line.as_bytes());
+                input.push(b'\r');
+            }
+        }
+        (!input.is_empty()).then_some(input)
     }
 
     /// `user@host[:port]` (port omitted when 22).
@@ -409,6 +436,29 @@ mod tests {
             ..Server::default()
         };
         assert!(s.normalize().is_err());
+    }
+
+    #[test]
+    fn login_commands() {
+        let mut s = Server {
+            host: "h".into(),
+            startup_commands: Some("  cd /srv  \r\n\n\t\nsudo -i\n".into()),
+            ..Server::default()
+        };
+        s.normalize().unwrap();
+        assert_eq!(s.startup_commands.as_deref(), Some("  cd /srv\nsudo -i"));
+        assert_eq!(s.startup_input().unwrap(), b"  cd /srv\rsudo -i\r");
+
+        let mut s = Server {
+            host: "h".into(),
+            startup_commands: Some(" \n \n".into()),
+            ..Server::default()
+        };
+        s.normalize().unwrap();
+        assert_eq!(s.startup_commands, None, "nothing to type");
+        assert_eq!(s.startup_input(), None);
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains("startupCommands"));
     }
 
     #[test]

@@ -36,6 +36,9 @@ export const DEFAULT_SETTINGS: Settings = {
   lastVersion: '',
   agentsEnabled: false,
   agentsPort: 7422,
+  editor: '',
+  editorCommand: '',
+  filesDoubleClick: 'download',
 };
 
 /** The terminal's font size goes from 9 to 28 (settings and Ctrl+=/Ctrl+-). */
@@ -60,7 +63,7 @@ export interface MenuState {
   items: MenuEntry[];
 }
 
-export type SettingsSection = 'appearance' | 'terminal' | 'keyboard' | 'agents' | 'about';
+export type SettingsSection = 'appearance' | 'terminal' | 'files' | 'keyboard' | 'agents' | 'about';
 
 export interface EditorState {
   server: Server | null;
@@ -80,6 +83,10 @@ export interface ConfirmState {
   preview?: string;
   /** A checkbox with this label; when it is ticked, the dialog answers `checked`. */
   checkbox?: string;
+  /** The text field holds a password (hidden, kept as typed). */
+  password?: boolean;
+  /** A third button with this label; it answers `alternative`. */
+  alternative?: string;
   resolve: (value: string | null) => void;
 }
 
@@ -293,6 +300,24 @@ class AppState {
     if (answer === null) return false;
     if (answer === 'checked') this.update({ pasteWarning: 'never' });
     return true;
+  }
+
+  /** Asks to pick one of two actions; `null` when cancelled. */
+  async choose(
+    title: string,
+    message: string,
+    confirmLabel: string,
+    alternative: string,
+    danger = false,
+  ): Promise<'confirm' | 'alternative' | null> {
+    const answer = await this.#ask({ title, message, confirmLabel, danger, alternative });
+    if (answer === null) return null;
+    return answer === 'alternative' ? 'alternative' : 'confirm';
+  }
+
+  /** Asks for a password; `null` when cancelled. */
+  askPassword(title: string, message: string, confirmLabel: string): Promise<string | null> {
+    return this.#ask({ title, message, confirmLabel, danger: false, input: '', password: true });
   }
 
   /** Asks for a line of text; `null` when cancelled. */

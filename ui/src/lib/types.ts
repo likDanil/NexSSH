@@ -36,6 +36,8 @@ export interface Server {
   lastUsed?: number;
   /** Not written when `off`. */
   agents?: AgentAccess;
+  /** Typed into the shell after every login, one command per line. */
+  startupCommands?: string;
 }
 
 export interface StoreData {
@@ -177,6 +179,13 @@ export interface Settings {
   autoUpdateCheck: boolean;
   /** The version that last ran, to say "updated to …" once after an update. */
   lastVersion: string;
+  /** The program remote files are edited in: '' for the first one found, an editor's id
+   * (`api.editEditors`), 'system' for the file's default program, or 'custom'. */
+  editor: string;
+  /** The custom editor's command line; `{file}` stands for the file (else it goes last). */
+  editorCommand: string;
+  /** What a double-click on a file in the files drawer does. */
+  filesDoubleClick: 'download' | 'edit';
   /** AI agents may connect (MCP on 127.0.0.1:`agentsPort`). */
   agentsEnabled: boolean;
   agentsPort: number;
@@ -236,6 +245,74 @@ export interface UpdateInfo {
   version: string;
   currentVersion: string;
   notes?: string;
+}
+
+/** What a terminal shows, as text (see `TermView.snapshot`). */
+export interface TerminalSnapshot {
+  /** The lines, without colours; a long line the terminal wrapped is one line again. */
+  text: string;
+  cols: number;
+  rows: number;
+  /** From 1, on the screen. */
+  cursorRow: number;
+  cursorCol: number;
+  /** A full-screen program (vim, htop, less) has the screen. */
+  alternate: boolean;
+  /** Lines in the scrollback above the screen. */
+  above: number;
+  /** The first line given (from 1), and how many there are. */
+  from: number;
+  total: number;
+}
+
+/** A terminal tab read for an agent; mirrors `Screen` in desktop/src/agents/mod.rs. */
+export interface AgentScreen extends TerminalSnapshot {
+  title: string;
+  status: string;
+  /** Which of the server's tabs (from 1), and how many it has. */
+  tab: number;
+  tabs: number;
+}
+
+/** The backend asks the page to read a terminal tab of a server for an agent. */
+export interface AgentScreenRequest {
+  id: number;
+  serverId: string;
+  /** From 1; the active tab of the server, else its last, when not given. */
+  tab: number | null;
+  /** The last lines, scrollback included, instead of the screen. */
+  lines: number | null;
+}
+
+/** A remote file edited in a program of this computer; mirrors core/src/edit.rs. */
+export type EditState = 'synced' | 'uploading' | 'conflict' | 'denied' | 'waiting' | 'failed';
+
+export interface EditInfo {
+  id: number;
+  sessionId: number;
+  remotePath: string;
+  localPath: string;
+  name: string;
+  state: EditState;
+  /** Unix time in milliseconds of the last save that reached the server. */
+  savedAt?: number;
+  /** Read and written with sudo. */
+  sudo: boolean;
+  /** `denied` because sudo wants a password. */
+  needsPassword: boolean;
+  error?: string;
+}
+
+/** Why a file could not be opened for editing. */
+export type EditRefusal =
+  | { kind: 'denied'; message: string }
+  | { kind: 'password'; wrong: boolean; message?: string }
+  | { kind: 'failed'; message: string };
+
+export interface EditorInfo {
+  id: string;
+  name: string;
+  program: string;
 }
 
 /** A question from the backend: may an agent do this? Mirrors desktop/src/agents/mod.rs. */

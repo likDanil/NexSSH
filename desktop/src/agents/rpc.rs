@@ -53,7 +53,8 @@ has no terminal and no input: use non-interactive forms (sudo -n, apt-get -y, \
 systemctl --no-pager, git --no-pager, journalctl --no-pager -n 200) and avoid programs that \
 wait for keys or never end (top, less, vim, tail -f, watch). Use read_file, write_file and \
 list_directory for files on a server, and upload and download to move files and folders \
-between this computer and a server.";
+between this computer and a server. When the user talks about something in their terminal (an \
+error, a program's output), terminal_read shows what their tab of the server shows.";
 
 /// A JSON-RPC error.
 #[derive(Debug)]
@@ -424,7 +425,7 @@ mod tests {
             .as_array()
             .unwrap()
             .len();
-        assert_eq!(tools, 7);
+        assert_eq!(tools, 8);
 
         // A session NexSSH does not know: the client must start over.
         let reply = answer(prepare(

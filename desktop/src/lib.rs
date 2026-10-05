@@ -2,6 +2,7 @@
 
 mod agents;
 mod commands;
+mod edit;
 #[cfg(windows)]
 mod explorer;
 mod links;
@@ -79,6 +80,7 @@ pub fn run() {
             let data_dir = nexssh_core::default_data_dir()
                 .ok_or("cannot determine the configuration directory")?;
             let core = nexssh_core::Core::open(&data_dir)?;
+            app.manage(edit::Editing::new(app.handle(), core.sessions.clone()));
             let settings = Settings::load(&data_dir);
             let (r, g, b) = theme_background(settings.theme(), false);
             let args: Vec<String> = std::env::args().collect();
@@ -158,6 +160,14 @@ pub fn run() {
             agents::agents_answer,
             agents::agents_open_failed,
             agents::agents_clear_activity,
+            agents::agents_screen,
+            edit::edit_editors,
+            edit::edit_open,
+            edit::edit_list,
+            edit::edit_resolve,
+            edit::edit_sudo,
+            edit::edit_stop,
+            edit::edit_reveal,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start NexSSH");
@@ -165,6 +175,7 @@ pub fn run() {
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
             handle.state::<AppState>().core.sessions.close_all();
+            handle.state::<edit::Editing>().0.stop_all();
         }
     });
 }

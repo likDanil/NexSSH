@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
 use super::rpc::{INVALID_PARAMS, RpcError};
-use super::{ActivityStatus, Agents, Caller};
+use super::{ActivityStatus, Agents, Caller, Screen};
 use crate::commands::AppState;
 
 /// How long a question waits for the user.
@@ -34,12 +34,16 @@ const READ_DEFAULT: u64 = 100_000;
 const READ_MAX: u64 = 1_000_000;
 const WRITE_MAX: usize = 16 * 1024 * 1024;
 const LIST_MAX: usize = 1000;
+/// The most lines of a terminal an agent asks for, and the most text it gets (the end).
+const SCREEN_LINES_MAX: u64 = 5000;
+const SCREEN_MAX: usize = 64 * 1024;
 
 pub(super) const DECLINED: &str = "The user declined this in NexSSH. Do not try it again; ask the \
 user what to do instead.";
 pub(super) const NOT_ANSWERED: &str = "NexSSH stopped waiting for the user's answer (AI agents \
 were turned off).";
 pub(super) const NOT_ANSWERED_IN_TIME: &str = "The user did not answer in NexSSH within 5 minutes.";
+pub(super) const PAGE_SILENT: &str = "NexSSH's window did not answer; try again in a moment.";
 const NO_SERVERS: &str = "No servers are shared with AI agents. The user can share one in \
 NexSSH: edit the server and choose what AI agents may do there.";
 
@@ -133,6 +137,21 @@ pub(super) fn list() -> Vec<Value> {
                 "additionalProperties": false
             },
             "annotations": { "title": "List a folder", "readOnlyHint": true, "openWorldHint": false }
+        }),
+        json!({
+            "name": "terminal_read",
+            "title": "Read a terminal",
+            "description": "What the user's terminal tab of a server in NexSSH shows right now, as plain text the way the user sees it (a long line the terminal wrapped is one line), or its last `lines` lines with the scrollback. Use it when the user refers to something in their terminal: an error, a program's output, where a command stopped. It runs nothing and opens no tab.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "server": server,
+                    "lines": { "type": "integer", "minimum": 1, "maximum": SCREEN_LINES_MAX, "description": "Instead of the screen: this many last lines, the scrollback included." },
+                    "tab": { "type": "integer", "minimum": 1, "description": "Which of the server's tabs, 1 being the first in the tab bar; by default the one the user is in, else the last opened." }
+                },
+                "additionalProperties": false
+            },
+            "annotations": { "title": "Read a terminal", "readOnlyHint": true, "openWorldHint": false }
         }),
         json!({
             "name": "upload",
@@ -248,6 +267,7 @@ pub(super) async fn call(
         "read_file" => read_file(app, caller, args).await,
         "write_file" => write_file(app, caller, args).await,
         "list_directory" => list_directory(app, caller, args).await,
+        "terminal_read" => terminal_read(app, caller, args).await,
         "upload" => upload(app, caller, args).await,
         "download" => download(app, caller, args).await,
         _ => {
@@ -804,6 +824,90 @@ fn listing(path: &str, entries: &[sftp::Entry]) -> String {
     text
 }
 
+async fn terminal_read(app: &AppHandle, caller: &Caller, args: &Value) -> Outcome {
+    let server = match resolve(app, args) {
+        Ok(server) => server,
+        Err(message) => return Outcome::error(message),
+    };
+    let lines = number_arg(args, "lines").map(|n| n.clamp(1, SCREEN_LINES_MAX));
+    let tab = number_arg(args, "tab").filter(|n| *n >= 1);
+    let agents = app.state::<Agents>();
+    let mut noted = Noted {
+        agents: &agents,
+        id: agents.begin(caller, &server, "terminal_read", ""),
+        finished: false,
+    };
+    agents.update(noted.id, |a| a.status = ActivityStatus::Running);
+    match agents.read_screen(&server.id, tab, lines).await {
+        Ok(screen) => {
+            noted.end(ActivityStatus::Done, None, None);
+            Outcome::ok(screen_text(&screen, lines.is_some()))
+        }
+        Err(reason) => {
+            let message = screen_error(&server.name, &reason, tab);
+            noted.end(ActivityStatus::Failed, Some(message.clone()), None);
+            Outcome::error(message)
+        }
+    }
+}
+
+fn screen_error(name: &str, reason: &str, tab: Option<u64>) -> String {
+    match reason {
+        "noTab" => format!(
+            "No tab of {name} is open in NexSSH, so there is no terminal to read (run_command \
+             opens one)."
+        ),
+        "noSuchTab" => format!(
+            "{name} has no tab number {}; leave tab out for the one the user is in.",
+            tab.unwrap_or(0)
+        ),
+        "notReady" => "The tab's terminal is still opening; try again in a moment.".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn screen_text(s: &Screen, lines: bool) -> String {
+    let mut text = format!(
+        "{}, tab {} of {} ({}), {}×{}; the cursor is at row {}, column {}.",
+        s.title, s.tab, s.tabs, s.status, s.cols, s.rows, s.cursor_row, s.cursor_col
+    );
+    if s.alternate {
+        text.push_str(" A full-screen program has the screen (no scrollback while it runs).");
+    }
+    let body = keep_end(&s.text, SCREEN_MAX);
+    let _ = if lines {
+        write!(text, "\nLines {}–{} of {}:", s.from, s.total, s.total)
+    } else if s.above > 0 {
+        write!(
+            text,
+            "\nThe screen ({} lines above it in the scrollback; ask for lines to see them):",
+            s.above
+        )
+    } else {
+        write!(text, "\nThe screen:")
+    };
+    if body.is_empty() {
+        text.push_str(" empty");
+    } else {
+        let _ = write!(text, "\n{body}");
+    }
+    text
+}
+
+/// The end of `text`, at most `max` bytes from the start of a line.
+fn keep_end(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut start = text.len() - max;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let rest = &text[start..];
+    let rest = rest.split_once('\n').map_or(rest, |(_, after)| after);
+    format!("[earlier lines left out]\n{rest}")
+}
+
 /// Stops a transfer running in its own task when the agent stops waiting for it, so the
 /// transfer cleans up after itself (a dropped transfer would not).
 struct CancelOnDrop(Arc<AtomicBool>);
@@ -992,7 +1096,7 @@ mod tests {
     #[test]
     fn tools_are_described_completely() {
         let tools = list();
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 8);
         for tool in &tools {
             let name = tool["name"].as_str().unwrap();
             assert!(tool["description"].as_str().unwrap().len() > 40, "{name}");
@@ -1082,6 +1186,44 @@ mod tests {
              -rwxr-xr-x          120 2026-09-21 14:13 run.sh"
         );
         assert_eq!(listing("/empty", &[]), "/empty is empty.");
+    }
+
+    #[test]
+    fn describes_screens() {
+        let screen = Screen {
+            title: "web-01".into(),
+            status: "connected".into(),
+            tab: 1,
+            tabs: 2,
+            cols: 120,
+            rows: 30,
+            cursor_row: 3,
+            cursor_col: 15,
+            alternate: false,
+            above: 200,
+            from: 201,
+            total: 230,
+            text: "$ make\nerror: no rule".into(),
+        };
+        let text = screen_text(&screen, false);
+        assert!(text.starts_with(
+            "web-01, tab 1 of 2 (connected), 120×30; the cursor is at row 3, column 15."
+        ));
+        assert!(text.contains("200 lines above it"), "{text}");
+        assert!(text.ends_with("\n$ make\nerror: no rule"), "{text}");
+        let text = screen_text(&screen, true);
+        assert!(text.contains("Lines 201–230 of 230:"), "{text}");
+
+        let long: String = (0..10_000).map(|i| format!("line {i}\n")).collect();
+        let kept = keep_end(&long, 1000);
+        assert!(
+            kept.starts_with("[earlier lines left out]\nline "),
+            "{kept}"
+        );
+        assert!(kept.ends_with("line 9999\n"));
+        assert!(kept.len() < 1100);
+        assert_eq!(keep_end("short", 1000), "short");
+        assert!(screen_error("db", "noTab", None).contains("No tab of db"));
     }
 
     #[test]

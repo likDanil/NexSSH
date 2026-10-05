@@ -17,6 +17,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use zeroize::Zeroizing;
 
 use crate::agents::Agents;
+use crate::edit::Editing;
 use crate::settings::Settings;
 use crate::sink::ChannelSink;
 
@@ -88,8 +89,9 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
 
 /// Called when the page (re)loads: sessions of a previous page instance are orphaned.
 #[tauri::command]
-pub fn app_ready(state: State<'_, AppState>) {
+pub fn app_ready(state: State<'_, AppState>, editing: State<'_, Editing>) {
     state.core.sessions.close_all();
+    editing.0.stop_all();
 }
 
 /// Language of messages produced by the backend (errors, connection progress).
@@ -473,9 +475,11 @@ pub fn session_disconnect(state: State<'_, AppState>, id: SessionId) -> CmdResul
     Ok(state.core.sessions.disconnect(id)?)
 }
 
+/// Closes a session; the files edited on it are no longer sent.
 #[tauri::command]
-pub fn session_close(state: State<'_, AppState>, id: SessionId) {
+pub fn session_close(state: State<'_, AppState>, editing: State<'_, Editing>, id: SessionId) {
     state.core.sessions.close(id);
+    editing.0.stop_session(id);
 }
 
 #[tauri::command]

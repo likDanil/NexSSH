@@ -2,7 +2,8 @@
 //! proxy that adds network latency and can cap bandwidth: transfer tests and speed
 //! measurements without an sshd. The SFTP side answers like OpenSSH's sftp-server: one
 //! request at a time, `limits@openssh.com` (8.6+) or the 64 KiB reads of older versions.
-//! A few made-up commands run without a terminal (see [`run_command`]).
+//! A few made-up commands run without a terminal (see [`run_command`]), a made-up sudo that
+//! reaches what SFTP may not (see [`run_sudo`]), and a made-up shell (see [`fake_shell`]).
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -41,6 +42,11 @@ pub struct Options {
     pub max_read: u32,
     /// Leaves sizes out of file attributes (like `/proc` files, which say 0).
     pub hide_sizes: bool,
+    /// Paths starting with this are refused over SFTP (like root's files to another user);
+    /// sudo reaches them.
+    pub locked: Option<String>,
+    /// What sudo asks for; `None`: sudo without a password.
+    pub sudo_password: Option<String>,
 }
 
 impl Default for Options {
@@ -51,6 +57,8 @@ impl Default for Options {
             limits: true,
             max_read: 255 * 1024,
             hide_sizes: false,
+            locked: None,
+            sudo_password: None,
         }
     }
 }
@@ -270,6 +278,21 @@ impl russh::server::Handler for SshHandler {
         Ok(())
     }
 
+    async fn shell_request(
+        &mut self,
+        id: ChannelId,
+        session: &mut ServerSession,
+    ) -> Result<(), Self::Error> {
+        match self.channels.remove(&id) {
+            Some(channel) => {
+                session.channel_success(id)?;
+                tokio::spawn(fake_shell(channel));
+            }
+            None => session.channel_failure(id)?,
+        }
+        Ok(())
+    }
+
     async fn exec_request(
         &mut self,
         id: ChannelId,
@@ -285,7 +308,12 @@ impl russh::server::Handler for SshHandler {
                     session.data(id, b"early\n".to_vec())?;
                 }
                 session.channel_success(id)?;
-                tokio::spawn(run_command(channel, command));
+                if command.starts_with("sudo ") {
+                    let password = self.options.sudo_password.clone();
+                    tokio::spawn(run_sudo(channel, command, self.root.clone(), password));
+                } else {
+                    tokio::spawn(run_command(channel, command));
+                }
             }
             None => session.channel_failure(id)?,
         }
@@ -334,6 +362,160 @@ async fn run_command(mut channel: Channel<Msg>, command: String) {
     }
     if !err.is_empty() {
         let _ = channel.extended_data_bytes(1, err.to_vec()).await;
+    }
+    let _ = channel.exit_status(code).await;
+    let _ = channel.eof().await;
+    let _ = channel.close().await;
+}
+
+/// A shell that greets, shows a prompt, echoes what is typed and says what it ran for every
+/// line: enough to see what a client types into a session, and when.
+async fn fake_shell(mut channel: Channel<Msg>) {
+    let _ = channel.data_bytes(b"Welcome\r\n$ ".to_vec()).await;
+    let mut line = Vec::new();
+    while let Some(msg) = channel.wait().await {
+        let data = match msg {
+            russh::ChannelMsg::Data { data } => data,
+            russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+            _ => continue,
+        };
+        for &byte in data.iter() {
+            if byte == b'\r' || byte == b'\n' {
+                let reply = format!("\r\nran: {}\r\n$ ", String::from_utf8_lossy(&line));
+                line.clear();
+                let _ = channel.data_bytes(reply.into_bytes()).await;
+            } else {
+                line.push(byte);
+                let _ = channel.data_bytes(vec![byte]).await;
+            }
+        }
+    }
+}
+
+/// The words of a POSIX shell command line: spaces separate them, single quotes keep them
+/// together (`'\''` is a quote inside).
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let (mut quoted, mut started) = (false, false);
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                quoted = !quoted;
+                started = true;
+            }
+            '\\' if !quoted => {
+                if let Some(next) = chars.next() {
+                    word.push(next);
+                }
+                started = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+            }
+            c => {
+                word.push(c);
+                started = true;
+            }
+        }
+    }
+    if started {
+        words.push(word);
+    }
+    words
+}
+
+/// A remote path on the server's disk.
+fn on_disk(root: &Path, remote: &str) -> PathBuf {
+    let mut path = root.to_path_buf();
+    for part in normalize(remote).split('/').filter(|p| !p.is_empty()) {
+        path.push(part);
+    }
+    path
+}
+
+/// sudo as NexSSH uses it: `sudo -n …`, or `sudo -k -S -p '' …` with the password on the
+/// first line of the input; then `true`, `-v`, `cat -- <path>` or `tee -- <path> > /dev/null`.
+/// It writes files that are read-only too, as root would.
+async fn run_sudo(
+    mut channel: Channel<Msg>,
+    command: String,
+    root: PathBuf,
+    password: Option<String>,
+) {
+    let words = shell_words(&command);
+    let mut rest = &words[1..];
+    let (mut reads_password, mut no_prompt) = (false, false);
+    while let Some(flag) = rest.first() {
+        match flag.as_str() {
+            "-n" => no_prompt = true,
+            "-S" => reads_password = true,
+            "-k" => {}
+            "-p" => rest = &rest[1..],
+            _ => break,
+        }
+        rest = &rest[1..];
+    }
+    let mut input = Vec::new();
+    loop {
+        match channel.wait().await {
+            Some(russh::ChannelMsg::Data { data }) => input.extend_from_slice(&data),
+            Some(russh::ChannelMsg::Eof) | None => break,
+            Some(_) => {}
+        }
+    }
+    let (out, err, code): (Vec<u8>, String, u32) = 'run: {
+        if let Some(expected) = &password {
+            if no_prompt || !reads_password {
+                break 'run (Vec::new(), "sudo: a password is required\n".into(), 1);
+            }
+            let end = input
+                .iter()
+                .position(|b| *b == b'\n')
+                .unwrap_or(input.len());
+            let given = String::from_utf8_lossy(&input[..end]).into_owned();
+            if &given != expected {
+                break 'run (
+                    Vec::new(),
+                    "Sorry, try again.\nsudo: 1 incorrect password attempt\n".into(),
+                    1,
+                );
+            }
+            input.drain(..(end + 1).min(input.len()));
+        }
+        let args: Vec<&str> = rest.iter().map(String::as_str).collect();
+        match args.as_slice() {
+            ["true"] | ["-v"] => (Vec::new(), String::new(), 0),
+            ["cat", "--", path] => match std::fs::read(on_disk(&root, path)) {
+                Ok(data) => (data, String::new(), 0),
+                Err(e) => (Vec::new(), format!("cat: {path}: {e}\n"), 1),
+            },
+            ["tee", "--", path, ">", "/dev/null"] => {
+                let file = on_disk(&root, path);
+                // Root writes read-only files too.
+                if let Ok(meta) = std::fs::metadata(&file) {
+                    let mut permissions = meta.permissions();
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    permissions.set_readonly(false);
+                    let _ = std::fs::set_permissions(&file, permissions);
+                }
+                match std::fs::write(&file, &input) {
+                    Ok(()) => (Vec::new(), String::new(), 0),
+                    Err(e) => (Vec::new(), format!("tee: {path}: {e}\n"), 1),
+                }
+            }
+            other => (Vec::new(), format!("sudo: unknown: {other:?}\n"), 1),
+        }
+    };
+    if !out.is_empty() {
+        let _ = channel.data_bytes(out).await;
+    }
+    if !err.is_empty() {
+        let _ = channel.extended_data_bytes(1, err.into_bytes()).await;
     }
     let _ = channel.exit_status(code).await;
     let _ = channel.eof().await;
@@ -395,6 +577,16 @@ impl FsHandler {
     fn handle(&mut self) -> String {
         self.next += 1;
         format!("h{}", self.next)
+    }
+
+    /// Refuses paths under `Options::locked`.
+    fn check(&self, path: &str) -> Result<(), StatusCode> {
+        match &self.options.locked {
+            Some(prefix) if normalize(path).starts_with(prefix.as_str()) => {
+                Err(StatusCode::PermissionDenied)
+            }
+            _ => Ok(()),
+        }
     }
 
     fn attrs(&self, path: &Path) -> Result<FileAttributes, StatusCode> {
@@ -467,6 +659,7 @@ impl russh_sftp::server::Handler for FsHandler {
                 options.create(true);
             }
         }
+        self.check(&filename)?;
         let file = options.open(self.local(&filename)).map_err(status_of)?;
         let handle = self.handle();
         self.files.insert(handle.clone(), file);
@@ -521,6 +714,7 @@ impl russh_sftp::server::Handler for FsHandler {
     }
 
     async fn lstat(&mut self, id: u32, path: String) -> Result<Attrs, Self::Error> {
+        self.check(&path)?;
         Ok(Attrs {
             id,
             attrs: self.attrs(&self.local(&path))?,
@@ -528,6 +722,7 @@ impl russh_sftp::server::Handler for FsHandler {
     }
 
     async fn stat(&mut self, id: u32, path: String) -> Result<Attrs, Self::Error> {
+        self.check(&path)?;
         let meta = std::fs::metadata(self.local(&path)).map_err(status_of)?;
         Ok(Attrs {
             id,
