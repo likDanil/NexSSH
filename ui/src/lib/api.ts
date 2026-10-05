@@ -17,11 +17,13 @@ import type {
   KeyInfo,
   LocalShells,
   PickedUpload,
+  PixelRect,
   PromptReply,
   Server,
   SessionEvent,
   Settings,
   SftpEntry,
+  SnapButtonState,
   StoreData,
   TransferProgress,
   UpdateInfo,
@@ -107,6 +109,12 @@ export const api = {
   /** Windows 11: moves it into Explorer's compact menu; Windows asks the user for administrator
    * rights (unchanged when they say no). */
   trustExplorerMenu: () => invoke<ExplorerMenuState>('explorer_menu_trust'),
+  /** Windows 11: where the title bar's maximize button is, in the window's pixels, for the
+   * snap layouts there (`null`: no such button). */
+  windowSnapButton: (rect: PixelRect | null) => invoke<void>('window_snap_button', { rect }),
+  /** How the maximize button should look while the snap layouts' window takes the mouse. */
+  onSnapButton: (handler: (state: SnapButtonState) => void) =>
+    listen<SnapButtonState>('snap-button', (e) => handler(e.payload)),
   /** Folders to open local terminals in, asked for with `--cwd` (e.g. from Explorer). */
   launchTake: () => invoke<string[]>('launch_take'),
   /** NexSSH was started again with `--cwd`: `launchTake` has new folders. */

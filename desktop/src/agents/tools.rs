@@ -146,7 +146,7 @@ pub(super) fn list() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "server": server,
-                    "lines": { "type": "integer", "minimum": 1, "maximum": SCREEN_LINES_MAX, "description": "Instead of the screen: this many last lines, the scrollback included." },
+                    "lines": { "type": "integer", "minimum": 1, "maximum": SCREEN_LINES_MAX, "description": "Instead of the screen: this many last lines of the output (as printed, counted back from the last one that shows something), the scrollback included." },
                     "tab": { "type": "integer", "minimum": 1, "description": "Which of the server's tabs, 1 being the first in the tab bar; by default the one the user is in, else the last opened." }
                 },
                 "additionalProperties": false
@@ -875,8 +875,10 @@ fn screen_text(s: &Screen, lines: bool) -> String {
         text.push_str(" A full-screen program has the screen (no scrollback while it runs).");
     }
     let body = keep_end(&s.text, SCREEN_MAX);
-    let _ = if lines {
+    let _ = if lines && s.total > 0 {
         write!(text, "\nLines {}–{} of {}:", s.from, s.total, s.total)
+    } else if lines {
+        write!(text, "\nThe terminal:")
     } else if s.above > 0 {
         write!(
             text,
@@ -1213,6 +1215,16 @@ mod tests {
         assert!(text.ends_with("\n$ make\nerror: no rule"), "{text}");
         let text = screen_text(&screen, true);
         assert!(text.contains("Lines 201–230 of 230:"), "{text}");
+        // Nothing printed yet.
+        let blank = Screen {
+            above: 0,
+            from: 1,
+            total: 0,
+            text: String::new(),
+            ..screen
+        };
+        assert!(screen_text(&blank, true).ends_with("\nThe terminal: empty"));
+        assert!(screen_text(&blank, false).ends_with("\nThe screen: empty"));
 
         let long: String = (0..10_000).map(|i| format!("line {i}\n")).collect();
         let kept = keep_end(&long, 1000);

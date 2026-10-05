@@ -42,12 +42,16 @@ getrandom = "0.4"
 nexssh-explorer = { path = "../explorer" }
 winreg = "0.55"
 # Links from the terminal open in the default browser (links.rs); the installer's window and
-# the user's languages for the Explorer menu entry (explorer.rs).
+# the user's languages for the Explorer menu entry (explorer.rs); Windows 11's snap layouts on
+# the page's maximize button (snap.rs).
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_System_Com",
+    "Win32_System_LibraryLoader",
     "Win32_System_Registry",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

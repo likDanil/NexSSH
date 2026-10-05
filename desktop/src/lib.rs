@@ -11,6 +11,7 @@ mod logger;
 mod settings;
 mod sftp;
 mod sink;
+mod snap;
 mod updates;
 
 use std::sync::Mutex;
@@ -168,6 +169,7 @@ pub fn run() {
             edit::edit_sudo,
             edit::edit_stop,
             edit::edit_reveal,
+            snap::window_snap_button,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start NexSSH");

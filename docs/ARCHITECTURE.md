@@ -320,8 +320,8 @@ kept outside reactive state; backend output is written straight into them.
 
 `settings.json` belongs to the UI; for local terminals it keeps `localShell` (a shell's id, `''`
 for the default, or `custom`), `localShellCommand` (the custom command line) and `explorerMenu`;
-the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents"), and `editor` and
-`editorCommand` (see "Editing remote files").
+the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents"), and `editor`,
+`editorCommand` and `editorAssociations` (see "Editing remote files").
 
 A session (runtime only) is identified by a numeric id and reports:
 
@@ -492,6 +492,13 @@ editor of this computer (`core::edit`, `desktop/src/edit.rs`).
   Text, Notepad++, Notepad; macOS: the same apps in `/Applications`, TextEdit; Linux: their
   commands in `PATH`), `system` (the file's default program), or a custom command line where
   `{file}` stands for the file. Left alone, the first one found opens it.
+* **By file type:** `editorAssociations` gives files with some extensions a program of their own
+  (`{ extensions: ['yml', 'yaml'], editor, command }`, the same choices). The longest extension
+  a file's name ends with wins (`.tar.gz` before `.gz`; `.env` is the extension `env`), in any
+  case; an association whose program cannot open files here (an editor no longer found, a custom
+  one without a command) is passed over. Other files open in the default editor. The backend
+  chooses (`program_for`); the page mirrors it only to name the program in its menus, and an
+  extension added again moves to its new program.
 * The page gets the list on every change (`edits`): a toast says a save reached the server, the
   folder shown is reloaded, and conflicts and denials come up as questions.
 
@@ -527,7 +534,10 @@ misses nothing.
 * **Terminals:** only the page has a terminal's screen (xterm.js). `terminal_read` emits
   `agents-read` with an id; the page picks the server's tab (the one asked for, else the active
   one, else the last), takes the screen or the last lines from xterm's buffer as text (rows of a
-  wrapped line joined again) and answers with `agents_screen` within 5 s. It opens no tab and,
+  wrapped line joined again, `ui/src/lib/screen.ts`) and answers with `agents_screen` within 5 s.
+  The last lines are counted back from the last row with something on it, as printed (a wrapped
+  line once), so the empty bottom of a screen, after `clear` or in a new terminal, is never what
+  an agent gets. `npm test` checks this on rows like xterm's (`ui/tests`). It opens no tab and,
   like reading files, needs no question on servers set to ask; it is noted in the activity.
 * **Questions** (`requests` in the status) wait for `agents_answer`; "don't ask again" holds for
   that agent (its MCP session, or its name) and that server until NexSSH quits or the server's
@@ -563,6 +573,15 @@ The interface is available in English and Russian; the default follows the syste
   do not depend on the layout. The local terminal is `` Ctrl+Shift+` `` everywhere, like VS Code.
 * **Custom title bar on Windows** (tabs live in the title bar, like Windows Terminal),
   overlay title bar on macOS, native decorations on Linux.
+* **Snap layouts (Windows 11)** appear when the mouse rests on what a window says is its
+  maximize button (`HTMAXBUTTON` for `WM_NCHITTEST`). WebView2 covers the window, and in its
+  HWND hosting (Tauri's) `app-region` knows only `drag`, so `desktop/src/snap.rs` puts a child
+  window of its own over the page's button, as Windows Terminal does: never painted (the
+  button shows through, like Tauri's resize border, whose top rows it leaves alone while the
+  window is not maximized), it answers `HTMAXBUTTON`, maximizes or restores on a click, and
+  tells the page how to show the button (`snap-button`), which the mouse no longer reaches.
+  The page reports the button's place in window pixels (`window_snap_button`) on resize, on a
+  scale change and in full screen (none then).
 * **Full screen goes through Rust** (`window_set_fullscreen`). On Windows an undecorated
   window that is maximized keeps the maximized client area (the work area, taskbar
   excluded) even in full screen, which left a strip at the bottom. The command un-maximizes

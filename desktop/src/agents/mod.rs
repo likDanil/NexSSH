@@ -130,7 +130,8 @@ pub struct Screen {
     pub alternate: bool,
     /// Lines in the scrollback above the screen.
     pub above: u32,
-    /// The first line given (from 1), and how many lines there are.
+    /// The first row given (from 1), and the last one with something on it: where the output
+    /// ends (0 when nothing has been printed).
     pub from: u32,
     pub total: u32,
     /// The lines, without colours; a long line the terminal wrapped is one line again.

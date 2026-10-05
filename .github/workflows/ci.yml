@@ -43,6 +43,9 @@ jobs:
       - name: Type-check the UI
         run: npm run check
 
+      - name: Test the UI
+        run: npm test
+
       - name: Build the UI
         run: npm run ui:build
 

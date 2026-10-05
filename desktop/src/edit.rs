@@ -2,9 +2,11 @@
 //! `nexssh_core::edit`): the editors found here, starting the one the settings choose, and
 //! the IPC commands. The page gets the list of edited files on every change (`edits` event).
 //!
-//! The editor is the one the settings name (`editor`: a found editor's id, `system` for the
-//! file's default program, `custom` for the command line in `editorCommand`), else the first
-//! one found. Like a local terminal's custom shell, the command line comes from the
+//! A file opens in the program the settings choose for its extension
+//! (`editorAssociations`), else in the default editor (`editor`). A program is a found
+//! editor's id, `system` for the file's default program, or `custom` for a command line
+//! (`command` of the association, `editorCommand` of the default). The default editor `""`
+//! is the first one found. Like a local terminal's custom shell, command lines come from the
 //! settings, not from what the page asks for.
 
 use std::path::{Path, PathBuf};
@@ -13,7 +15,7 @@ use std::sync::Arc;
 use nexssh_core::edit::{EditId, EditInfo, Edits, Refusal, Resolution};
 use nexssh_core::local::{find_program, split_command_line};
 use nexssh_core::{SessionId, i18n};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 
@@ -63,19 +65,110 @@ pub fn editors() -> Vec<EditorInfo> {
         .collect()
 }
 
-/// Opens `file` in the editor the settings choose.
+/// A program for files with some extensions (`editorAssociations` in the settings).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct Association {
+    /// Without the dot: `log`, `tar.gz`.
+    extensions: Vec<String>,
+    /// A found editor's id, `system` or `custom`.
+    editor: String,
+    /// For `custom`.
+    command: String,
+}
+
+/// What opens a file: a found editor's id (`""`: the first one found), `system`, or `custom`
+/// with its command line.
+#[derive(Debug, PartialEq)]
+struct Program {
+    editor: String,
+    command: String,
+}
+
+impl Program {
+    /// Whether it can open files here: a custom one needs its command, an editor must still
+    /// be found.
+    fn usable(&self, found: &[EditorInfo]) -> bool {
+        match self.editor.as_str() {
+            "custom" => !self.command.trim().is_empty(),
+            "system" => true,
+            id => found.iter().any(|e| e.id == id),
+        }
+    }
+}
+
+/// The program the settings choose for the file `name`: the one associated with its
+/// extension (the longest that matches, so `tar.gz` before `gz`; `.env` has the extension
+/// `env`), else the default editor. An association whose program cannot open files here is
+/// passed over.
+fn program_for(settings: &Value, name: &str, found: &[EditorInfo]) -> Program {
+    let name = name.to_lowercase();
+    let associations = settings
+        .get("editorAssociations")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let associated = associations
+        .iter()
+        // One that does not read as an association is left out, not the others with it.
+        .filter_map(|item| serde_json::from_value::<Association>(item.clone()).ok())
+        .filter_map(|association| {
+            let longest = association
+                .extensions
+                .iter()
+                .map(|ext| ext.trim().trim_start_matches('.').to_lowercase())
+                .filter(|ext| !ext.is_empty() && name.ends_with(&format!(".{ext}")))
+                .map(|ext| ext.len())
+                .max()?;
+            let program = Program {
+                editor: association.editor,
+                command: association.command,
+            };
+            Some((longest, program))
+        })
+        .filter(|(_, program)| program.usable(found))
+        // The first of the longest.
+        .fold(
+            None::<(usize, Program)>,
+            |best, (len, program)| match best {
+                Some((best_len, _)) if best_len >= len => best,
+                _ => Some((len, program)),
+            },
+        );
+    if let Some((_, program)) = associated {
+        return program;
+    }
+    let text = |key: &str| {
+        settings
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    Program {
+        editor: text("editor"),
+        command: text("editorCommand"),
+    }
+}
+
+/// Opens `file` in the program the settings choose for it.
 fn launch(settings: &Value, file: &Path) -> std::io::Result<()> {
-    let choice = settings.get("editor").and_then(Value::as_str).unwrap_or("");
-    let command = settings
-        .get("editorCommand")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    match choice {
+    let found = editors();
+    let name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let program = program_for(settings, &name, &found);
+    let command = program.command.trim();
+    match program.editor.as_str() {
+        "custom" => log::info!("{name} opens with `{command}`"),
+        "" => log::info!("{name} opens in the first editor found"),
+        editor => log::info!("{name} opens in {editor}"),
+    }
+    match program.editor.as_str() {
         "custom" if !command.is_empty() => custom(command, file),
         "system" => crate::links::open(&file.display().to_string()),
-        _ => {
-            let found = editors();
+        choice => {
             let editor = found
                 .iter()
                 .find(|e| e.id == choice)
@@ -362,6 +455,79 @@ mod tests {
         for editor in &found {
             assert!(Path::new(&editor.program).exists(), "{editor:?}");
         }
+    }
+
+    fn found(ids: &[&str]) -> Vec<EditorInfo> {
+        ids.iter()
+            .map(|id| EditorInfo {
+                id: id.to_string(),
+                name: id.to_string(),
+                program: String::new(),
+            })
+            .collect()
+    }
+
+    fn program(editor: &str, command: &str) -> Program {
+        Program {
+            editor: editor.into(),
+            command: command.into(),
+        }
+    }
+
+    #[test]
+    fn files_open_in_the_program_of_their_extension() {
+        let settings = serde_json::json!({
+            "editor": "vscode",
+            "editorCommand": "",
+            "editorAssociations": [
+                { "extensions": ["log", "TXT"], "editor": "notepad++" },
+                { "extensions": ["gz"], "editor": "system" },
+                { "extensions": ["tar.gz"], "editor": "custom", "command": "7z x {file}" },
+                { "extensions": [".env"], "editor": "custom", "command": "vim" },
+                { "extensions": ["md"], "editor": "typora" },
+                { "extensions": ["ini"], "editor": "custom", "command": "  " },
+                "not an association",
+                { "extensions": ["log"], "editor": "zed" },
+            ],
+        });
+        let found = found(&["vscode", "notepad++", "zed"]);
+        let open = |name: &str| program_for(&settings, name, &found);
+        assert_eq!(
+            open("syslog.log"),
+            program("notepad++", ""),
+            "the first that matches"
+        );
+        assert_eq!(open("README.TXT"), program("notepad++", ""), "in any case");
+        assert_eq!(
+            open("backup.tar.gz"),
+            program("custom", "7z x {file}"),
+            "the longest"
+        );
+        assert_eq!(open("data.gz"), program("system", ""));
+        assert_eq!(open(".env"), program("custom", "vim"), "a dotfile");
+        assert_eq!(open("app.env"), program("custom", "vim"));
+        // What cannot open files here gives way to the default editor.
+        assert_eq!(
+            open("notes.md"),
+            program("vscode", ""),
+            "an editor not found"
+        );
+        assert_eq!(open("php.ini"), program("vscode", ""), "no command");
+        // No association.
+        assert_eq!(open("main.rs"), program("vscode", ""));
+        assert_eq!(open("log"), program("vscode", ""), "no dot");
+        assert_eq!(open("catalog"), program("vscode", ""));
+    }
+
+    #[test]
+    fn without_associations_the_default_editor() {
+        let found = found(&["vscode"]);
+        let custom = serde_json::json!({ "editor": "custom", "editorCommand": "subl {file}" });
+        let open = |settings: &Value| program_for(settings, "a.log", &found);
+        assert_eq!(open(&custom), program("custom", "subl {file}"));
+        let broken = serde_json::json!({ "editorAssociations": { "log": "zed" } });
+        assert_eq!(open(&broken), program("", ""));
+        assert_eq!(open(&Value::Null), program("", ""));
     }
 
     #[cfg(windows)]

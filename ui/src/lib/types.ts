@@ -184,6 +184,8 @@ export interface Settings {
   editor: string;
   /** The custom editor's command line; `{file}` stands for the file (else it goes last). */
   editorCommand: string;
+  /** Programs for files with some extensions; other files open in `editor`. */
+  editorAssociations: EditorAssociation[];
   /** What a double-click on a file in the files drawer does. */
   filesDoubleClick: 'download' | 'edit';
   /** AI agents may connect (MCP on 127.0.0.1:`agentsPort`). */
@@ -260,7 +262,8 @@ export interface TerminalSnapshot {
   alternate: boolean;
   /** Lines in the scrollback above the screen. */
   above: number;
-  /** The first line given (from 1), and how many there are. */
+  /** The first row given (from 1), and the last one with something on it: where the output
+   * ends (0 when nothing has been printed). */
   from: number;
   total: number;
 }
@@ -313,6 +316,29 @@ export interface EditorInfo {
   id: string;
   name: string;
   program: string;
+}
+
+/** A rectangle in the window's pixels (physical, not CSS). */
+export interface PixelRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The maximize button, while Windows 11's snap layouts take the mouse over it
+ * (desktop/src/snap.rs). */
+export type SnapButtonState = 'hover' | 'press' | 'none';
+
+/** A program for files with some extensions (`Settings.editorAssociations`); the backend
+ * reads it in desktop/src/edit.rs. */
+export interface EditorAssociation {
+  /** Lowercase, without the dot: `['yml', 'yaml']`, `['tar.gz']`. */
+  extensions: string[];
+  /** Like `Settings.editor`, but never '': an editor's id, 'system' or 'custom'. */
+  editor: string;
+  /** For 'custom': the command line; `{file}` stands for the file (else it goes last). */
+  command: string;
 }
 
 /** A question from the backend: may an agent do this? Mirrors desktop/src/agents/mod.rs. */

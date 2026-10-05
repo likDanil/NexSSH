@@ -38,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   agentsPort: 7422,
   editor: '',
   editorCommand: '',
+  editorAssociations: [],
   filesDoubleClick: 'download',
 };
 
