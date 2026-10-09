@@ -189,13 +189,15 @@ class SessionsState {
     tab.agentOpens = [];
   }
 
-  /** Focuses an existing tab of the server, or opens a new session. */
+  /** Focuses an existing tab of the server (a tab of the last run connects then), or opens a
+   * new session. */
   focusOrOpen(server: Server) {
     const existing = this.forServer(server.id);
     const pick = existing.find((t) => t.key === this.activeKey) ?? existing[existing.length - 1];
     if (pick) {
       this.activeKey = pick.key;
       app.sidebarForSession();
+      if (pick.waiting) this.#begin(pick);
     } else {
       this.openServer(server);
     }
