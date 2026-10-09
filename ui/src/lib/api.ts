@@ -7,6 +7,7 @@ import type {
   AgentScreenRequest,
   AgentsStatus,
   AppInfo,
+  CloseRequest,
   EditInfo,
   EditorInfo,
   Downloaded,
@@ -26,6 +27,8 @@ import type {
   SnapButtonState,
   StoreData,
   TransferProgress,
+  TrayAction,
+  TraySpec,
   UpdateInfo,
 } from './types';
 
@@ -119,6 +122,24 @@ export const api = {
   launchTake: () => invoke<string[]>('launch_take'),
   /** NexSSH was started again with `--cwd`: `launchTake` has new folders. */
   onLaunch: (handler: () => void) => listen('launch', handler),
+
+  /** The window was closed, or "Quit" chosen in the tray: the page decides what happens, and
+   * takes the request at once (`closeTaken`), or NexSSH quits after a few seconds. */
+  onCloseRequest: (handler: (request: CloseRequest) => void) =>
+    listen<CloseRequest>('close-request', (e) => handler(e.payload)),
+  closeTaken: (id: number) => invoke<void>('close_taken', { id }),
+  /** Quits NexSSH (sessions close). */
+  appExit: () => invoke<void>('app_exit'),
+  /** Hides the window into the tray; it stays when there is no tray icon to bring it back. */
+  windowHide: () => invoke<void>('window_hide'),
+  windowShow: () => invoke<void>('window_show'),
+  /** The user is needed: the window comes back from the tray and its taskbar button flashes. */
+  windowAttention: () => invoke<void>('window_attention'),
+  /** The tray's menu, in the interface language, and whether its icon shows while the window
+   * does (otherwise only while the window is hidden). */
+  traySet: (spec: TraySpec) => invoke<void>('tray_set', { spec }),
+  /** A server or a local terminal was chosen in the tray's menu (the window is back). */
+  onTrayAction: (handler: (action: TrayAction) => void) => listen<TrayAction>('tray', (e) => handler(e.payload)),
 
   sftpHome: (sessionId: number) => invoke<string>('sftp_home', { sessionId }),
   sftpResolve: (sessionId: number, path: string) => invoke<string>('sftp_resolve', { sessionId, path }),

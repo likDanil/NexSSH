@@ -191,6 +191,32 @@ export interface Settings {
   /** AI agents may connect (MCP on 127.0.0.1:`agentsPort`). */
   agentsEnabled: boolean;
   agentsPort: number;
+  /** What the window's close button does: ask, hide the window into the tray (sessions stay
+   * connected), or quit. Without a tray it always quits. */
+  closeAction: 'ask' | 'tray' | 'quit';
+  /** Whether the tabs open when NexSSH quits come back at the next start (see state/restore). */
+  restoreTabs: 'ask' | 'always' | 'never';
+  /** The tabs to open at the next start: kept when NexSSH quits, and all along with `always`. */
+  lastTabs: SavedTabs | null;
+}
+
+/** A tab kept for the next start; mirrors what `state/sessions` opens it from. */
+export interface SavedTab {
+  kind: 'ssh' | 'local';
+  /** `{ serverId }`, `{ destination }` or `{ local }`, as for `api.openSession`/`api.openLocal`. */
+  target: {
+    serverId?: string;
+    destination?: string;
+    local?: { profile?: string; command?: string; cwd?: string };
+  };
+  title: string;
+  subtitle: string;
+}
+
+export interface SavedTabs {
+  tabs: SavedTab[];
+  /** The tab that was in front; -1 for the servers screen. */
+  active: number;
 }
 
 export interface AppInfo {
@@ -200,6 +226,34 @@ export interface AppInfo {
   settings: Partial<Settings> | null;
   /** This build can update itself. */
   updates: boolean;
+  /** The system can show NexSSH's icon in the tray. */
+  tray: boolean;
+}
+
+/** A request to close NexSSH, which the page decides about (desktop/src/tray.rs): its window was
+ * closed, or "Quit" was chosen in the tray. */
+export interface CloseRequest {
+  id: number;
+  kind: 'window' | 'quit';
+}
+
+/** Something to do once the tray brought the window back. */
+export type TrayAction = { action: 'connect'; serverId: string } | { action: 'local' };
+
+/** The tray's menu and tooltip, in the interface language; mirrors `TraySpec` in tray.rs. */
+export interface TraySpec {
+  /** The icon shows while the window does too, not only while it is hidden. */
+  always: boolean;
+  tooltip: string;
+  /** Greyed-out lines at the top of the menu. */
+  status: string[];
+  open: string;
+  connect: string;
+  noServers: string;
+  local: string;
+  quit: string;
+  /** Saved servers by group; a group named "" is listed in place. */
+  groups: { name: string; servers: { id: string; name: string }[] }[];
 }
 
 export type SftpEntryKind = 'dir' | 'file' | 'link' | 'other';

@@ -67,6 +67,8 @@ pub struct AppInfo {
     settings: Value,
     /// This build can update itself (see `updates.rs`).
     updates: bool,
+    /// The system can show NexSSH's icon in the tray (see `tray.rs`).
+    tray: bool,
 }
 
 #[tauri::command]
@@ -84,6 +86,7 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         data_dir: state.core.data_dir.display().to_string(),
         settings,
         updates: crate::updates::supported(),
+        tray: crate::tray::supported(),
     }
 }
 

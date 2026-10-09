@@ -6,8 +6,10 @@ import { api } from './lib/api';
 import { agents } from './lib/state/agents.svelte';
 import { edits } from './lib/state/edits.svelte';
 import { app } from './lib/state/app.svelte';
+import { restore } from './lib/state/restore.svelte';
 import { servers } from './lib/state/servers.svelte';
 import { shells } from './lib/state/shells.svelte';
+import { tray } from './lib/state/tray.svelte';
 import { updates } from './lib/state/updates.svelte';
 
 // Sessions of a previous page instance (e.g. after a reload) cannot be reattached.
@@ -16,6 +18,9 @@ void api.appReady().catch(() => {});
 await Promise.all([app.init(), servers.load()]);
 
 mount(App, { target: document.getElementById('app')! });
+// The tabs of the last run, if the settings say so; before the folders asked for below.
+restore.start();
+void tray.start();
 updates.start();
 void shells.load();
 void agents.start();

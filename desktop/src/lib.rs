@@ -12,6 +12,7 @@ mod settings;
 mod sftp;
 mod sink;
 mod snap;
+mod tray;
 mod updates;
 
 use std::sync::Mutex;
@@ -59,7 +60,8 @@ pub fn run() {
             log::info!("NexSSH was started again: showing this window");
             // `--cwd <folder>` (Explorer's "Open with NexSSH") opens a local terminal here.
             local::handle_second_start(app, &args, &cwd);
-            show_main_window(app);
+            // Also out of the tray.
+            tray::show_window(app);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Only its Rust API is used (the key file picker); the webview gets no dialog permissions.
@@ -68,12 +70,18 @@ pub fn run() {
         .manage(sftp::Transfers::default())
         .manage(local::Launches::default())
         .manage(agents::Agents::default())
+        .manage(tray::Tray::default())
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { paths, .. }) => {
                 sftp::dragged(window, paths)
             }
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) => {
                 sftp::dropped(window, paths, *position)
+            }
+            // The page decides: into the tray, quit, or ask first (tray.rs).
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                api.prevent_close();
+                tray::request_close(window.app_handle(), tray::Closing::Window);
             }
             _ => {}
         })
@@ -95,6 +103,7 @@ pub fn run() {
             });
             app.state::<agents::Agents>()
                 .init(app.handle(), &agents_settings);
+            tray::init(app);
             create_main_window(app, Color(r, g, b, 255))?;
             Ok(())
         })
@@ -170,6 +179,12 @@ pub fn run() {
             edit::edit_stop,
             edit::edit_reveal,
             snap::window_snap_button,
+            tray::tray_set,
+            tray::close_taken,
+            tray::window_hide,
+            tray::window_show,
+            tray::window_attention,
+            tray::app_exit,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start NexSSH");
@@ -179,6 +194,11 @@ pub fn run() {
             handle.state::<AppState>().core.sessions.close_all();
             handle.state::<edit::Editing>().0.stop_all();
         }
+        // A click on the dock icon brings the window back from the tray.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            tray::show_window(handle);
+        }
     });
 }
 
@@ -186,15 +206,6 @@ pub fn run() {
 /// the saved theme before the page paints, and so title bars can differ per platform:
 /// Windows gets a custom title bar drawn by the UI, macOS keeps its traffic lights over
 /// the content, Linux keeps native decorations.
-/// Brings the main window to the front, restored if it was minimized.
-fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-}
-
 fn create_main_window(app: &tauri::App, background: Color) -> tauri::Result<()> {
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("NexSSH")

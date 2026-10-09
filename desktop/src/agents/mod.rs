@@ -554,16 +554,11 @@ impl Agents {
             .retain(|(_, server)| server != server_id);
     }
 
-    /// Flashes the taskbar button (Windows) or bounces the dock icon (macOS) while NexSSH
-    /// waits for the user.
+    /// Brings the window back from the tray, and flashes the taskbar button (Windows) or
+    /// bounces the dock icon (macOS) while NexSSH waits for the user.
     fn attention(&self) {
-        if let Some(window) = self
-            .app
-            .get()
-            .and_then(|app| app.get_webview_window("main"))
-            && !window.is_focused().unwrap_or(false)
-        {
-            let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
+        if let Some(app) = self.app.get() {
+            crate::tray::attention(app);
         }
     }
 

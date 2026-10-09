@@ -121,6 +121,53 @@ const ru: Catalog = {
   'session.restart': 'Перезапустить',
   'session.stop': 'Остановить',
   'session.terminalSettings': 'Настройки терминала…',
+  'session.connect': 'Подключиться',
+
+  // ---- вкладки прошлого запуска ----------------------------------------------------
+  'restore.banner': 'Из прошлого запуска',
+  'restore.pressEnter': 'Вкладка из прошлого запуска. Нажмите Enter, чтобы подключиться.',
+  'restore.reopened': {
+    one: 'Открыта {count} вкладка прошлого запуска',
+    few: 'Открыты {count} вкладки прошлого запуска',
+    many: 'Открыто {count} вкладок прошлого запуска',
+    other: 'Открыто {count} вкладки прошлого запуска',
+  },
+  'restore.connectAll': 'Подключить все',
+
+  // ---- закрытие и трей -------------------------------------------------------------
+  'close.title': 'Закрыть NexSSH?',
+  'close.trayHint':
+    'NexSSH может остаться в трее: сеансы не отключатся, а окно вернётся по щелчку на значке. В меню значка — ваши серверы и выход.',
+  'close.tabsOpen': {
+    one: 'Открыта {count} вкладка: при выходе её сеанс завершится.',
+    few: 'Открыты {count} вкладки: при выходе их сеансы завершатся.',
+    many: 'Открыто {count} вкладок: при выходе их сеансы завершатся.',
+    other: 'Открыто {count} вкладки: при выходе их сеансы завершатся.',
+  },
+  'close.reopen': {
+    one: 'Открыть эту вкладку при следующем запуске',
+    few: 'Открыть эти {count} вкладки при следующем запуске',
+    many: 'Открыть эти {count} вкладок при следующем запуске',
+    other: 'Открыть эти {count} вкладки при следующем запуске',
+  },
+  'close.remember': 'Запомнить выбор',
+  'close.rememberHint': 'Изменить можно в «Настройки → Общие».',
+  'close.quit': 'Выйти',
+  'close.toTray': 'Свернуть в трей',
+  'tray.open': 'Открыть NexSSH',
+  'tray.connect': 'Подключиться',
+  'tray.noServers': 'Нет сохранённых серверов',
+  'tray.localTerminal': 'Локальный терминал',
+  'tray.quit': 'Выйти',
+  'tray.tabs': {
+    one: 'Открыта {count} вкладка',
+    few: 'Открыты {count} вкладки',
+    many: 'Открыто {count} вкладок',
+    other: 'Открыто {count} вкладки',
+  },
+  'tray.noTabs': 'Нет открытых вкладок',
+  'tray.agentsOn': 'ИИ-агенты: включены',
+  'tray.agentsBusy': 'ИИ-агент работает: {names}',
 
   'tabs.showSidebar': 'Показать боковую панель',
   'sidebar.hide': 'Скрыть боковую панель',
@@ -256,6 +303,11 @@ const ru: Catalog = {
   'palette.localShell': 'Локальный терминал: {name}',
   'palette.restart.keywords': 'запустить снова оболочка процесс',
   'palette.stop.keywords': 'завершить процесс оболочка',
+  'palette.connectWaiting': 'Подключить вкладки прошлого запуска',
+  'palette.toTray': 'Свернуть в трей',
+  'palette.toTray.keywords': 'свернуть фон область уведомлений скрыть окно',
+  'palette.quit': 'Выйти из NexSSH',
+  'palette.quit.keywords': 'выход закрыть',
 
   // ---- редактор сервера ------------------------------------------------------------
   'editor.titleNew': 'Новый сервер',
@@ -477,6 +529,8 @@ const ru: Catalog = {
   'update.auto': 'Проверять обновления автоматически',
   'update.confirmTitle': 'Установить обновление?',
   'update.confirmMessage': 'Открытые сеансы будут закрыты, NexSSH перезапустится.',
+  'update.confirmReopen':
+    'Открытые сеансы будут закрыты, NexSSH перезапустится. Вкладки откроются снова, SSH-вкладки подключатся по Enter.',
   'update.updated': 'NexSSH обновлён до версии {version}',
   'update.downloadVersion': 'Скачать обновление {version}',
   'update.installVersion': 'Установить обновление {version}',
@@ -484,7 +538,7 @@ const ru: Catalog = {
 
   // ---- настройки -------------------------------------------------------------------
   'settings.title': 'Настройки',
-  'settings.appearance': 'Внешний вид',
+  'settings.general': 'Общие',
   'settings.terminal': 'Терминал',
   'settings.files': 'Файлы',
   'settings.keyboard': 'Клавиатура',
@@ -524,6 +578,18 @@ const ru: Catalog = {
   'settings.sidebarAutoHide': 'Скрывать боковую панель при подключении',
   'settings.sidebarAutoHideHint':
     'Открытие сеанса или терминала прячет её, а на экране серверов она возвращается. {key} показывает и скрывает её в любой момент.',
+  'settings.closeAction': 'При закрытии окна',
+  'settings.closeActionHint':
+    'В трее NexSSH продолжает работать: сеансы остаются подключёнными, у ИИ-агентов остаётся доступ. В меню значка — серверы и выход.',
+  'settings.closeAsk': 'Спрашивать',
+  'settings.closeTray': 'В трей',
+  'settings.closeQuit': 'Выход',
+  'settings.restoreTabs': 'Открывать вкладки прошлого запуска',
+  'settings.restoreTabsHint':
+    'Вкладки, открытые при выходе, вернутся при следующем запуске. SSH-вкладки подключаются по Enter, так что пароль сам не спросят; локальные терминалы запускаются сразу. «Спрашивать» — при выходе с открытыми вкладками.',
+  'settings.restoreAsk': 'Спрашивать',
+  'settings.restoreAlways': 'Всегда',
+  'settings.restoreNever': 'Никогда',
   'settings.cursor': 'Курсор',
   'settings.cursorBar': 'Черта',
   'settings.cursorBlock': 'Блок',
