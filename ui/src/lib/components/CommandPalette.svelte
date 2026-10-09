@@ -24,6 +24,7 @@
   import { destination, servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
   import { shellName, shells } from '../state/shells.svelte';
+  import { tray } from '../state/tray.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
   import Icon from './Icon.svelte';
@@ -125,6 +126,13 @@
         run: () => app.update({ language: l.id }),
       })),
     ];
+    if (sessions.tabs.some((open) => open.waiting)) {
+      out.unshift(action('palette.connectWaiting', { icon: 'refresh', run: () => sessions.connectWaiting() }));
+    }
+    if (tray.supported) {
+      out.push(action('palette.toTray', { icon: 'minus', run: () => tray.minimize() }, 'palette.toTray.keywords'));
+    }
+    out.push(action('palette.quit', { icon: 'power', run: () => void tray.quit() }, 'palette.quit.keywords'));
     if (updates.supported) {
       const version = updates.info?.version ?? '';
       if (updates.status === 'available') {
@@ -152,7 +160,11 @@
       const server = tab.serverId ? servers.byId.get(tab.serverId) : undefined;
       out.unshift(
         tab.status === 'disconnected'
-          ? action('session.reconnect', { icon: 'refresh', hint: keys.reconnect(), run: () => sessions.reconnect(tab) })
+          ? action(tab.waiting ? 'session.connect' : 'session.reconnect', {
+              icon: 'refresh',
+              hint: keys.reconnect(),
+              run: () => sessions.reconnect(tab),
+            })
           : action('session.disconnect', { icon: 'power', run: () => sessions.disconnect(tab) }, 'palette.disconnect.keywords'),
       );
       if (tab.status === 'connected') {

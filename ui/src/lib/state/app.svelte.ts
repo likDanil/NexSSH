@@ -40,6 +40,9 @@ export const DEFAULT_SETTINGS: Settings = {
   editorCommand: '',
   editorAssociations: [],
   filesDoubleClick: 'download',
+  closeAction: 'ask',
+  restoreTabs: 'ask',
+  lastTabs: null,
 };
 
 /** The terminal's font size goes from 9 to 28 (settings and Ctrl+=/Ctrl+-). */
@@ -64,7 +67,7 @@ export interface MenuState {
   items: MenuEntry[];
 }
 
-export type SettingsSection = 'appearance' | 'terminal' | 'files' | 'keyboard' | 'agents' | 'about';
+export type SettingsSection = 'general' | 'terminal' | 'files' | 'keyboard' | 'agents' | 'about';
 
 export interface EditorState {
   server: Server | null;
@@ -89,6 +92,23 @@ export interface ConfirmState {
   /** A third button with this label; it answers `alternative`. */
   alternative?: string;
   resolve: (value: string | null) => void;
+}
+
+/** What closing NexSSH asks (see state/tray). */
+export interface CloseQuestion {
+  /** Offer the tray: the window hides there and the sessions stay connected. */
+  tray: boolean;
+  /** Open tabs to offer opening again at the next start; 0 when the settings decide. */
+  tabs: number;
+  resolve: (answer: CloseAnswer | null) => void;
+}
+
+export interface CloseAnswer {
+  action: 'tray' | 'quit';
+  /** Open the tabs again at the next start (when quitting). */
+  reopen: boolean;
+  /** Do the same from now on, without asking. */
+  remember: boolean;
 }
 
 export interface PermissionsChoice {
@@ -128,11 +148,12 @@ class AppState {
   editor = $state<EditorState | null>(null);
   settingsOpen = $state(false);
   /** The section the settings dialog opens at. */
-  settingsSection = $state<SettingsSection>('appearance');
+  settingsSection = $state<SettingsSection>('general');
   forwardsOpen = $state(false);
   menu = $state<MenuState | null>(null);
   confirmation = $state<ConfirmState | null>(null);
   permissions = $state<PermissionsState | null>(null);
+  closeQuestion = $state<CloseQuestion | null>(null);
   /** The terminal's font size, shown for a moment after a zoom shortcut changed it. */
   zoomBadge = $state<number | null>(null);
   /** An AI agent's question is on screen (see state/agents). */
@@ -156,6 +177,7 @@ class AppState {
       this.forwardsOpen ||
       !!this.confirmation ||
       !!this.permissions ||
+      !!this.closeQuestion ||
       this.agentAsking
     );
   }
@@ -257,6 +279,12 @@ class AppState {
     }, 300);
   }
 
+  /** Writes the settings at once, e.g. before quitting. */
+  async flush() {
+    clearTimeout(this.#saveTimer);
+    await api.saveSettings($state.snapshot(this.settings));
+  }
+
   openPalette(mode: 'commands' | 'connect' = 'commands', query = '') {
     this.menu = null;
     this.palette = { open: true, mode, query };
@@ -340,6 +368,21 @@ class AppState {
         resolve: (value) => {
           this.confirmation = null;
           resolve(value);
+        },
+      };
+    });
+  }
+
+  /** What to do on closing NexSSH: into the tray or quit, and the tabs; `null` when cancelled. */
+  askClose(tray: boolean, tabs: number): Promise<CloseAnswer | null> {
+    this.menu = null;
+    return new Promise((resolve) => {
+      this.closeQuestion = {
+        tray,
+        tabs,
+        resolve: (answer) => {
+          this.closeQuestion = null;
+          resolve(answer);
         },
       };
     });

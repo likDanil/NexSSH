@@ -161,6 +161,7 @@ pub fn update_install(
         return Err(CmdError::from(i18n::update_not_downloaded()));
     };
     state.core.sessions.close_all();
+    crate::tray::remove(&app);
     update
         .install(installer)
         .map_err(|e| CmdError::from(i18n::update_install_failed(e)))?;

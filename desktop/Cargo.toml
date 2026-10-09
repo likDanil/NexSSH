@@ -18,7 +18,8 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 nexssh-core.workspace = true
-tauri = { version = "2.12", features = [] }
+# The icon in the notification area: NexSSH can keep running there with its window hidden (tray.rs).
+tauri = { version = "2.12", features = ["tray-icon"] }
 # In-app updates from GitHub Releases; rustls on ring (already used by russh), no zip formats.
 tauri-plugin-updater = { version = "2.13", default-features = false, features = ["rustls-tls", "system-proxy"] }
 serde.workspace = true
@@ -57,3 +58,8 @@ windows = { version = "0.62", features = [
 ] }
 # The paths of files dropped on the page (sftp.rs); the version Tauri's WebView2 uses.
 webview2-com = "0.39"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Whether the tray icon can show: tray-icon loads libayatana-appindicator itself and panics without
+# it (tray.rs); the version tray-icon's loader uses.
+libloading = "0.7"

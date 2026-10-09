@@ -53,6 +53,7 @@ NexSSH/
 │   ├── src/explorer.rs   "Open with NexSSH" in Windows Explorer's menu for folders
 │   ├── src/links.rs      web links from the terminal, opened in the default browser
 │   ├── src/updates.rs    in-app updates (check, download, install)
+│   ├── src/tray.rs       the icon in the tray and its menu; closing the window, decided by the page
 │   ├── src/edit.rs       editing remote files: the editors found, starting the chosen one, IPC
 │   ├── src/agents/       AI agents: MCP over HTTP (http.rs), its JSON-RPC (rpc.rs), the tools
 │   │                     (tools.rs), the stdio bridge `NexSSH mcp` (bridge.rs)
@@ -80,7 +81,8 @@ NexSSH/
 │           ├── popup.ts  lists that open under a control, rendered on <body>
 │           ├── i18n.svelte.ts t(), plurals, language detection
 │           ├── locales/  en.ts (reference), ru.ts
-│           ├── state/    app, servers, sessions, shells, files, edits, updates, agents, toasts (Svelte runes)
+│           ├── state/    app, servers, sessions, shells, files, edits, updates, agents, tray,
+│           │             restore (tabs of the last run), toasts (Svelte runes)
 │           └── components/
 ├── scripts/              test-sshd.sh, icons.py, explorer-package.ps1 (packs and signs the package),
 │                         installer-test.ps1 (the installer and the Explorer menu entry, Windows CI)
@@ -261,8 +263,10 @@ App.svelte
 ├── ServerEditor     add/edit server in tabs like the settings: general, sign-in (key picker),
 │                    connection (jump host with its login, keepalive), ports, commands on login,
 │                    AI agents; a tab with something to fix shows a dot, and saving goes to it
-├── SettingsDialog   themes, font, terminal (and the local terminal's shell, Explorer menu),
-│                    keyboard, about
+├── SettingsDialog   general (language, themes, font, the close button, tabs of the last run),
+│                    terminal (and the local terminal's shell, Explorer menu), keyboard, about
+├── CloseDialog      closing NexSSH when the settings ask: into the tray or quit, open the tabs
+│                    again next time, remember the choice
 ├── ForwardsDialog   active forwards of the session, add -L / -R / SOCKS
 ├── AgentRequest     an AI agent's question: the command, the file and its new content, or the
 │                    upload; Deny has the focus and Allow waits a moment (no stray Enter)
@@ -321,7 +325,10 @@ kept outside reactive state; backend output is written straight into them.
 `settings.json` belongs to the UI; for local terminals it keeps `localShell` (a shell's id, `''`
 for the default, or `custom`), `localShellCommand` (the custom command line) and `explorerMenu`;
 the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents"), and `editor`,
-`editorCommand` and `editorAssociations` (see "Editing remote files").
+`editorCommand` and `editorAssociations` (see "Editing remote files"). `closeAction` (`ask`,
+`tray`, `quit`), `restoreTabs` (`ask`, `always`, `never`) and `lastTabs` (the tabs to open at
+the next start: `{ tabs: [{ kind, target, title, subtitle }], active }`) are described in "The
+tray and the tabs of the last run".
 
 A session (runtime only) is identified by a numeric id and reports:
 
@@ -591,12 +598,39 @@ The interface is available in English and Russian; the default follows the syste
   silently (`installMode: quiet`: no windows, no UAC prompt since it installs per user) and
   restarts NexSSH. A check runs 5 s after start-up and every 6 hours (can be turned off).
 * **One running copy.** Starting NexSSH again (say, the desktop shortcut clicked twice) brings
-  the running window to the front, restored if minimized, instead of opening a second copy;
+  the running window to the front, restored if minimized or hidden in the tray, instead of
+  opening a second copy;
   two copies would also overwrite each other's `servers.json` and `settings.json`. The
   single-instance plugin (a named mutex on Windows, D-Bus on Linux) is registered first, so
   the second process exits before it creates anything.
 * **One SFTP channel per connection,** opened lazily: sessions that never open the files
   drawer cost nothing, and there is no second login or prompt.
+
+## The tray and the tabs of the last run
+
+* **Closing is the page's decision.** The backend turns every close of the window (its button,
+  Alt+F4, the taskbar) into a `close-request` event, as it does with "Quit" in the tray's menu,
+  and keeps the window. The page knows the settings and the tabs (`state/tray.svelte.ts`): it
+  hides the window into the tray (`window_hide`), quits (`app_exit`) or asks first
+  (`CloseDialog`). It takes the request at once (`close_taken`); a page that does not, within
+  4 s (not loaded, or stuck), does not keep NexSSH from quitting.
+* **The icon** (`desktop/src/tray.rs`, Tauri's `tray-icon`) shows while the window is hidden, or
+  all the time when the close button goes to the tray. The page gives its menu in the interface
+  language (`tray_set`): what is open and what AI agents do (greyed out), Open, Connect (the
+  saved servers by group), Local terminal, Quit. A left click brings the window back, so does
+  starting NexSSH again (and the dock icon on macOS). The icon is changed on the main thread
+  only, one change after another, and the window hides only once the icon is there. An AI
+  agent's question, or a password for a tab opened for an agent, brings the window back from
+  the tray (`tray::attention`). On Linux the icon takes libayatana-appindicator, which
+  tray-icon loads itself and panics without: NexSSH looks for it first and offers no tray
+  without it (`tray: false` in `app_info`).
+* **Tabs of the last run** (`state/restore.svelte.ts`) are kept in `settings.json` as
+  `lastTabs`: when quitting (`ask`: the user ticks it in the question; `always`), before an
+  update's restart unless `never`, and with `always` all along, so a computer shut down with
+  NexSSH in the tray loses nothing. At the next start local terminals start; SSH tabs come back
+  waiting (`Tab.waiting`) and connect on Enter, on their banner's button or with "Connect all",
+  so no password or 2FA prompt appears on its own. Tabs of saved servers deleted since are left
+  out. With `ask` the list is used once.
 
 ## Extending
 

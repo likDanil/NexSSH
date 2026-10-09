@@ -10,6 +10,7 @@ import type {
   ForwardInfo,
   Prompt,
   PromptReply,
+  SavedTabs,
   Server,
   SessionEvent,
   ShellProfile,
@@ -45,6 +46,9 @@ export interface Tab {
   typedUser: { name: string; host: string; server: string | null } | null;
   /** AI agents' requests waiting for this tab to connect (see state/agents). */
   agentOpens: number[];
+  /** Opened again from the last run (state/restore): it connects when the user says so (Enter),
+   * so no password is asked for out of the blue. */
+  waiting: boolean;
 }
 
 /** What the session layer needs from a terminal view. */
@@ -107,6 +111,8 @@ class SessionsState {
   active: Tab | null = $derived(this.tabs.find((t) => t.key === this.activeKey) ?? null);
 
   #queues = new Map<string, WriteQueue>();
+  /** Each terminal's size, for sessions opened after it is on screen. */
+  #sizes = new Map<string, { cols: number; rows: number }>();
 
   get(key: string): Tab | undefined {
     return this.tabs.find((t) => t.key === key);
@@ -183,13 +189,15 @@ class SessionsState {
     tab.agentOpens = [];
   }
 
-  /** Focuses an existing tab of the server, or opens a new session. */
+  /** Focuses an existing tab of the server (a tab of the last run connects then), or opens a
+   * new session. */
   focusOrOpen(server: Server) {
     const existing = this.forServer(server.id);
     const pick = existing.find((t) => t.key === this.activeKey) ?? existing[existing.length - 1];
     if (pick) {
       this.activeKey = pick.key;
       app.sidebarForSession();
+      if (pick.waiting) this.#begin(pick);
     } else {
       this.openServer(server);
     }
@@ -238,7 +246,44 @@ class SessionsState {
     this.#open(tab.kind, $state.snapshot(tab.target), tab.title, tab.subtitle, tab.serverId);
   }
 
-  /** Adds a tab and returns its key; `behind`: the active tab stays active (if there is one). */
+  /**
+   * Opens the tabs of the last run again (see state/restore), after the ones open now: local
+   * terminals start, SSH tabs wait for Enter. Tabs of saved servers deleted since are left out.
+   * The tab that was in front comes to the front again. Says how many tabs came back, and how
+   * many of them wait.
+   */
+  reopen(saved: SavedTabs): { opened: number; waiting: number } {
+    const keys: (string | null)[] = [];
+    let waiting = 0;
+    for (const s of saved.tabs) {
+      const serverId = s.target.serverId ?? null;
+      const server = serverId ? servers.byId.get(serverId) : undefined;
+      if (serverId && !server) {
+        keys.push(null);
+        continue;
+      }
+      // A saved server may have been renamed since.
+      const title = server ? server.name : s.title;
+      const subtitle = server ? destination(server) : s.subtitle;
+      const wait = s.kind === 'ssh';
+      if (wait) waiting++;
+      keys.push(this.#open(s.kind, s.target, title, subtitle, serverId, true, wait));
+    }
+    const opened = keys.filter((k) => k !== null);
+    if (saved.active >= 0 && opened.length) {
+      this.activeKey = keys[saved.active] ?? opened[0];
+      app.sidebarForSession();
+    }
+    return { opened: opened.length, waiting };
+  }
+
+  /** Connects the tabs of the last run that are still waiting. */
+  connectWaiting() {
+    for (const tab of this.tabs) if (tab.waiting) this.#begin(tab);
+  }
+
+  /** Adds a tab and returns its key; `behind`: the active tab stays active (if there is one);
+   * `waiting`: it connects when the user says so (a tab of the last run). */
   #open(
     kind: TabKind,
     target: OpenTarget,
@@ -246,6 +291,7 @@ class SessionsState {
     subtitle: string,
     serverId: string | null,
     behind = false,
+    waiting = false,
   ): string {
     const tab: Tab = {
       key: `t${++counter}`,
@@ -255,13 +301,14 @@ class SessionsState {
       target,
       title,
       subtitle,
-      status: 'connecting',
-      message: null,
+      status: waiting ? 'disconnected' : 'connecting',
+      message: waiting ? t('restore.banner') : null,
       failed: false,
       prompts: [],
       forwards: [],
       typedUser: null,
       agentOpens: [],
+      waiting,
     };
     this.tabs.push(tab);
     if (!behind || this.activeKey === null) this.activeKey = tab.key;
@@ -270,9 +317,36 @@ class SessionsState {
     return tab.key;
   }
 
-  /** Called by a terminal view once it is mounted and sized: starts the session. */
+  /** Called by a terminal view once it is mounted and sized: starts the session (a tab of the
+   * last run waits for the user instead). */
   async start(key: string, terminal: TerminalSink, cols: number, rows: number) {
     terminals.set(key, terminal);
+    this.#sizes.set(key, { cols, rows });
+    const tab = this.get(key);
+    if (!tab) return;
+    if (tab.waiting) {
+      terminal.write(`${DIM}${t('restore.pressEnter')}${RESET}\r\n`);
+      return;
+    }
+    await this.#connect(key, terminal, cols, rows);
+  }
+
+  /** Opens the session of a tab that has none: a tab of the last run, or one whose session could
+   * not be opened. */
+  #begin(tab: Tab) {
+    tab.waiting = false;
+    tab.status = 'connecting';
+    tab.message = null;
+    tab.failed = false;
+    const terminal = terminals.get(tab.key);
+    const size = this.#sizes.get(tab.key);
+    // Not on screen yet: start() opens it.
+    if (!terminal || !size) return;
+    terminal.write('\r\n');
+    void this.#connect(tab.key, terminal, size.cols, size.rows);
+  }
+
+  async #connect(key: string, terminal: TerminalSink, cols: number, rows: number) {
     const tab = this.get(key);
     if (!tab) return;
     const channel = new Channel<SessionMessage>();
@@ -303,6 +377,7 @@ class SessionsState {
   /** Called when a terminal view is destroyed. */
   detach(key: string) {
     terminals.delete(key);
+    this.#sizes.delete(key);
   }
 
   #onMessage(key: string, msg: SessionMessage) {
@@ -352,8 +427,11 @@ class SessionsState {
         break;
       case 'prompt':
         tab.prompts.push({ id: ev.id, prompt: ev.prompt });
-        // A tab opened behind for an agent needs the user now.
-        if (tab.agentOpens.length) this.activeKey = tab.key;
+        // A tab opened behind for an agent needs the user now, also with the window in the tray.
+        if (tab.agentOpens.length) {
+          this.activeKey = tab.key;
+          void api.windowAttention().catch(() => {});
+        }
         break;
       case 'promptClosed':
         tab.prompts = tab.prompts.filter((p) => p.id !== ev.id);
@@ -365,15 +443,15 @@ class SessionsState {
   }
 
   /** Keyboard input from the terminal. Enter reconnects a disconnected session (or starts a
-   * local terminal's shell again). */
+   * local terminal's shell again, or connects a tab of the last run). */
   input(key: string, data: string) {
     const tab = this.get(key);
-    if (!tab || tab.sessionId == null) return;
+    if (!tab) return;
     if (tab.status === 'disconnected') {
       if (data === '\r') this.reconnect(tab);
       return;
     }
-    if (tab.status !== 'connected') return;
+    if (tab.sessionId == null || tab.status !== 'connected') return;
     let queue = this.#queues.get(key);
     if (!queue) this.#queues.set(key, (queue = new WriteQueue()));
     queue.push(tab.sessionId, data);
@@ -387,13 +465,17 @@ class SessionsState {
   }
 
   resize(key: string, cols: number, rows: number) {
+    if (this.#sizes.has(key)) this.#sizes.set(key, { cols, rows });
     const tab = this.get(key);
     if (tab?.sessionId == null) return;
     void api.resize(tab.sessionId, cols, rows).catch(() => {});
   }
 
   reconnect(tab: Tab) {
-    if (tab.sessionId == null) return;
+    if (tab.sessionId == null) {
+      if (tab.status === 'disconnected') this.#begin(tab);
+      return;
+    }
     tab.status = 'connecting';
     tab.message = null;
     terminals.get(tab.key)?.write('\r\n');
@@ -454,6 +536,7 @@ class SessionsState {
     this.#failAgentOpens(this.tabs[index], t('agents.tabClosed'));
     this.tabs.splice(index, 1);
     this.#queues.delete(key);
+    this.#sizes.delete(key);
     if (this.activeKey === key) {
       this.activeKey = this.tabs[index]?.key ?? this.tabs[index - 1]?.key ?? null;
     }

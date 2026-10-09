@@ -5,6 +5,7 @@ import { api, Channel, errorMessage } from '../api';
 import { t } from '../i18n.svelte';
 import type { DownloadProgress, UpdateInfo } from '../types';
 import { app } from './app.svelte';
+import { restore } from './restore.svelte';
 import { sessions } from './sessions.svelte';
 import { toasts } from './toasts.svelte';
 
@@ -89,20 +90,26 @@ class UpdatesState {
     }
   }
 
-  /** Installs without any installer window; asks first only if sessions are connected. */
+  /** Installs without any installer window; asks first only if sessions are connected. The tabs
+   * open again after the restart, unless the settings never reopen them. */
   async install() {
     if (this.status !== 'ready') return;
+    const reopen = app.settings.restoreTabs !== 'never';
     const connected = sessions.tabs.some((tab) => tab.status === 'connected');
     if (connected) {
-      const ok = await app.confirm(t('update.confirmTitle'), t('update.confirmMessage'), t('update.install'));
+      const message = t(reopen ? 'update.confirmReopen' : 'update.confirmMessage');
+      const ok = await app.confirm(t('update.confirmTitle'), message, t('update.install'));
       if (!ok) return;
     }
     this.status = 'installing';
     try {
+      await restore.beforeQuit(reopen);
       await api.updateInstall();
     } catch (e) {
       this.status = 'ready';
       toasts.error(errorMessage(e));
+      // NexSSH runs on: the tabs are kept for a restart only when the settings always keep them.
+      if (app.settings.restoreTabs === 'ask') void restore.beforeQuit(false).catch(() => {});
     }
   }
 }

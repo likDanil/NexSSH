@@ -111,6 +111,42 @@ const en = {
   'session.restart': 'Restart',
   'session.stop': 'Stop',
   'session.terminalSettings': 'Terminal settings…',
+  'session.connect': 'Connect',
+
+  // ---- tabs of the last run --------------------------------------------------------
+  'restore.banner': 'From the last session',
+  'restore.pressEnter': 'This tab is from the last session. Press Enter to connect.',
+  'restore.reopened': {
+    one: 'Reopened {count} tab from the last session',
+    other: 'Reopened {count} tabs from the last session',
+  },
+  'restore.connectAll': 'Connect all',
+
+  // ---- closing and the tray --------------------------------------------------------
+  'close.title': 'Close NexSSH?',
+  'close.trayHint':
+    'NexSSH can stay in the tray: sessions stay connected, and a click on its icon brings the window back. The icon’s menu has your servers and Quit.',
+  'close.tabsOpen': {
+    one: '{count} tab is open: its session ends when NexSSH quits.',
+    other: '{count} tabs are open: their sessions end when NexSSH quits.',
+  },
+  'close.reopen': {
+    one: 'Open this tab again next time',
+    other: 'Open these {count} tabs again next time',
+  },
+  'close.remember': 'Remember my choice',
+  'close.rememberHint': 'You can change it in Settings → General.',
+  'close.quit': 'Quit',
+  'close.toTray': 'Hide in tray',
+  'tray.open': 'Open NexSSH',
+  'tray.connect': 'Connect',
+  'tray.noServers': 'No saved servers',
+  'tray.localTerminal': 'Local terminal',
+  'tray.quit': 'Quit',
+  'tray.tabs': { one: '{count} tab open', other: '{count} tabs open' },
+  'tray.noTabs': 'No tabs open',
+  'tray.agentsOn': 'AI agents: on',
+  'tray.agentsBusy': 'AI agent at work: {names}',
 
   'tabs.showSidebar': 'Show sidebar',
   'sidebar.hide': 'Hide sidebar',
@@ -233,6 +269,11 @@ const en = {
   'palette.localShell': 'Local terminal: {name}',
   'palette.restart.keywords': 'start again shell process',
   'palette.stop.keywords': 'end kill process shell',
+  'palette.connectWaiting': 'Connect the tabs from the last session',
+  'palette.toTray': 'Hide in tray',
+  'palette.toTray.keywords': 'minimize background notification area hide window',
+  'palette.quit': 'Quit NexSSH',
+  'palette.quit.keywords': 'exit close',
 
   // ---- server editor ---------------------------------------------------------------
   'editor.titleNew': 'New server',
@@ -422,6 +463,8 @@ const en = {
   'update.auto': 'Check for updates automatically',
   'update.confirmTitle': 'Install the update?',
   'update.confirmMessage': 'Open sessions will be closed and NexSSH will restart.',
+  'update.confirmReopen':
+    'Open sessions will be closed and NexSSH will restart. The tabs open again; SSH tabs connect when you press Enter.',
   'update.updated': 'NexSSH was updated to {version}',
   'update.downloadVersion': 'Download update {version}',
   'update.installVersion': 'Install update {version}',
@@ -429,7 +472,7 @@ const en = {
 
   // ---- settings --------------------------------------------------------------------
   'settings.title': 'Settings',
-  'settings.appearance': 'Appearance',
+  'settings.general': 'General',
   'settings.terminal': 'Terminal',
   'settings.files': 'Files',
   'settings.keyboard': 'Keyboard',
@@ -469,6 +512,18 @@ const en = {
   'settings.sidebarAutoHide': 'Hide the sidebar when connecting',
   'settings.sidebarAutoHideHint':
     'Opening a session or a terminal hides it; back on the servers screen it returns. {key} shows or hides it any time.',
+  'settings.closeAction': 'Closing the window',
+  'settings.closeActionHint':
+    'In the tray NexSSH keeps running: sessions stay connected, AI agents keep their access. The icon’s menu has your servers and Quit.',
+  'settings.closeAsk': 'Ask',
+  'settings.closeTray': 'To tray',
+  'settings.closeQuit': 'Quit',
+  'settings.restoreTabs': 'Reopen the last session’s tabs',
+  'settings.restoreTabsHint':
+    'The tabs open when NexSSH quits come back at the next start. SSH tabs connect when you press Enter, so no password is asked for on its own; local terminals start right away. “Ask”: when you quit with tabs open.',
+  'settings.restoreAsk': 'Ask',
+  'settings.restoreAlways': 'Always',
+  'settings.restoreNever': 'Never',
   'settings.cursor': 'Cursor',
   'settings.cursorBar': 'Bar',
   'settings.cursorBlock': 'Block',

@@ -35,6 +35,13 @@
   the right-click menu on a link opens or copies it. Before several lines are pasted, NexSSH
   shows them and asks, unless the program takes pastes as text (bracketed paste); pastes leave
   control characters out.
+* **The tray:** the close button can hide NexSSH into the tray (*Settings → General*, or the
+  question it asks the first time): sessions stay connected, and AI agents keep their access.
+  A click on the icon brings the window back; its right-click menu connects to a saved server,
+  opens a local terminal or quits.
+* **Tabs of the last session:** the tabs open when NexSSH quits can come back at the next start
+  — always, or when you say so as it quits. Local terminals start again; SSH tabs connect when
+  you press <kbd>Enter</kbd> (or *Connect all*), so no password is asked for on its own.
 * On Windows 11 the maximize button of NexSSH's own title bar offers the snap layouts, as any
   window's does: rest the mouse on it.
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,

@@ -7,10 +7,12 @@
   import { agents } from '../state/agents.svelte';
   import { associations, edits, parseExtensions } from '../state/edits.svelte';
   import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
+  import { restore } from '../state/restore.svelte';
   import { servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
   import { CUSTOM_SHELL, missingShellName, shellName, shells } from '../state/shells.svelte';
   import { toasts } from '../state/toasts.svelte';
+  import { tray } from '../state/tray.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
   import type { AgentActivity, EditorAssociation, Server, Settings } from '../types';
@@ -176,7 +178,7 @@
   }
 
   const SECTIONS: { id: SettingsSection; label: MessageKey }[] = [
-    { id: 'appearance', label: 'settings.appearance' },
+    { id: 'general', label: 'settings.general' },
     { id: 'terminal', label: 'settings.terminal' },
     { id: 'files', label: 'settings.files' },
     { id: 'keyboard', label: 'settings.keyboard' },
@@ -332,6 +334,16 @@
     { id: 'block', label: 'settings.cursorBlock' },
     { id: 'underline', label: 'settings.cursorUnderline' },
   ];
+  const CLOSE_ACTIONS: { id: Settings['closeAction']; label: MessageKey }[] = [
+    { id: 'ask', label: 'settings.closeAsk' },
+    { id: 'tray', label: 'settings.closeTray' },
+    { id: 'quit', label: 'settings.closeQuit' },
+  ];
+  const RESTORE_MODES: { id: Settings['restoreTabs']; label: MessageKey }[] = [
+    { id: 'ask', label: 'settings.restoreAsk' },
+    { id: 'always', label: 'settings.restoreAlways' },
+    { id: 'never', label: 'settings.restoreNever' },
+  ];
 
   const updateStatus = $derived.by(() => {
     const version = updates.info?.version ?? '';
@@ -387,7 +399,7 @@
     </div>
   {/snippet}
 
-  {#if section === 'appearance'}
+  {#if section === 'general'}
     <div class="row lang">
       <span>{t('settings.language')}</span>
       <div class="segmented">
@@ -457,6 +469,30 @@
           onchange={(e) => setSidebarAutoHide(e.currentTarget.checked)}
         />
       </label>
+      {#if tray.supported}
+        <div class="row top">
+          <span>
+            {t('settings.closeAction')}
+            <small>{t('settings.closeActionHint')}</small>
+          </span>
+          <div class="segmented">
+            {#each CLOSE_ACTIONS as c (c.id)}
+              <button class:on={s.closeAction === c.id} onclick={() => app.update({ closeAction: c.id })}>{t(c.label)}</button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+      <div class="row top">
+        <span>
+          {t('settings.restoreTabs')}
+          <small>{t('settings.restoreTabsHint')}</small>
+        </span>
+        <div class="segmented">
+          {#each RESTORE_MODES as r (r.id)}
+            <button class:on={s.restoreTabs === r.id} onclick={() => restore.setMode(r.id)}>{t(r.label)}</button>
+          {/each}
+        </div>
+      </div>
     </div>
   {:else if section === 'terminal'}
     <div class="rows">
@@ -994,6 +1030,13 @@
   .row .trust {
     align-self: flex-start;
     margin-top: 6px;
+  }
+  /* Choices stay on one line; the label next to them wraps instead. */
+  .row > .segmented {
+    flex: none;
+  }
+  .row .segmented button {
+    white-space: nowrap;
   }
   .row .input {
     max-width: 260px;

@@ -8,6 +8,7 @@
     toggleFullscreen,
     toggleSidebar,
   } from './lib/actions';
+  import CloseDialog from './lib/components/CloseDialog.svelte';
   import CommandPalette from './lib/components/CommandPalette.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
   import ContextMenu from './lib/components/ContextMenu.svelte';
@@ -188,6 +189,7 @@
 {#if agents.request}
   {#key agents.request.id}<AgentRequest request={agents.request} />{/key}
 {/if}
+{#if app.closeQuestion}<CloseDialog request={app.closeQuestion} />{/if}
 <ContextMenu />
 <Toasts />
 

@@ -129,7 +129,7 @@ export function importSshConfig() {
   void servers.importSshConfig();
 }
 
-export function openSettings(section: SettingsSection = 'appearance') {
+export function openSettings(section: SettingsSection = 'general') {
   app.menu = null;
   app.palette.open = false;
   app.settingsSection = section;
@@ -215,7 +215,12 @@ export function sessionMenu(tab: Tab, x: number, y: number) {
   const connected = tab.status === 'connected';
   const items: MenuEntry[] = [
     tab.status === 'disconnected'
-      ? { label: t('session.reconnect'), icon: 'refresh', hint: keys.reconnect(), action: () => sessions.reconnect(tab) }
+      ? {
+          label: t(tab.waiting ? 'session.connect' : 'session.reconnect'),
+          icon: 'refresh',
+          hint: keys.reconnect(),
+          action: () => sessions.reconnect(tab),
+        }
       : { label: t('session.disconnect'), icon: 'power', action: () => sessions.disconnect(tab) },
     { label: t('session.duplicate'), icon: 'duplicate', action: () => sessions.duplicate(tab) },
     { label: t('session.files'), icon: 'folder', hint: keys.files(), action: toggleFiles },

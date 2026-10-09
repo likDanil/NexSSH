@@ -212,7 +212,8 @@
       <span class="msg" title={tab.message ?? ''}>{tab.message}</span>
       <button class="btn" onclick={() => sessions.reconnect(tab)}>
         <Icon name="refresh" size={14} />
-        {t(tab.kind === 'local' ? 'session.restart' : 'session.reconnect')} <kbd>Enter</kbd>
+        {t(tab.kind === 'local' ? 'session.restart' : tab.waiting ? 'session.connect' : 'session.reconnect')}
+        <kbd>Enter</kbd>
       </button>
       <button class="icon-btn small" title={t('session.closeTab')} aria-label={t('session.closeTab')} onclick={() => closeTab(tab)}>
         <Icon name="x" size={13} />
