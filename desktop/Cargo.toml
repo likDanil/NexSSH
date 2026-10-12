@@ -41,6 +41,8 @@ getrandom = "0.4"
 # "Open with NexSSH" in Explorer's context menu for folders (explorer.rs); in Windows 11's
 # compact menu through a package (explorer/).
 nexssh-explorer = { path = "../explorer" }
+# Files of the files drawer dragged out into Explorer (drag.rs).
+nexssh-dragout = { path = "../dragout" }
 winreg = "0.55"
 # Links from the terminal open in the default browser (links.rs); the installer's window and
 # the user's languages for the Explorer menu entry (explorer.rs); Windows 11's snap layouts on

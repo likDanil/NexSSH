@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use local_server::{LocalServer, Options};
 use nexssh_core::sftp::Progress;
+use tokio::io::AsyncReadExt;
 
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -298,6 +299,109 @@ async fn small_files_in_memory() {
         sftp.write_whole("/empty", b"").await.unwrap();
         assert_eq!(std::fs::read(server.local("/empty")).unwrap(), b"");
         assert!(sftp.write_whole("/no/such/dir/file", b"x").await.is_err());
+    }
+}
+
+/// What a drag out to Explorer reads: the plan of files and folders, then each file into a
+/// stream that Explorer reads as it copies.
+#[tokio::test(flavor = "multi_thread")]
+async fn files_planned_and_read_into_streams() {
+    let servers = [
+        Options {
+            delay: Duration::from_millis(5),
+            ..Options::default()
+        },
+        // Reads shorter than asked for, sizes hidden like /proc files.
+        Options {
+            max_read: 20_000,
+            hide_sizes: true,
+            ..Options::default().old_openssh()
+        },
+    ];
+    for options in servers {
+        let server = LocalServer::start(options.clone()).await;
+        let (_session, sftp) = server.connect().await;
+        let cancel = AtomicBool::new(false);
+        make_project(&server.local("/"));
+        let one = pattern(1_000_003, 9);
+        std::fs::write(server.local("/one.bin"), &one).unwrap();
+
+        let remotes = ["/proj".to_string(), "/one.bin".to_string()];
+        let plan = sftp.plan(&remotes, &cancel).await.unwrap();
+        let paths: Vec<String> = plan.iter().map(|p| p.names.join("/")).collect();
+        assert_eq!(paths.first().map(String::as_str), Some("proj"));
+        assert_eq!(paths.last().map(String::as_str), Some("one.bin"));
+        for expected in [
+            "proj/nothing",
+            "proj/deep/er",
+            "proj/deep/er/b.bin",
+            "proj/many/f149.txt",
+        ] {
+            assert!(
+                paths.iter().any(|p| p == expected),
+                "{expected} in {paths:?}"
+            );
+        }
+        // Every folder and file of the project, each folder before what is in it.
+        assert_eq!(
+            plan.len(),
+            tree(&server.local("/proj")).len() + 2,
+            "{options:?}"
+        );
+        for (i, item) in plan.iter().enumerate() {
+            let parent = &item.names[..item.names.len() - 1];
+            if !parent.is_empty() {
+                let at = plan.iter().position(|p| p.folder && p.names == parent);
+                assert!(
+                    at.is_some_and(|at| at < i),
+                    "{:?} before its folder",
+                    item.names
+                );
+            }
+            let local = server.local(&item.remote);
+            assert_eq!(item.folder, local.is_dir());
+            let size = if options.hide_sizes || item.folder {
+                0
+            } else {
+                std::fs::metadata(&local).unwrap().len()
+            };
+            assert_eq!(item.size, size, "{:?}", item.names);
+        }
+
+        // Each file, whole, as a reader of its stream gets it.
+        let sftp = &sftp;
+        let cancel = &cancel;
+        for item in plan.iter().filter(|p| !p.folder) {
+            let (mut writer, mut reader) = tokio::io::duplex(64 * 1024);
+            let send = async move {
+                let sent = sftp
+                    .read_into(&item.remote, item.size, &mut writer, cancel)
+                    .await;
+                drop(writer);
+                sent
+            };
+            let receive = async {
+                let mut got = Vec::new();
+                reader.read_to_end(&mut got).await.unwrap();
+                got
+            };
+            let (sent, got) = tokio::join!(send, receive);
+            sent.unwrap();
+            assert!(
+                got == std::fs::read(server.local(&item.remote)).unwrap(),
+                "{:?}",
+                item.names
+            );
+        }
+
+        // A reader that went away stops the read, as cancelled.
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        drop(reader);
+        let err = sftp
+            .read_into("/one.bin", one.len() as u64, &mut writer, cancel)
+            .await;
+        assert!(matches!(err, Err(nexssh_core::Error::Cancelled)), "{err:?}");
+        assert!(sftp.plan(&["/missing".to_string()], cancel).await.is_err());
     }
 }
 

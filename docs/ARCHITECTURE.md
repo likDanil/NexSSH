@@ -18,7 +18,7 @@ create a `Core`, open sessions with an `EventSink`, answer `Prompt`s.
 
 ```
 NexSSH/
-├── Cargo.toml            Rust workspace (core, desktop, explorer), release profile
+├── Cargo.toml            Rust workspace (core, desktop, dragout, explorer), release profile
 ├── package.json          npm workspace root: Tauri CLI + scripts
 ├── core/                 nexssh-core
 │   ├── src/
@@ -49,6 +49,7 @@ NexSSH/
 │   ├── src/lib.rs        builder, window creation
 │   ├── src/commands.rs   IPC commands: servers, settings, sessions, window
 │   ├── src/sftp.rs       IPC commands of the files drawer, transfers
+│   ├── src/drag.rs       files of the drawer dragged out into Explorer, read from the server (Windows)
 │   ├── src/local.rs      IPC commands of local terminals, `--cwd <folder>` launches
 │   ├── src/explorer.rs   "Open with NexSSH" in Windows Explorer's menu for folders
 │   ├── src/links.rs      web links from the terminal, opened in the default browser
@@ -59,10 +60,14 @@ NexSSH/
 │   │                     (tools.rs), the stdio bridge `NexSSH mcp` (bridge.rs)
 │   ├── src/sink.rs       EventSink → Tauri Channel
 │   ├── src/settings.rs   settings.json (UI-owned schema)
+│   ├── src/placement.rs  window.json: where the window was, its size, maximized; restored at start
 │   ├── tauri.conf.json   bundle config (NSIS installer), updater key, CSP
 │   ├── windows/hooks.nsh installer hooks: the Explorer menu entry, set up and removed
 │   ├── build.rs          embeds the Explorer menu's package (NEXSSH_EXPLORER_PACKAGE)
 │   └── capabilities/     window permissions
+├── dragout/              files dragged out into Explorer as virtual files (Windows only): the data
+│   │                     object and the streams Explorer reads (src/), dropped on a folder through
+│   │                     the shell's drop target (tests/drop.rs)
 ├── explorer/             "Open with NexSSH" in Windows 11's compact menu (Windows only)
 │   ├── src/register.rs   registers the package for the user, removes it
 │   ├── src/trust.rs      the computer's trust in the package's certificate (UAC once)
@@ -302,7 +307,8 @@ kept outside reactive state; backend output is written straight into them.
       "connectTimeoutSecs": 15,
       "forwards": [{ "kind": "local", "bindHost": "127.0.0.1", "bindPort": 5433, "targetHost": "db", "targetPort": 5432 }],
       "alias": "web-01",
-      "lastUsed": 1790566803
+      "lastUsed": 1790566803,
+      "sftpRoot": "/var/www"
     }
   ]
 }
@@ -321,6 +327,11 @@ kept outside reactive state; backend output is written straight into them.
 * `agents`: what AI agents may do there, `ask` or `allow`; left out for no access.
 * `startupCommands`: commands typed into the shell after every login, one per line (blank
   lines are dropped when saving).
+* `sftpRoot`: the folder the files drawer opens in (`~` is the home folder, a relative path is
+  in it); left out, or if it cannot be listed (a message says so), the drawer opens the home
+  folder. Where browsing starts, not a limit. Set in the server's settings, or from the
+  drawer's menus (*Make it the default folder*, on a folder or the folder shown); a house next
+  to the path marks it.
 
 `settings.json` belongs to the UI; for local terminals it keeps `localShell` (a shell's id, `''`
 for the default, or `custom`), `localShellCommand` (the custom command line) and `explorerMenu`;
@@ -328,7 +339,15 @@ the backend also reads `agentsEnabled` and `agentsPort` (see "AI agents"), and `
 `editorCommand` and `editorAssociations` (see "Editing remote files"). `closeAction` (`ask`,
 `tray`, `quit`), `restoreTabs` (`ask`, `always`, `never`) and `lastTabs` (the tabs to open at
 the next start: `{ tabs: [{ kind, target, title, subtitle }], active }`) are described in "The
-tray and the tabs of the last run".
+tray and the tabs of the last run". `filesOpen` keeps the files drawer open across restarts.
+
+`window.json` (the backend's own, next to it: the page writes `settings.json` whole) keeps where
+the window was, `{ x, y, width, height, maximized }` in physical pixels: the frame's top left
+corner and the size inside it, as it was before it was maximized. It is noted once the window
+keeps still for half a second (while maximizing, Windows reports the move before the window
+says it is maximized) and as NexSSH quits; minimized, hidden in the tray or in full screen, the
+window keeps its place. At start the window is put there before it is shown, unless the middle
+of its title bar would be on no screen (a monitor unplugged): then it is centered.
 
 A session (runtime only) is identified by a numeric id and reports:
 
@@ -389,6 +408,18 @@ type SessionEvent =
   files of a drop from outside, so on Linux the native handler stays enabled: it reports the
   paths being dragged in (`files-dragged`), and a drop on the files drawer uploads them. A
   file dropped anywhere else is refused instead of opening in the webview.
+* **Dragging files out (Windows):** a row of the files drawer dragged out of the window is
+  not the page's drag (that would hold text): its `dragstart` is cancelled and
+  `sftp_drag_out` starts an OLE drag of *virtual files* (`dragout/`, `FileGroupDescriptorW` and
+  `FileContents`), as an e-mail attachment is dragged. The drop target asks for the list when
+  it needs it (`Sftp::plan`, begun with the drag) and for a stream of each file as it copies
+  them, which `desktop/src/drag.rs` fills with `Sftp::read_into`, a few files ahead. The data
+  object and its streams live in the multithreaded apartment, so Explorer's calls (from its
+  process) wait for the network on COM's threads, never on the window's; Explorer copies in
+  the background (`IDataObjectAsyncCapability`), so the drag ends at the drop, and the
+  transfer shows in the drawer until `EndOperation`. A drop back onto the window is cancelled;
+  a cancel in the drawer stops Explorer quietly (`ERROR_CANCELLED`). Development builds drop
+  into the folder `NEXSSH_DRAG_INTO` names, without the mouse.
 * **Start-up:** the window is created in Rust with the saved theme's background colour;
   an inline script applies the last theme before first paint; `xterm.js` is a lazy chunk
   loaded with the first session.

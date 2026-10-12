@@ -12,6 +12,7 @@ import type {
   EditorInfo,
   Downloaded,
   DownloadProgress,
+  DragOutProgress,
   ExplorerMenuState,
   ForwardSpec,
   ImportReport,
@@ -164,6 +165,11 @@ export const api = {
     transferId: number,
     onProgress: Channel<TransferProgress>,
   ) => invoke<Downloaded>('sftp_download', { sessionId, path, dest, transferId, onProgress }),
+  /** Windows: drags remote files and folders out of the window while the mouse button that
+   * started the drag is down; whether they were dropped where files are taken (Explorer then
+   * copies them, read from the server). */
+  sftpDragOut: (sessionId: number, paths: string[], transferId: number, onProgress: Channel<DragOutProgress>) =>
+    invoke<boolean>('sftp_drag_out', { sessionId, paths, transferId, onProgress }),
   /** The system folder dialog for an upload; `null` when cancelled. */
   sftpPickUpload: (title: string) => invoke<PickedUpload | null>('sftp_pick_upload', { title }),
   /** The system file dialog for an upload (any number of files); empty when cancelled. */

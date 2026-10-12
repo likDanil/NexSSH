@@ -476,6 +476,10 @@ messages! {
         en: "{path} is a folder",
         ru: "{path} — это папка",
     }
+    fn drag_paths_too_long(count: usize) {
+        en: "Paths too long for Explorer, not copied: {count}",
+        ru: "Слишком длинные пути для Проводника, не скопировано: {count}",
+    }
     fn sftp_exists(path: &str) {
         en: "{path} already exists",
         ru: "{path} уже существует",

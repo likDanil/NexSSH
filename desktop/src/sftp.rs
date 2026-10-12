@@ -34,7 +34,15 @@ pub struct Transfers {
     last_pick: Mutex<Option<PathBuf>>,
 }
 
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+impl Transfers {
+    /// A transfer that ended after its command returned (a drag's copy): nothing to cancel.
+    #[cfg(windows)]
+    pub(crate) fn ended(&self, transfer_id: u64) {
+        lock(&self.cancel).remove(&transfer_id);
+    }
+}
+
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -187,6 +195,72 @@ pub async fn sftp_download(
             .unwrap_or_default(),
         path: local.display().to_string(),
     })
+}
+
+/// What the page hears of the copy of files dragged out of the window: how far it is, then
+/// how it ended.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DragProgress {
+    pub done: u64,
+    pub total: u64,
+    /// `running`, then `done`, `failed` or `cancelled`.
+    pub state: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Drags remote files and folders out of the window while the mouse button that started the
+/// drag is down (Windows): dropped into Explorer, onto the desktop or into a folder, they are
+/// read from the server as they are copied there (drag.rs). Returns whether they were dropped
+/// where files are taken; `on_progress` then tells how far the copy is and how it ended, and
+/// `transfer_id` (chosen by the UI) lets `sftp_cancel` stop it.
+#[tauri::command]
+pub async fn sftp_drag_out(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    transfers: State<'_, Transfers>,
+    session_id: SessionId,
+    paths: Vec<String>,
+    transfer_id: u64,
+    on_progress: Channel<DragProgress>,
+) -> CmdResult<bool> {
+    #[cfg(windows)]
+    {
+        let sftp = client(&state, session_id).await?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        lock(&transfers.cancel).insert(transfer_id, Arc::clone(&cancel));
+        let drag = crate::drag::Drag {
+            sftp,
+            paths,
+            cancel: Arc::clone(&cancel),
+            progress: on_progress,
+            app: window.app_handle().clone(),
+            transfer_id,
+        };
+        let dropped = crate::drag::run(&window, drag).await;
+        if !matches!(dropped, Ok(true)) {
+            // Nothing is copied: the listing stops, if it is still going.
+            cancel.store(true, Ordering::Relaxed);
+            lock(&transfers.cancel).remove(&transfer_id);
+        }
+        dropped.map_err(CmdError::from)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (
+            window,
+            state,
+            transfers,
+            session_id,
+            paths,
+            transfer_id,
+            on_progress,
+        );
+        Err(CmdError::from(
+            "files are dragged out of the window on Windows only",
+        ))
+    }
 }
 
 /// Asks for a local folder to download into; `None` when cancelled.

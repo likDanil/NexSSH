@@ -2,12 +2,15 @@
 
 mod agents;
 mod commands;
+#[cfg(windows)]
+mod drag;
 mod edit;
 #[cfg(windows)]
 mod explorer;
 mod links;
 mod local;
 mod logger;
+mod placement;
 mod settings;
 mod sftp;
 mod sink;
@@ -83,6 +86,14 @@ pub fn run() {
                 api.prevent_close();
                 tray::request_close(window.app_handle(), tray::Closing::Window);
             }
+            // Where the window comes back at the next start (placement.rs).
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
+                if window.label() == "main" =>
+            {
+                if let Some(placements) = window.try_state::<placement::Placements>() {
+                    placements.changed(window);
+                }
+            }
             _ => {}
         })
         .setup(|app| {
@@ -103,6 +114,7 @@ pub fn run() {
             });
             app.state::<agents::Agents>()
                 .init(app.handle(), &agents_settings);
+            app.manage(placement::Placements::load(&data_dir));
             tray::init(app);
             create_main_window(app, Color(r, g, b, 255))?;
             Ok(())
@@ -152,6 +164,7 @@ pub fn run() {
             sftp::sftp_rename,
             sftp::sftp_remove,
             sftp::sftp_download,
+            sftp::sftp_drag_out,
             sftp::sftp_pick_destination,
             sftp::sftp_pick_upload,
             sftp::sftp_pick_files,
@@ -191,6 +204,13 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let tauri::RunEvent::Exit = event {
+            if let Some(placements) = handle.try_state::<placement::Placements>() {
+                // A change of the last moment has not been noted yet.
+                if let Some(window) = handle.get_webview_window("main") {
+                    placements.note(&window.as_ref().window());
+                }
+                placements.write();
+            }
             handle.state::<AppState>().core.sessions.close_all();
             handle.state::<edit::Editing>().0.stop_all();
         }
@@ -205,13 +225,15 @@ pub fn run() {
 /// The window is created in code (not in tauri.conf.json) so its background matches
 /// the saved theme before the page paints, and so title bars can differ per platform:
 /// Windows gets a custom title bar drawn by the UI, macOS keeps its traffic lights over
-/// the content, Linux keeps native decorations.
+/// the content, Linux keeps native decorations. It is shown once it is where it was left
+/// (placement.rs), so it does not jump there.
 fn create_main_window(app: &tauri::App, background: Color) -> tauri::Result<()> {
     let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("NexSSH")
         .inner_size(1180.0, 760.0)
         .min_inner_size(640.0, 400.0)
         .center()
+        .visible(false)
         .background_color(background)
         // navigator.clipboard for copy/paste in the terminal (no clipboard plugin needed).
         .enable_clipboard_access();
@@ -232,8 +254,13 @@ fn create_main_window(app: &tauri::App, background: Color) -> tauri::Result<()> 
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    let _window = builder.build()?;
+    let window = builder.build()?;
     #[cfg(windows)]
-    sftp::take_page_drops(&_window)?;
+    sftp::take_page_drops(&window)?;
+    let placements = app.state::<placement::Placements>();
+    placements.restore(&window);
+    window.show()?;
+    // Kept from now on, also if the window is never moved.
+    placements.changed(&window.as_ref().window());
     Ok(())
 }
