@@ -153,6 +153,10 @@ pub struct Server {
     /// [`Server::startup_input`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub startup_commands: Option<String>,
+    /// The folder the files drawer opens in (`~` is the home folder, a relative path is in
+    /// it); the home folder when unset. Where browsing starts, not a limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sftp_root: Option<String>,
 }
 
 impl Default for Server {
@@ -175,6 +179,7 @@ impl Default for Server {
             last_used: None,
             agents: AgentAccess::Off,
             startup_commands: None,
+            sftp_root: None,
         }
     }
 }
@@ -201,6 +206,7 @@ impl Server {
         trim_opt(&mut self.jump_host);
         trim_opt(&mut self.jump_user);
         trim_opt(&mut self.alias);
+        trim_opt(&mut self.sftp_root);
         // Blank lines would only press Enter.
         self.startup_commands = self.startup_commands.take().and_then(|text| {
             let lines: Vec<&str> = text
@@ -485,5 +491,23 @@ mod tests {
         );
         let s: Server = serde_json::from_str(r#"{"id":"x","host":"h","agents":"ask"}"#).unwrap();
         assert_eq!(s.agents, AgentAccess::Ask);
+    }
+
+    #[test]
+    fn files_folder() {
+        let mut s: Server =
+            serde_json::from_str(r#"{"id":"x","host":"h","sftpRoot":" /var/www "}"#).unwrap();
+        s.normalize().unwrap();
+        assert_eq!(s.sftp_root.as_deref(), Some("/var/www"));
+        assert!(
+            serde_json::to_string(&s)
+                .unwrap()
+                .contains(r#""sftpRoot":"/var/www""#)
+        );
+
+        s.sftp_root = Some("  ".into());
+        s.normalize().unwrap();
+        assert_eq!(s.sftp_root, None, "the home folder");
+        assert!(!serde_json::to_string(&s).unwrap().contains("sftpRoot"));
     }
 }

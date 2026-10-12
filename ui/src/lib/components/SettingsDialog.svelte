@@ -2,6 +2,7 @@
   import logo from '../../assets/logo.png';
   import { keys } from '../actions';
   import { api, errorMessage } from '../api';
+  import { HIGHLIGHT_KINDS } from '../highlight';
   import { formatNumber, i18n, LANGUAGES, t, timeAgo, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
   import { agents } from '../state/agents.svelte';
@@ -15,7 +16,7 @@
   import { tray } from '../state/tray.svelte';
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
-  import type { AgentActivity, EditorAssociation, Server, Settings } from '../types';
+  import type { AgentActivity, EditorAssociation, HighlightKind, Server, Settings } from '../types';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import Select from './Select.svelte';
@@ -329,6 +330,14 @@
     { id: 'always', label: 'settings.pasteAlways' },
     { id: 'never', label: 'settings.pasteNever' },
   ];
+  const HIGHLIGHT_LABELS: Record<HighlightKind, MessageKey> = {
+    error: 'settings.highlightError',
+    warning: 'settings.highlightWarning',
+    ok: 'settings.highlightOk',
+    info: 'settings.highlightInfo',
+    debug: 'settings.highlightDebug',
+    address: 'settings.highlightAddress',
+  };
   const CURSORS: { id: Settings['cursorStyle']; label: MessageKey }[] = [
     { id: 'bar', label: 'settings.cursorBar' },
     { id: 'block', label: 'settings.cursorBlock' },
@@ -551,6 +560,30 @@
         </span>
         <input type="checkbox" class="toggle" checked={s.gpuAcceleration} onchange={(e) => app.update({ gpuAcceleration: e.currentTarget.checked })} />
       </label>
+      <label class="row">
+        <span>
+          {t('settings.highlight')}
+          <small>{t('settings.highlightHint')}</small>
+        </span>
+        <input
+          type="checkbox"
+          class="toggle"
+          checked={s.highlightKeywords}
+          onchange={(e) => app.update({ highlightKeywords: e.currentTarget.checked })}
+        />
+      </label>
+      {#each HIGHLIGHT_KINDS as kind (kind)}
+        <label class="row sub" class:off={!s.highlightKeywords}>
+          <span>{t(HIGHLIGHT_LABELS[kind])}</span>
+          <input
+            type="color"
+            class="swatch"
+            value={s.highlightColors[kind]}
+            disabled={!s.highlightKeywords}
+            oninput={(e) => app.update({ highlightColors: { ...s.highlightColors, [kind]: e.currentTarget.value } })}
+          />
+        </label>
+      {/each}
       <div class="row top">
         <span>
           {t('settings.localShell')}
@@ -1094,6 +1127,35 @@
   }
   .toggle:checked::after {
     transform: translateX(14px);
+  }
+  /* A setting that belongs to the one above, e.g. the colors of keyword highlighting. */
+  .row.sub {
+    min-height: 40px;
+    padding-left: 14px;
+  }
+  .row.sub.off {
+    opacity: 0.5;
+  }
+  .swatch {
+    appearance: none;
+    flex: none;
+    width: 56px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: none;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .swatch:disabled {
+    cursor: default;
+  }
+  .swatch::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .swatch::-webkit-color-swatch {
+    border: none;
   }
   .shortcuts {
     display: flex;

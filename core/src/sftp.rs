@@ -33,7 +33,7 @@ use russh_sftp::protocol::{
     FileAttributes, FilePermissions, Handle as FileHandle, OpenFlags, Packet, StatusCode,
 };
 use serde::Serialize;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::error::{Error, Result};
@@ -121,6 +121,32 @@ impl Entry {
 pub struct Progress {
     pub done: u64,
     pub total: u64,
+}
+
+/// A file or folder of a transfer planned ahead (see [`Sftp::plan`]).
+#[derive(Debug, Clone)]
+pub struct Planned {
+    pub remote: String,
+    /// Where it goes: the names from the entry asked for down to it, safe for local files.
+    pub names: Vec<String>,
+    pub folder: bool,
+    /// 0 for folders.
+    pub size: u64,
+    /// Seconds since the Unix epoch.
+    pub modified: Option<u64>,
+}
+
+impl Planned {
+    fn new(remote: String, names: Vec<String>, meta: &FileAttributes) -> Planned {
+        let folder = meta.is_dir();
+        Planned {
+            remote,
+            names,
+            folder,
+            size: if folder { 0 } else { meta.size.unwrap_or(0) },
+            modified: meta.mtime.map(u64::from),
+        }
+    }
 }
 
 pub struct Sftp {
@@ -501,7 +527,9 @@ impl Sftp {
         let mut out = tokio::fs::File::create(local)
             .await
             .map_err(|e| local_fail(local, e))?;
-        let received = self.receive(job, remote, size, &mut out, local).await;
+        let received = self
+            .receive(job, remote, size, &mut out, |e| local_fail(local, e))
+            .await;
         // The last write finishes either way: a failed download is removed, and Windows
         // cannot remove a file that is still open.
         let flushed = out.flush().await.map_err(|e| local_fail(local, e));
@@ -510,14 +538,14 @@ impl Sftp {
 
     /// Reads a remote file into `out`: reads ask for what the size says is there, plus one
     /// at the end that finds the end (or that the file grew), all at once as far as the
-    /// transfer's flow allows.
-    async fn receive(
+    /// transfer's flow allows. `write_fail` says what a failed write into `out` means.
+    async fn receive<W: AsyncWrite + Unpin + Send>(
         &self,
         job: &Job<'_>,
         remote: &str,
         size: u64,
-        out: &mut tokio::fs::File,
-        local: &Path,
+        out: &mut W,
+        write_fail: impl Fn(std::io::Error) -> Error,
     ) -> Result<()> {
         let file = self.open_file(remote, OpenFlags::READ).await?;
         let mut lane = Lane::new(&job.flow);
@@ -560,9 +588,7 @@ impl Sftp {
             };
             // More than asked for would overlap the next read.
             data.truncate(asked as usize);
-            out.write_all(&data)
-                .await
-                .map_err(|e| local_fail(local, e))?;
+            out.write_all(&data).await.map_err(&write_fail)?;
             let got = data.len() as u64;
             job.flow.moved(got);
             if got < asked {
@@ -582,6 +608,55 @@ impl Sftp {
             }
         }
         Ok(())
+    }
+
+    /// What downloading `remotes` brings, for a transfer that does not write into a folder
+    /// here (files dragged out to Explorer): each of them and, for folders, everything inside
+    /// at any depth, each folder before what is in it. As in downloads, a symlink asked for
+    /// is followed and symlinks inside folders are left out.
+    pub async fn plan(&self, remotes: &[String], cancel: &AtomicBool) -> Result<Vec<Planned>> {
+        let job = Job::new(cancel);
+        let mut planned = Vec::new();
+        for remote in remotes {
+            job.check()?;
+            let meta = self
+                .raw
+                .stat(remote.as_str())
+                .await
+                .map_err(|e| fail(remote, e))?
+                .attrs;
+            let top = safe_name(&base_name(remote));
+            planned.push(Planned::new(remote.clone(), vec![top.clone()], &meta));
+            if !meta.is_dir() {
+                continue;
+            }
+            for item in self.walk(remote, Some(&job)).await? {
+                if !matches!(kind_of(&item.meta), EntryKind::Dir | EntryKind::File) {
+                    continue;
+                }
+                let names = std::iter::once(top.clone())
+                    .chain(item.names.iter().map(|name| safe_name(name)))
+                    .collect();
+                planned.push(Planned::new(item.path, names, &item.meta));
+            }
+        }
+        Ok(planned)
+    }
+
+    /// Reads the file `remote` (`size` bytes, as listed or planned) into `out` as a download
+    /// does: many reads in flight, and on to the end if the file grew. A failed write (what
+    /// reads `out` went away) stops it as cancelled.
+    pub async fn read_into<W: AsyncWrite + Unpin + Send>(
+        &self,
+        remote: &str,
+        size: u64,
+        out: &mut W,
+        cancel: &AtomicBool,
+    ) -> Result<()> {
+        let job = Job::new(cancel);
+        self.receive(&job, remote, size, out, |_| Error::Cancelled)
+            .await?;
+        out.flush().await.map_err(|_| Error::Cancelled)
     }
 
     /// Uploads a local file or folder into `remote_dir` under its own name and returns the

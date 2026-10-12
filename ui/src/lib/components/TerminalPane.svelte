@@ -37,6 +37,8 @@
     scrollback: app.settings.scrollback,
     copyOnSelect: app.settings.copyOnSelect,
     gpuAcceleration: app.settings.gpuAcceleration,
+    highlightKeywords: app.settings.highlightKeywords,
+    highlightColors: app.settings.highlightColors,
   });
   const theme = $derived(TERMINAL_THEMES[app.theme]);
 

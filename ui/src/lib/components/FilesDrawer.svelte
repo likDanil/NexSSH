@@ -5,6 +5,7 @@
   // and Ctrl+A select several entries for one command. Files and folders dropped here are
   // uploaded into the folder shown, or into the folder under the pointer.
   import { listen } from '@tauri-apps/api/event';
+  import { untrack } from 'svelte';
   import { keys } from '../actions';
   import { errorMessage } from '../api';
   import { i18n, t, tn, type MessageKey } from '../i18n.svelte';
@@ -24,6 +25,7 @@
     takeDrop,
     type Transfer,
   } from '../state/files.svelte';
+  import { servers } from '../state/servers.svelte';
   import { sessions, type Tab } from '../state/sessions.svelte';
   import { toasts } from '../state/toasts.svelte';
   import type { DroppedFiles, EditInfo, FilesSort, PickedUpload, SftpEntry } from '../types';
@@ -66,11 +68,16 @@
   const cursorIndex = $derived(view?.cursor == null ? -1 : entries.findIndex((e) => e.name === view.cursor));
   const dirName = $derived(view?.path ? view.path.replace(/\/+$/, '').split('/').pop() || '/' : '');
 
-  // Load the tab's folder when shown; after a reconnect, retry what failed.
+  // Load the tab's folder when shown; after a reconnect, retry what failed. Only those are
+  // watched, not the failure: it would set off another try, and another, for a folder that
+  // cannot be listed.
   $effect(() => {
     if (!connected) return;
-    if (!files.views[tab.key]) files.ensure(tab);
-    else if (files.views[tab.key].error) void files.goHome(tab);
+    const key = tab.key;
+    untrack(() => {
+      if (!files.views[key]) files.ensure(tab);
+      else if (files.views[key].error) void files.goHome(tab);
+    });
   });
 
   $effect(() => {
@@ -190,6 +197,7 @@
         items.push(
           { label: t('files.openItem'), icon: 'folder', action: () => activate(e) },
           { label: t('files.openInTerminal'), icon: 'terminal', action: () => files.openInTerminal(tab, path) },
+          ...startFolderItem(path),
           'separator',
         );
       }
@@ -226,6 +234,7 @@
       { label: t('files.newFile'), icon: 'file', action: () => void files.newFile(tab) },
       'separator',
       { label: t('files.openInTerminal'), icon: 'terminal', action: () => files.openInTerminal(tab, path) },
+      ...startFolderItem(path),
       { label: t('files.selectAll'), hint: shortcut('Mod', 'A'), disabled: !entries.length, action: selectAll },
       { label: t('files.refresh'), icon: 'refresh', action: () => files.refresh(tab) },
       'separator',
@@ -235,6 +244,15 @@
         action: () => app.update({ filesShowHidden: !app.settings.filesShowHidden }),
       },
     ]);
+  }
+
+  /** A saved server's folder can be made the one its drawer opens in, and the one that is can
+   * stop being it (the home folder again). */
+  function startFolderItem(path: string): MenuEntry[] {
+    if (!tab.serverId || !servers.byId.has(tab.serverId)) return [];
+    return files.isStartFolder(tab, path)
+      ? [{ label: t('files.clearStartFolder'), icon: 'home', action: () => void files.setStartFolder(tab, null) }]
+      : [{ label: t('files.setStartFolder'), icon: 'home', action: () => void files.setStartFolder(tab, path) }];
   }
 
   function uploadMenu(ev: MouseEvent) {
@@ -365,6 +383,8 @@
   });
 
   function isFileDrag(ev: DragEvent) {
+    // The drawer's own entries, dragged out of the window, pass over it on their way.
+    if (files.draggingOut) return false;
     const types = ev.dataTransfer?.types ?? [];
     return types.includes('Files') || (nativeItems.length > 0 && types.includes('text/uri-list'));
   }
@@ -426,6 +446,19 @@
     if (!element || !pane?.contains(element) || !view?.path) return;
     const folder = folderAt(element);
     void files.uploadPicked(tab, items, folder ? joinPath(view.path, folder) : undefined);
+  }
+
+  /** Windows: entries dragged out of the window, into Explorer or onto the desktop, are
+   * copied there from the server; a selected row takes the rest of the selection along. The
+   * app drags them itself, as files Explorer can copy: the page's own drag would hold text. */
+  const dragsOut = currentOs() === 'windows';
+
+  function dragOut(ev: DragEvent, entry: SftpEntry) {
+    ev.preventDefault();
+    if (!view?.path) return;
+    const items = selected.has(entry.name) ? chosen : [entry];
+    if (!selected.has(entry.name)) selectOnly(entry.name);
+    void files.dragOut(tab, items);
   }
 
   // ---- edited files ------------------------------------------------------------
@@ -547,6 +580,11 @@
         onblur={() => (pathInput = view?.path ?? '')}
         onkeydown={(e) => e.key === 'Escape' && list?.focus()}
       />
+      {#if view?.path && files.isStartFolder(tab, view.path)}
+        <span class="start" title={t('files.startFolder')} aria-label={t('files.startFolder')} role="img">
+          <Icon name="home" size={14} />
+        </span>
+      {/if}
     </form>
   </header>
 
@@ -605,6 +643,8 @@
             role="option"
             aria-selected={selected.has(e.name)}
             title={e.permissions ? `${e.name}\n${e.permissions}` : e.name}
+            draggable={dragsOut}
+            ondragstart={(ev) => dragOut(ev, e)}
             onclick={(ev) => onRowClick(ev, e)}
             ondblclick={() => activate(e)}
             oncontextmenu={(ev) => entryMenu(ev, e)}
@@ -777,6 +817,15 @@
     min-width: 0;
     height: 28px;
     font-size: 12px;
+  }
+  /* The folder shown is the one the drawer opens in for this server. */
+  .path .start {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 28px;
+    color: var(--text-2);
   }
   .pane {
     position: relative;

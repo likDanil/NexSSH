@@ -1,12 +1,13 @@
 // xterm.js wrapper. Loaded lazily (dynamic import) when the first session opens, so the
 // app starts without parsing the terminal emulator.
 
-import { Terminal, type ITheme, type IWindowsPty } from '@xterm/xterm';
+import { Terminal, type IMarker, type ITheme, type IWindowsPty } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import '@fontsource-variable/jetbrains-mono/wght.css';
+import { highlightRow, isHighlightColor } from './highlight';
 import { isMac, mod, shortcutKey } from './platform';
 import { readRows } from './screen';
 import type { Settings, TerminalSnapshot } from './types';
@@ -16,7 +17,16 @@ const FALLBACK_FONTS = `'JetBrains Mono', 'SF Mono', 'Geist Mono', 'Cascadia Mon
 
 export type TermSettings = Pick<
   Settings,
-  'fontFamily' | 'fontSize' | 'lineHeight' | 'cursorStyle' | 'cursorBlink' | 'scrollback' | 'copyOnSelect' | 'gpuAcceleration'
+  | 'fontFamily'
+  | 'fontSize'
+  | 'lineHeight'
+  | 'cursorStyle'
+  | 'cursorBlink'
+  | 'scrollback'
+  | 'copyOnSelect'
+  | 'gpuAcceleration'
+  | 'highlightKeywords'
+  | 'highlightColors'
 >;
 
 /** Control characters but tab and line breaks, which pastes leave out (see `pasteText`). */
@@ -61,6 +71,10 @@ export class TermView {
   #settings: TermSettings;
   #link: string | null = null;
   #cb: TermCallbacks;
+  /** Keyword highlighting: a marker on each row in view with something to color, which takes
+   * the row's decorations with it when disposed. */
+  #marks: IMarker[] = [];
+  #highlightFrame = 0;
 
   /** `windowsPty`: the session is a local terminal on Windows (ConPTY), which xterm.js adapts to. */
   constructor(
@@ -102,7 +116,8 @@ export class TermView {
       smoothScrollDuration: 0,
       macOptionClickForcesSelection: true,
       rightClickSelectsWord: false,
-      allowProposedApi: false,
+      // For decorations (keyword highlighting); the option only lets the API be called.
+      allowProposedApi: true,
       // Hyperlinks programs print (OSC 8, e.g. `ls --hyperlink`); only web ones.
       linkHandler: { activate, hover: hover(true), leave },
     });
@@ -114,7 +129,20 @@ export class TermView {
 
     this.term.onData(cb.onData);
     this.term.onBinary(cb.onBinary);
-    this.term.onResize(({ cols, rows }) => cb.onResize(cols, rows));
+    this.term.onResize(({ cols, rows }) => {
+      cb.onResize(cols, rows);
+      this.#highlightSoon();
+    });
+    // The rows in view change with the output and with scrolling (`clear` scrolls too).
+    this.term.onWriteParsed(() => this.#highlightSoon());
+    this.term.onScroll(() => this.#highlightSoon());
+    // Decorations are drawn by row number on whichever screen is shown, so those of the normal
+    // screen go at once when a full-screen program switches to the alternate one; otherwise its
+    // first frame would show them.
+    this.term.buffer.onBufferChange(() => {
+      this.#unhighlight();
+      this.#highlightSoon();
+    });
     this.term.onSelectionChange(() => {
       if (!this.#settings.copyOnSelect) return;
       clearTimeout(this.#copyTimer);
@@ -217,7 +245,47 @@ export class TermView {
   }
 
   write(data: Uint8Array | string) {
+    // Asked for before xterm asks for the frame that draws the output (when it parses it), so
+    // that the colors come in the same frame as the text.
+    this.#highlightSoon();
     this.term.write(data);
+  }
+
+  /** Colors the rows in view on the next frame, once for all the writes before it. */
+  #highlightSoon() {
+    if (this.#highlightFrame || (!this.#settings.highlightKeywords && !this.#marks.length)) return;
+    this.#highlightFrame = requestAnimationFrame(() => {
+      this.#highlightFrame = 0;
+      this.#highlight();
+    });
+  }
+
+  #highlight() {
+    this.#unhighlight();
+    const { term } = this;
+    const buffer = term.buffer.active;
+    // Full-screen programs (vim, htop, mc) color what they draw themselves.
+    if (!this.#settings.highlightKeywords || buffer.type === 'alternate') return;
+    const colors = this.#settings.highlightColors;
+    const cell = buffer.getNullCell();
+    const cursor = buffer.baseY + buffer.cursorY;
+    for (let y = buffer.viewportY; y < buffer.viewportY + term.rows; y++) {
+      const line = buffer.getLine(y);
+      if (!line) break;
+      const spans = highlightRow(line, term.cols, cell);
+      if (!spans.length) continue;
+      const marker = term.registerMarker(y - cursor);
+      this.#marks.push(marker);
+      for (const { kind, x, width } of spans) {
+        const color = colors[kind];
+        if (isHighlightColor(color)) term.registerDecoration({ marker, x, width, foregroundColor: color });
+      }
+    }
+  }
+
+  #unhighlight() {
+    for (const mark of this.#marks) mark.dispose();
+    this.#marks = [];
   }
 
   /** The text of the screen, or of the last `lines` lines of the output with the scrollback
@@ -293,10 +361,14 @@ export class TermView {
     if (o.scrollback !== settings.scrollback) o.scrollback = settings.scrollback;
     if (o.theme !== theme) o.theme = theme;
     if (prev.gpuAcceleration !== settings.gpuAcceleration) this.setGpu(settings.gpuAcceleration);
+    if (prev.highlightKeywords !== settings.highlightKeywords || prev.highlightColors !== settings.highlightColors) {
+      this.#highlightSoon();
+    }
   }
 
   dispose() {
     clearTimeout(this.#copyTimer);
+    cancelAnimationFrame(this.#highlightFrame);
     this.#webgl?.dispose();
     this.term.dispose();
   }

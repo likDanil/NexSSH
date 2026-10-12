@@ -35,6 +35,9 @@
   the right-click menu on a link opens or copies it. Before several lines are pasted, NexSSH
   shows them and asks, unless the program takes pastes as text (bracketed paste); pastes leave
   control characters out.
+* **Keyword highlighting:** words like `error`, `warning`, `ok`, `info` and `debug`, IP and MAC
+  addresses get their own color in the output; *Settings → Terminal* changes the colors or turns
+  it off. Text a program colored itself and full-screen programs (vim, htop) keep their colors.
 * **The tray:** the close button can hide NexSSH into the tray (*Settings → General*, or the
   question it asks the first time): sessions stay connected, and AI agents keep their access.
   A click on the icon brings the window back; its right-click menu connects to a saved server,
@@ -42,6 +45,8 @@
 * **Tabs of the last session:** the tabs open when NexSSH quits can come back at the next start
   — always, or when you say so as it quits. Local terminals start again; SSH tabs connect when
   you press <kbd>Enter</kbd> (or *Connect all*), so no password is asked for on its own.
+* **As it was left:** the window comes back where it was and at its size (maximized if it
+  was), and the files drawer open or closed.
 * On Windows 11 the maximize button of NexSSH's own title bar offers the snap layouts, as any
   window's does: rest the mouse on it.
 * Authentication: SSH agent (OpenSSH agent, Pageant, 1Password…), private keys (OpenSSH,
@@ -64,11 +69,15 @@
 * **Files over SFTP** next to the terminal, on the same connection (no second login):
   upload files and whole folders (buttons, or drag & drop — onto a folder in the list to
   put them there), download into *Downloads* or any folder, several at once with
-  <kbd>Ctrl</kbd>/<kbd>Shift</kbd>+click; rename, delete, create files and folders, change
+  <kbd>Ctrl</kbd>/<kbd>Shift</kbd>+click, or (on Windows) drag them out into Explorer or onto
+  the desktop, which copies them straight from the server with its own progress window;
+  rename, delete, create files and folders, change
   permissions (also recursively), sort by name, size or date, jump to a name by typing it,
   and *Open in terminal* to `cd` there. Transfers show speed and time left and can be
   cancelled; nothing is overwritten without asking, and a file being replaced stays as it
-  was until its upload is complete, so a cancelled or broken upload loses nothing.
+  was until its upload is complete, so a cancelled or broken upload loses nothing. A server
+  can have the folder the drawer opens in: right-click a folder → *Make it the default
+  folder* (or *Files folder* in the server's settings); else its home.
 * **Edit server files in your own editor:** *Edit in…* (<kbd>F4</kbd>) in the files drawer
   opens a file in VS Code, Cursor, Notepad++ or the editor of your choice (*Settings → Files*),
   also per file type (`.log` in Notepad++, `.yml` in VS Code, the rest in the default editor),

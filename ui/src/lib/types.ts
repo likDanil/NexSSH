@@ -38,6 +38,8 @@ export interface Server {
   agents?: AgentAccess;
   /** Typed into the shell after every login, one command per line. */
   startupCommands?: string;
+  /** The folder the files drawer opens in (`~` is the home folder); the home folder if unset. */
+  sftpRoot?: string;
 }
 
 export interface StoreData {
@@ -140,6 +142,9 @@ export type FilesSort = 'name' | 'size' | 'modified';
 export type ThemeId = 'system' | 'light' | 'graphite' | 'black' | 'navy';
 export type ResolvedTheme = Exclude<ThemeId, 'system'>;
 
+/** What keyword highlighting colors in a terminal's output (see `highlight.ts`). */
+export type HighlightKind = 'error' | 'warning' | 'ok' | 'info' | 'debug' | 'address';
+
 /** UI preferences, stored by the backend in settings.json. */
 export interface Settings {
   language: LanguageSetting;
@@ -156,6 +161,10 @@ export interface Settings {
    * pastes as text (bracketed paste), so the lines do not run at once. */
   pasteWarning: 'auto' | 'always' | 'never';
   gpuAcceleration: boolean;
+  /** Color words like error and warning, IP and MAC addresses in a terminal's output. */
+  highlightKeywords: boolean;
+  /** `#rrggbb` for each kind. */
+  highlightColors: Record<HighlightKind, string>;
   /** Windows/Linux: plain Ctrl+K opens the palette even while typing in a terminal. */
   ctrlKInTerminal: boolean;
   sidebarWidth: number;
@@ -164,6 +173,8 @@ export interface Settings {
    * screen. Never saved as `sidebarHidden`. */
   sidebarAutoHide: boolean;
   collapsedGroups: string[];
+  /** The files drawer is open (next to SSH tabs): it is again after a restart. */
+  filesOpen: boolean;
   /** Files drawer: show dotfiles, its width and sort order (folders always come first). */
   filesShowHidden: boolean;
   filesWidth: number;
@@ -275,6 +286,14 @@ export interface SftpEntry {
 export interface TransferProgress {
   done: number;
   total: number;
+}
+
+/** The copy of files dragged out of the window: how far it is, then how it ended. */
+export interface DragOutProgress {
+  done: number;
+  total: number;
+  state: 'running' | 'done' | 'failed' | 'cancelled';
+  error?: string;
 }
 
 export interface Downloaded {

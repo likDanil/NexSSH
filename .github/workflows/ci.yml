@@ -99,3 +99,8 @@ jobs:
       # COM server for the entry.
       - name: Explorer menu entry
         run: cargo test --no-fail-fast -p nexssh-explorer -p nexssh-explorer-command
+
+      # Drops files dragged out of the files drawer on a folder, through the shell's own drop
+      # target (the one Explorer uses).
+      - name: Files dragged out into Explorer
+        run: cargo test -p nexssh-dragout

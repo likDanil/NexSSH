@@ -4,8 +4,9 @@
 import { listen } from '@tauri-apps/api/event';
 import { api, Channel, errorMessage } from '../api';
 import { i18n, t, tn } from '../i18n.svelte';
-import type { FilesSort, PickedUpload, SftpEntry, TransferProgress } from '../types';
+import type { DragOutProgress, FilesSort, PickedUpload, SftpEntry, TransferProgress } from '../types';
 import { app } from './app.svelte';
+import { servers } from './servers.svelte';
 import { sessions, type Tab } from './sessions.svelte';
 import { toasts } from './toasts.svelte';
 
@@ -70,6 +71,12 @@ export function parentPath(path: string): string {
   const trimmed = path.replace(/\/+$/, '');
   const i = trimmed.lastIndexOf('/');
   return i <= 0 ? '/' : trimmed.slice(0, i);
+}
+
+/** Whether two paths name the same folder, with a slash at the end or not. */
+export function sameFolder(a: string, b: string): boolean {
+  const trimmed = (path: string) => path.replace(/(.)\/+$/, '$1');
+  return trimmed(a) === trimmed(b);
 }
 
 export function isDirLike(e: SftpEntry): boolean {
@@ -245,16 +252,28 @@ function reportFailures(errors: string[]) {
 }
 
 class FilesState {
-  open = $state(false);
   views = $state<Record<string, FolderView>>({});
   transfers = $state<Transfer[]>([]);
+  /** Entries are being dragged out of the window: the drawer takes no drop meanwhile. */
+  draggingOut = $state(false);
 
   /** The latest listing asked for per tab: older answers are dropped. */
   #loads = new Map<string, number>();
+  /** Per tab, the server's default folder as set (`~/www`) and the folder that turned out to be. */
+  #roots = new Map<string, { root: string; path: string }>();
   /** Last speed measurement per running transfer. */
   #samples = new Map<number, { time: number; done: number }>();
   /** Uploads of a transfer's files on their way from the page: cancelled with it. */
   #parts = new Map<number, Set<number>>();
+
+  /** The drawer shows next to SSH tabs; kept in the settings, so it is open after a restart. */
+  get open(): boolean {
+    return app.settings.filesOpen;
+  }
+
+  set open(open: boolean) {
+    if (open !== app.settings.filesOpen) app.update({ filesOpen: open });
+  }
 
   get running(): number {
     return this.transfers.filter((tr) => tr.status === 'running').length;
@@ -282,33 +301,84 @@ class FilesState {
   forget(tabKey: string) {
     delete this.views[tabKey];
     this.#loads.delete(tabKey);
+    this.#roots.delete(tabKey);
   }
 
+  /** The folder the drawer opens in for the tab's server, as set; `null`: the home folder. */
+  startFolder(tab: Tab): string | null {
+    return (tab.serverId ? servers.byId.get(tab.serverId)?.sftpRoot?.trim() : undefined) || null;
+  }
+
+  /** Whether `path` is the folder the drawer opens in for the tab's server. */
+  isStartFolder(tab: Tab, path: string): boolean {
+    const root = this.startFolder(tab);
+    if (!root) return false;
+    const opened = this.#roots.get(tab.key);
+    return sameFolder(root, path) || (opened?.root === root && sameFolder(opened.path, path));
+  }
+
+  /** Makes `path` the folder the drawer opens in for the tab's server (a saved one), or the home
+   * folder again (`null`). */
+  async setStartFolder(tab: Tab, path: string | null) {
+    const server = tab.serverId ? servers.byId.get(tab.serverId) : undefined;
+    if (!server) return;
+    try {
+      await servers.save({ ...$state.snapshot(server), sftpRoot: path ?? undefined });
+      toasts.show(
+        path
+          ? t('files.startFolderSet', { server: server.name, path })
+          : t('files.startFolderCleared', { server: server.name }),
+        'success',
+      );
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  /** Opens the folder the tab's server has set for the drawer (`~` is the home folder), else
+   * the home folder: also when that folder cannot be opened, which a message then says. */
   async goHome(tab: Tab) {
     const view = this.views[tab.key];
-    if (!view || tab.sessionId == null) return;
+    const sessionId = tab.sessionId;
+    if (!view || sessionId == null) return;
     view.loading = true;
     view.error = null;
+    const root = tab.serverId ? servers.byId.get(tab.serverId)?.sftpRoot?.trim() : undefined;
+    if (root) {
+      let failure: string | null;
+      try {
+        const path = await api.sftpResolve(sessionId, root);
+        this.#roots.set(tab.key, { root, path });
+        failure = (await this.openDir(tab, path)) ? null : view.error;
+      } catch (e) {
+        failure = errorMessage(e);
+      }
+      // Shown, or another folder was asked for meanwhile.
+      if (failure === null) return;
+      toasts.error(t('files.rootUnavailable', { error: failure }));
+      view.error = null;
+      view.loading = true;
+    }
     try {
-      await this.openDir(tab, await api.sftpHome(tab.sessionId));
+      await this.openDir(tab, await api.sftpHome(sessionId));
     } catch (e) {
       view.error = errorMessage(e);
       view.loading = false;
     }
   }
 
-  /** Shows `path`. `select` names the entries to select; without it, a reload of the same
-   * folder keeps the selection. */
-  async openDir(tab: Tab, path: string, select?: string[]) {
+  /** Shows `path`, and says whether it did. `select` names the entries to select; without it,
+   * a reload of the same folder keeps the selection. */
+  async openDir(tab: Tab, path: string, select?: string[]): Promise<boolean> {
     const view = this.views[tab.key];
-    if (!view || tab.sessionId == null) return;
+    if (!view || tab.sessionId == null) return false;
     const load = (this.#loads.get(tab.key) ?? 0) + 1;
     this.#loads.set(tab.key, load);
     view.loading = true;
     view.error = null;
     try {
       const entries = await api.sftpList(tab.sessionId, path);
-      if (this.#loads.get(tab.key) !== load) return;
+      if (this.#loads.get(tab.key) !== load) return false;
       const names = new Set(entries.map((e) => e.name));
       const keep = select === undefined && path === view.path;
       const exists = (name: string | null) => name !== null && names.has(name);
@@ -317,10 +387,12 @@ class FilesState {
       view.anchor = keep && exists(view.anchor) ? view.anchor : view.cursor;
       view.path = path;
       view.entries = entries;
+      return true;
     } catch (e) {
-      if (this.#loads.get(tab.key) !== load) return;
+      if (this.#loads.get(tab.key) !== load) return false;
       if (view.path) toasts.error(errorMessage(e));
       else view.error = errorMessage(e);
+      return false;
     } finally {
       if (this.#loads.get(tab.key) === load) view.loading = false;
     }
@@ -475,8 +547,7 @@ class FilesState {
     sessions.focusActive();
   }
 
-  #add(direction: Transfer['direction'], name: string, total: number): Transfer {
-    const id = nextTransfer++;
+  #add(direction: Transfer['direction'], name: string, total: number, id = nextTransfer++): Transfer {
     this.transfers.unshift({ id, direction, name, done: 0, total, status: 'running', rate: 0 });
     this.#samples.set(id, { time: performance.now(), done: 0 });
     // The proxied object, so later updates are reactive.
@@ -555,6 +626,48 @@ class FilesState {
       return;
     }
     if (dest) await this.download(tab, entries, dest);
+  }
+
+  /** Windows: drags entries out of the window, while the mouse button is down. Dropped into
+   * Explorer, onto the desktop or into a folder, they are copied there from the server, with
+   * Explorer's progress window; the transfer shows here too, once they are dropped. */
+  async dragOut(tab: Tab, entries: SftpEntry[]) {
+    const view = this.views[tab.key];
+    const sessionId = tab.sessionId;
+    if (!view?.path || sessionId == null || !entries.length || this.draggingOut) return;
+    const dir = view.path;
+    const id = nextTransfer++;
+    let tr: Transfer | null = null;
+    // Messages may come before the drag ends: a target that is not Explorer copies at once.
+    let latest = null as DragOutProgress | null;
+    const apply = (tr: Transfer, p: DragOutProgress) => {
+      if (tr.status !== 'running') return;
+      if (p.state === 'running') this.#progress(tr, p.done, p.total);
+      else if (p.state === 'done') this.#finish(tr);
+      else if (p.state === 'cancelled') {
+        tr.status = 'cancelled';
+        this.#samples.delete(tr.id);
+      } else {
+        this.#fail(tr, p.error ?? t('files.failed'));
+        reportFailures([tr.error ?? '']);
+      }
+    };
+    const channel = new Channel<DragOutProgress>();
+    channel.onmessage = (p) => {
+      latest = p;
+      if (tr) apply(tr, p);
+    };
+    this.draggingOut = true;
+    try {
+      const paths = entries.map((e) => joinPath(dir, e.name));
+      if (!(await api.sftpDragOut(sessionId, paths, id, channel))) return;
+      tr = this.#add('down', entries.length === 1 ? entries[0].name : tn('files.items', entries.length), 0, id);
+      if (latest) apply(tr, latest);
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    } finally {
+      this.draggingOut = false;
+    }
   }
 
   /** Uploads files and folders into `dir` (default: the folder shown), asking before

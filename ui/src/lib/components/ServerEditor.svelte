@@ -65,6 +65,7 @@
   let timeout = $state(initial.connectTimeoutSecs != null ? String(initial.connectTimeoutSecs) : '');
   let forwards = $state<ForwardSpec[]>(initial.forwards ? [...initial.forwards] : []);
   let startupCommands = $state(initial.startupCommands ?? '');
+  let sftpRoot = $state(initial.sftpRoot ?? '');
   let agentAccess = $state<AgentAccess>(initial.agents ?? 'off');
   let password = $state('');
   let hasPassword = $state(false);
@@ -214,6 +215,7 @@
         .filter((f) => f.bindPort > 0 || f.kind === 'remote')
         .map((f) => ({ ...f, bindPort: Number(f.bindPort), targetPort: Number(f.targetPort) })),
       startupCommands: startupCommands.trim() ? startupCommands : undefined,
+      sftpRoot: sftpRoot.trim() || undefined,
       agents: agentAccess === 'off' ? undefined : agentAccess,
     };
     try {
@@ -324,6 +326,13 @@
           <div class="control">
             <Suggest id="server-group" bind:value={group} suggestions={groupOptions} placeholder={t('group.production')} />
           </div>
+        </div>
+        <div class="row">
+          <label for="server-sftp-root">
+            {t('editor.sftpRoot')}
+            <small>{t('editor.sftpRootHint')}</small>
+          </label>
+          <input id="server-sftp-root" class="input control mono" bind:value={sftpRoot} placeholder="~" spellcheck="false" />
         </div>
       </div>
     {:else if section === 'login'}
