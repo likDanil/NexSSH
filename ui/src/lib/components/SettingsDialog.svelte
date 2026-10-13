@@ -7,7 +7,7 @@
   import { isMac, shortcut } from '../platform';
   import { agents } from '../state/agents.svelte';
   import { associations, edits, parseExtensions } from '../state/edits.svelte';
-  import { app, clampFontSize, type SettingsSection } from '../state/app.svelte';
+  import { app, clampFontSize, DEFAULT_SETTINGS, type SettingsSection } from '../state/app.svelte';
   import { restore } from '../state/restore.svelte';
   import { servers } from '../state/servers.svelte';
   import { sessions } from '../state/sessions.svelte';
@@ -17,6 +17,7 @@
   import { updates } from '../state/updates.svelte';
   import { THEMES, themeLabel } from '../themes';
   import type { AgentActivity, EditorAssociation, HighlightKind, Server, Settings } from '../types';
+  import ColorPicker from './ColorPicker.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import Select from './Select.svelte';
@@ -338,6 +339,8 @@
     debug: 'settings.highlightDebug',
     address: 'settings.highlightAddress',
   };
+  /** The default colors of keyword highlighting and a gray: one click back to any of them. */
+  const HIGHLIGHT_PRESETS = [...new Set([...Object.values(DEFAULT_SETTINGS.highlightColors), '#8c929b'])];
   const CURSORS: { id: Settings['cursorStyle']; label: MessageKey }[] = [
     { id: 'bar', label: 'settings.cursorBar' },
     { id: 'block', label: 'settings.cursorBlock' },
@@ -573,16 +576,19 @@
         />
       </label>
       {#each HIGHLIGHT_KINDS as kind (kind)}
-        <label class="row sub" class:off={!s.highlightKeywords}>
+        <div class="row sub" class:off={!s.highlightKeywords}>
           <span>{t(HIGHLIGHT_LABELS[kind])}</span>
-          <input
-            type="color"
-            class="swatch"
+          <ColorPicker
             value={s.highlightColors[kind]}
+            label={t(HIGHLIGHT_LABELS[kind])}
             disabled={!s.highlightKeywords}
-            oninput={(e) => app.update({ highlightColors: { ...s.highlightColors, [kind]: e.currentTarget.value } })}
+            defaultValue={DEFAULT_SETTINGS.highlightColors[kind]}
+            presets={HIGHLIGHT_PRESETS}
+            saved={s.savedColors}
+            onchange={(color) => app.update({ highlightColors: { ...s.highlightColors, [kind]: color } })}
+            onsaved={(savedColors) => app.update({ savedColors })}
           />
-        </label>
+        </div>
       {/each}
       <div class="row top">
         <span>
@@ -1135,27 +1141,6 @@
   }
   .row.sub.off {
     opacity: 0.5;
-  }
-  .swatch {
-    appearance: none;
-    flex: none;
-    width: 56px;
-    height: 26px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: none;
-    overflow: hidden;
-    cursor: pointer;
-  }
-  .swatch:disabled {
-    cursor: default;
-  }
-  .swatch::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  .swatch::-webkit-color-swatch {
-    border: none;
   }
   .shortcuts {
     display: flex;

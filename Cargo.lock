@@ -2933,7 +2933,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexssh"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-core"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "apple-native-keyring-store",
  "data-encoding",
@@ -2988,7 +2988,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-dragout"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "windows",
  "windows-core",
@@ -2996,7 +2996,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-explorer"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "windows",
  "winreg 0.55.0",
@@ -3004,7 +3004,7 @@ dependencies = [
 
 [[package]]
 name = "nexssh-explorer-command"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "nexssh-explorer",
  "windows",

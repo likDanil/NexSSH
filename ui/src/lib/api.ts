@@ -80,6 +80,8 @@ export const api = {
   deleteServer: (id: string) => invoke<void>('server_delete', { id }),
   /** Whether a password is remembered for the server, or with `jump` for its jump host. */
   hasPassword: (id: string, jump = false) => invoke<boolean>('server_has_password', { id, jump }),
+  /** The remembered password itself (for "show password"); `null` when there is none. */
+  savedPassword: (id: string, jump = false) => invoke<string | null>('server_password', { id, jump }),
   setGroups: (groups: string[]) => invoke<StoreData>('groups_set', { groups }),
   renameGroup: (from: string, to: string) => invoke<StoreData>('group_rename', { from, to }),
   deleteGroup: (name: string) => invoke<StoreData>('group_delete', { name }),

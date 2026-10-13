@@ -1,4 +1,4 @@
-// Lists that open under a control (Select, Suggest). They are rendered at the end of
+// Lists and panels that open under a control (Select, Suggest, ColorPicker). They are rendered at the end of
 // <body>, so a dialog's `overflow: hidden` or open animation cannot clip or shift them.
 
 /** Svelte action: moves the element to the end of <body>. */
@@ -23,17 +23,28 @@ const GAP = 4;
 const MARGIN = 8;
 const MAX_HEIGHT = 280;
 
+export interface PopupOptions {
+  /** Line the popup up with the anchor's left edge (`start`) or its right edge (`end`). */
+  align?: 'start' | 'end';
+  maxHeight?: number;
+}
+
 /** Under the anchor, or above it when the list fits better there; always inside the window. */
-export function placePopup(anchor: HTMLElement, popup: HTMLElement): PopupPlace {
+export function placePopup(
+  anchor: HTMLElement,
+  popup: HTMLElement,
+  { align = 'start', maxHeight: most = MAX_HEIGHT }: PopupOptions = {},
+): PopupPlace {
   const r = anchor.getBoundingClientRect();
   const below = window.innerHeight - r.bottom - GAP - MARGIN;
   const above = r.top - GAP - MARGIN;
-  const wanted = Math.min(popup.scrollHeight, MAX_HEIGHT);
+  const wanted = Math.min(popup.scrollHeight, most);
   const up = wanted > below && above > below;
-  const maxHeight = Math.max(80, Math.min(MAX_HEIGHT, up ? above : below));
+  const maxHeight = Math.max(80, Math.min(most, up ? above : below));
   const width = Math.max(r.width, popup.offsetWidth);
+  const left = align === 'end' ? r.right - width : r.left;
   return {
-    left: Math.max(MARGIN, Math.min(r.left, window.innerWidth - width - MARGIN)),
+    left: Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN)),
     top: up ? r.top - GAP - Math.min(wanted, maxHeight) : r.bottom + GAP,
     width: r.width,
     maxHeight,
@@ -41,8 +52,13 @@ export function placePopup(anchor: HTMLElement, popup: HTMLElement): PopupPlace 
 }
 
 /** Keeps a list placed while it is open (scrolling, resizing); returns the cleanup. */
-export function followAnchor(anchor: HTMLElement, popup: HTMLElement, place: (p: PopupPlace) => void) {
-  const update = () => place(placePopup(anchor, popup));
+export function followAnchor(
+  anchor: HTMLElement,
+  popup: HTMLElement,
+  place: (p: PopupPlace) => void,
+  options?: PopupOptions,
+) {
+  const update = () => place(placePopup(anchor, popup, options));
   const onScroll = (e: Event) => {
     if (e.target !== popup) update();
   };

@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
     debug: '#8686fe',
     address: '#d2549b',
   },
+  savedColors: [],
   ctrlKInTerminal: false,
   sidebarWidth: 240,
   sidebarHidden: false,

@@ -3,6 +3,7 @@
   import { sessions, type Tab } from '../state/sessions.svelte';
   import type { Prompt, PromptReply } from '../types';
   import Icon from './Icon.svelte';
+  import PasswordInput from './PasswordInput.svelte';
   import Rich from './Rich.svelte';
 
   interface Props {
@@ -176,10 +177,8 @@
         <h3>{t(p.kind === 'password' ? 'prompt.password.title' : 'prompt.passphrase.title')}</h3>
       </div>
       <p class="sub">{p.kind === 'password' ? `${p.user}@${p.host}` : p.keyPath}</p>
-      <input
-        class="input"
-        class:invalid={!!p.error}
-        type="password"
+      <PasswordInput
+        class={['input', p.error && 'invalid']}
         bind:value={secret}
         placeholder={t(p.kind === 'password' ? 'prompt.password.placeholder' : 'prompt.passphrase.placeholder')}
         autocomplete="off"

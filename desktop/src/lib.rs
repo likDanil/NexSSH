@@ -131,6 +131,7 @@ pub fn run() {
             commands::server_save,
             commands::server_delete,
             commands::server_has_password,
+            commands::server_password,
             commands::groups_set,
             commands::group_rename,
             commands::group_delete,
