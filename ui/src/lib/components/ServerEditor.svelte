@@ -10,6 +10,7 @@
   import type { AgentAccess, AuthKind, ForwardKind, ForwardSpec, KeyInfo, Server } from '../types';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
+  import PasswordInput from './PasswordInput.svelte';
   import Select from './Select.svelte';
   import Suggest from './Suggest.svelte';
 
@@ -355,11 +356,11 @@
           <div class="row top">
             <label for="server-password">{t('editor.password')}</label>
             <div class="control stack">
-              <input
+              <PasswordInput
                 id="server-password"
                 class="input"
-                type="password"
                 bind:value={password}
+                reveal={hasPassword && existing ? () => api.savedPassword(existing.id) : undefined}
                 placeholder={t(hasPassword && !forgetPassword ? 'editor.passwordSaved' : 'editor.passwordEmpty')}
                 disabled={forgetPassword}
                 autocomplete="new-password"
@@ -428,11 +429,11 @@
           <div class="row top">
             <label for="jump-password">{t('editor.jumpPassword')}</label>
             <div class="control stack">
-              <input
+              <PasswordInput
                 id="jump-password"
                 class="input"
-                type="password"
                 bind:value={jumpPassword}
+                reveal={hasJumpPassword && existing ? () => api.savedPassword(existing.id, true) : undefined}
                 placeholder={t(hasJumpPassword && !forgetJumpPassword ? 'editor.jumpPasswordSaved' : 'editor.jumpPasswordEmpty')}
                 disabled={forgetJumpPassword}
                 autocomplete="new-password"

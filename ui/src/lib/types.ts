@@ -165,6 +165,8 @@ export interface Settings {
   highlightKeywords: boolean;
   /** `#rrggbb` for each kind. */
   highlightColors: Record<HighlightKind, string>;
+  /** Colors the user saved in the color picker, `#rrggbb`, newest first. */
+  savedColors: string[];
   /** Windows/Linux: plain Ctrl+K opens the palette even while typing in a terminal. */
   ctrlKInTerminal: boolean;
   sidebarWidth: number;

@@ -269,6 +269,23 @@ pub async fn server_has_password(
     blocking(move || secrets.has(&account)).await
 }
 
+/// The password remembered for the server (or with `jump` for its jump host), for the eye
+/// button of the server editor; `None` when there is none.
+#[tauri::command]
+pub async fn server_password(
+    state: State<'_, AppState>,
+    id: String,
+    jump: Option<bool>,
+) -> CmdResult<Option<String>> {
+    let account = if jump == Some(true) {
+        Secrets::jump_password_account(&id)
+    } else {
+        Secrets::password_account(&id)
+    };
+    let secret = state.core.secrets.get_async(account).await?;
+    Ok(secret.map(|s| s.as_str().to_owned()))
+}
+
 #[tauri::command]
 pub async fn groups_set(state: State<'_, AppState>, groups: Vec<String>) -> CmdResult<StoreData> {
     state.core.store.set_groups(groups)?;
