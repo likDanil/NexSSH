@@ -22,6 +22,7 @@ import type {
   PixelRect,
   PromptReply,
   Server,
+  ServerMetrics,
   SessionEvent,
   Settings,
   SftpEntry,
@@ -98,6 +99,8 @@ export const api = {
   reconnect: (id: number) => invoke<void>('session_reconnect', { id }),
   disconnect: (id: number) => invoke<void>('session_disconnect', { id }),
   close: (id: number) => invoke<void>('session_close', { id }),
+  /** The load of the server a connected session is on (a short command on its connection). */
+  metrics: (id: number) => invoke<ServerMetrics>('session_metrics', { id }),
   answer: (id: number, reply: PromptReply) => invoke<void>('prompt_answer', { id, reply }),
 
   /** Opens a web link from the terminal in the default browser (http and https only). */

@@ -174,6 +174,8 @@ export interface Settings {
   /** Hide the sidebar while a session the user opened is shown; it comes back on the home
    * screen. Never saved as `sidebarHidden`. */
   sidebarAutoHide: boolean;
+  /** A bar under the terminal: the session's server and its processor, memory and disk use. */
+  statusBar: boolean;
   collapsedGroups: string[];
   /** The files drawer is open (next to SSH tabs): it is again after a restart. */
   filesOpen: boolean;
@@ -270,6 +272,32 @@ export interface TraySpec {
 }
 
 export type SftpEntryKind = 'dir' | 'file' | 'link' | 'other';
+
+/** Processor time since boot (`metrics.rs`): the use is the difference of two readings. */
+export interface CpuTimes {
+  total: number;
+  idle: number;
+}
+
+/** Bytes; `free` is what is left for use (for a disk, without the blocks kept for root). */
+export interface Usage {
+  total: number;
+  used: number;
+  free: number;
+}
+
+/** A server's load, read for the status bar; every part is missing on servers without Linux's
+ * `/proc` (the disk may still be there). */
+export interface ServerMetrics {
+  cpu: CpuTimes | null;
+  memory: Usage | null;
+  swap: Usage | null;
+  /** The file system of `/`. */
+  disk: Usage | null;
+  load: [number, number, number] | null;
+  /** Seconds. */
+  uptime: number | null;
+}
 
 export interface SftpEntry {
   name: string;

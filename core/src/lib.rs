@@ -10,6 +10,7 @@
 //! * [`forward`] — local/remote/dynamic port forwarding
 //! * [`sftp`] — files over SFTP on a session's connection
 //! * [`exec`] — commands run on a session's connection without a terminal (for AI agents)
+//! * [`metrics`] — a server's processor, memory and disk use, for the status bar
 //! * [`edit`] — remote files edited in a program of this computer, saved back as they change
 //! * [`i18n`] — user-facing messages and their translations
 //!
@@ -24,6 +25,7 @@ pub mod i18n;
 pub mod keys;
 pub mod known_hosts;
 pub mod local;
+pub mod metrics;
 pub mod model;
 pub mod secrets;
 pub mod session;

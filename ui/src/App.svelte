@@ -19,6 +19,7 @@
   import ServerEditor from './lib/components/ServerEditor.svelte';
   import SettingsDialog from './lib/components/SettingsDialog.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
+  import StatusBar from './lib/components/StatusBar.svelte';
   import TabBar from './lib/components/TabBar.svelte';
   import TerminalPane from './lib/components/TerminalPane.svelte';
   import Toasts from './lib/components/Toasts.svelte';
@@ -28,6 +29,8 @@
   import { app } from './lib/state/app.svelte';
   import { files } from './lib/state/files.svelte';
   import { sessions } from './lib/state/sessions.svelte';
+
+  const statusBar = $derived(app.settings.statusBar && !!sessions.active);
 
   function inTerminal(e: KeyboardEvent): boolean {
     return (e.target as HTMLElement | null)?.classList?.contains('xterm-helper-textarea') ?? false;
@@ -164,7 +167,7 @@
   {/if}
   <main>
     <TabBar />
-    <div class="surface">
+    <div class="surface" class:above-status={statusBar}>
       <div class="terminals">
         {#each sessions.tabs as tab (tab.key)}
           <TerminalPane {tab} active={tab.key === sessions.activeKey} />
@@ -177,6 +180,7 @@
         <FilesDrawer tab={sessions.active} />
       {/if}
     </div>
+    {#if statusBar}<StatusBar />{/if}
   </main>
 </div>
 
@@ -214,6 +218,9 @@
     border: 1px solid var(--border);
     background: var(--surface);
     overflow: hidden;
+  }
+  .surface.above-status {
+    margin-bottom: 0;
   }
   .terminals {
     position: relative;

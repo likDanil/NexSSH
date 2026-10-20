@@ -502,6 +502,15 @@ pub fn session_close(state: State<'_, AppState>, editing: State<'_, Editing>, id
     editing.0.stop_session(id);
 }
 
+/// The load of the server a connected session is on, for the status bar.
+#[tauri::command]
+pub async fn session_metrics(
+    state: State<'_, AppState>,
+    id: SessionId,
+) -> CmdResult<nexssh_core::metrics::Metrics> {
+    Ok(nexssh_core::metrics::read(&state.core.sessions, id).await?)
+}
+
 #[tauri::command]
 pub fn prompt_answer(state: State<'_, AppState>, id: u64, reply: PromptReply) -> CmdResult<()> {
     Ok(state.core.sessions.answer(id, reply)?)

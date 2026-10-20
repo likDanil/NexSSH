@@ -333,10 +333,13 @@ impl russh::server::Handler for SshHandler {
 /// * `cat` — standard input back once it ends, exit 0
 /// * `flood <bytes>` — that many digits, exit 0
 /// * `hang` — nothing, ever
+/// * the status bar's command (`echo @stat; …`) — what a Linux server prints for it, its
+///   processor a little busier on every call
 /// * anything else — `unknown command` on standard error, exit 127
 async fn run_command(mut channel: Channel<Msg>, command: String) {
     let (name, arg) = command.split_once(' ').unwrap_or((command.as_str(), ""));
     let (out, err, code): (Vec<u8>, &[u8], u32) = match name {
+        "echo" if arg.starts_with("@stat;") => (linux_metrics().into_bytes(), b"", 0),
         "echo" => (format!("{arg}\n").into_bytes(), b"", 0),
         "early" => (Vec::new(), b"", 0),
         "fail" => (Vec::new(), b"boom\n", 3),
@@ -370,6 +373,35 @@ async fn run_command(mut channel: Channel<Msg>, command: String) {
     let _ = channel.exit_status(code).await;
     let _ = channel.eof().await;
     let _ = channel.close().await;
+}
+
+/// What `/proc` and `df` say on a small Linux server; every call adds a second of processor
+/// time, busy for a share of it that goes 10 %, 20 % … 90 % and around again.
+fn linux_metrics() -> String {
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let busy: u64 = (0..n).map(|i| (i % 9 + 1) * 10).sum();
+    let (user, idle) = (1000 + busy, 50_000 + n * 100 - busy);
+    let uptime = 1_123_456 + n * 3;
+    [
+        "@stat".to_string(),
+        format!("cpu  {user} 0 0 {idle} 0 0 0 0 0 0"),
+        "@mem".into(),
+        "MemTotal:        4028180 kB".into(),
+        "MemFree:          301204 kB".into(),
+        "MemAvailable:    1210388 kB".into(),
+        "SwapTotal:       1048572 kB".into(),
+        "SwapFree:         996120 kB".into(),
+        "@load".into(),
+        "0.42 0.31 0.18 1/233 4242".into(),
+        "@uptime".into(),
+        format!("{uptime}.25 100.0"),
+        "@df".into(),
+        "Filesystem     1024-blocks     Used Available Capacity Mounted on".into(),
+        "/dev/vda1         41152736 33604196   5434276      87% /".into(),
+        String::new(),
+    ]
+    .join("\n")
 }
 
 /// A shell that greets, shows a prompt, echoes what is typed and says what it ran for every

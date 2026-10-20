@@ -49,6 +49,7 @@
     duplicate: '<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M14 11.5v5M11.5 14h5"/><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2"/>',
     enter: '<path d="M19 5v6a3 3 0 0 1-3 3H6"/><path d="m9.5 10.5-3.5 3.5 3.5 3.5"/>',
     home: '<path d="M4.5 10.5 12 4.5l7.5 6V19a1.5 1.5 0 0 1-1.5 1.5h-3.5V15h-5v5.5H6A1.5 1.5 0 0 1 4.5 19v-8.5Z"/>',
+    activity: '<path d="M3.5 12h3.5l2.5-6 5 12 2.5-6h3.5"/>',
     winMin: '<path d="M6 12h12"/>',
     winMax: '<rect x="6" y="6" width="12" height="12" rx="1.2"/>',
     winRestore: '<rect x="6" y="8.5" width="9.5" height="9.5" rx="1.2"/><path d="M8.5 8.5V7.2A1.2 1.2 0 0 1 9.7 6h7.1A1.2 1.2 0 0 1 18 7.2v7.1a1.2 1.2 0 0 1-1.2 1.2h-1.3"/>',

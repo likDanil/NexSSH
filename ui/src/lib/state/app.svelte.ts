@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 240,
   sidebarHidden: false,
   sidebarAutoHide: false,
+  statusBar: true,
   collapsedGroups: [],
   filesOpen: false,
   filesShowHidden: false,
