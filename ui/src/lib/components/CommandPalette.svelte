@@ -104,6 +104,11 @@
         'palette.settings.keywords',
       ),
       action('palette.toggleSidebar', { icon: 'sidebar', hint: keys.sidebar(), run: toggleSidebar }),
+      action(
+        'palette.toggleStatusBar',
+        { icon: 'activity', run: () => app.update({ statusBar: !app.settings.statusBar }) },
+        'palette.toggleStatusBar.keywords',
+      ),
       action('palette.agents', { icon: 'sparkle', run: () => openSettings('agents') }, 'palette.agents.keywords'),
       action('palette.zoomIn', { icon: 'plus', hint: keys.zoomIn(), run: () => app.zoom(1) }, 'palette.zoom.keywords'),
       action('palette.zoomOut', { icon: 'minus', hint: keys.zoomOut(), run: () => app.zoom(-1) }, 'palette.zoom.keywords'),

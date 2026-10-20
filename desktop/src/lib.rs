@@ -145,6 +145,7 @@ pub fn run() {
             commands::session_reconnect,
             commands::session_disconnect,
             commands::session_close,
+            commands::session_metrics,
             commands::prompt_answer,
             commands::forward_add,
             commands::forward_remove,

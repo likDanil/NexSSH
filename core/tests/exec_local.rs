@@ -200,3 +200,26 @@ async fn finds_the_connected_session_of_a_saved_server() {
     assert!(refused.is_err(), "no connection, no commands");
     session.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reads_a_servers_load() {
+    let server = LocalServer::start(Options::default()).await;
+    let session = connected(&server, "").await;
+    let sessions = &session.core.sessions;
+
+    let first = nexssh_core::metrics::read(sessions, session.id)
+        .await
+        .unwrap();
+    let memory = first.memory.unwrap();
+    assert_eq!(memory.total, 4028180 * 1024);
+    assert_eq!(memory.used, (4028180 - 1210388) * 1024);
+    assert_eq!(first.disk.unwrap().used, 33604196 * 1024);
+    assert_eq!(first.load, Some([0.42, 0.31, 0.18]));
+    assert!(first.swap.is_some() && first.uptime.is_some());
+
+    // The processor's counters go on between two readings.
+    let second = nexssh_core::metrics::read(sessions, session.id)
+        .await
+        .unwrap();
+    assert!(second.cpu.unwrap().total > first.cpu.unwrap().total);
+}

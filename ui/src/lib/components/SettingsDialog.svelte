@@ -481,6 +481,18 @@
           onchange={(e) => setSidebarAutoHide(e.currentTarget.checked)}
         />
       </label>
+      <label class="row top">
+        <span>
+          {t('settings.statusBar')}
+          <small>{t('settings.statusBarHint')}</small>
+        </span>
+        <input
+          type="checkbox"
+          class="toggle"
+          checked={s.statusBar}
+          onchange={(e) => app.update({ statusBar: e.currentTarget.checked })}
+        />
+      </label>
       {#if tray.supported}
         <div class="row top">
           <span>
