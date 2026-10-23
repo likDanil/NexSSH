@@ -3,6 +3,7 @@ import './app.css';
 import App from './App.svelte';
 import { openRequestedFolders } from './lib/actions';
 import { api } from './lib/api';
+import { showRestored } from './lib/backup';
 import { agents } from './lib/state/agents.svelte';
 import { edits } from './lib/state/edits.svelte';
 import { app } from './lib/state/app.svelte';
@@ -18,6 +19,8 @@ void api.appReady().catch(() => {});
 await Promise.all([app.init(), servers.load()]);
 
 mount(App, { target: document.getElementById('app')! });
+// The page loaded again after a backup was restored: say what came back.
+showRestored();
 // The tabs of the last run, if the settings say so; before the folders asked for below.
 restore.start();
 void tray.start();

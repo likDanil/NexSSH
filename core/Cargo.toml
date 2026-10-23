@@ -9,7 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
+russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }
 # SFTP client over an existing SSH channel (same author as russh).
 russh-sftp = "3"
 # Many SFTP requests in flight at once (already part of russh's dependency tree).
@@ -26,6 +26,10 @@ zeroize = "1"
 hmac = "0.13"
 sha1 = "0.11"
 data-encoding = "2"
+# Backups: saved passwords encrypted with a password of the backup (Argon2id, AES-256-GCM);
+# both are already part of russh's dependency tree.
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
+ring = "0.17"
 # OS credential storage (Keychain / Credential Manager / Secret Service).
 keyring-core = "1"
 # Pseudo-terminals for local shells (ConPTY on Windows); WezTerm's, widely used.

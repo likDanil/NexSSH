@@ -79,7 +79,10 @@ export interface MenuState {
   items: MenuEntry[];
 }
 
-export type SettingsSection = 'general' | 'terminal' | 'files' | 'keyboard' | 'agents' | 'about';
+export type SettingsSection = 'general' | 'terminal' | 'files' | 'keyboard' | 'agents' | 'backup' | 'about';
+
+/** What a dialog's third button answers: nothing typed into a field can be this. */
+export const ALTERNATIVE = '\u0000alternative';
 
 export interface EditorState {
   server: Server | null;
@@ -101,7 +104,7 @@ export interface ConfirmState {
   checkbox?: string;
   /** The text field holds a password (hidden, kept as typed). */
   password?: boolean;
-  /** A third button with this label; it answers `alternative`. */
+  /** A third button with this label; it answers `ALTERNATIVE`. */
   alternative?: string;
   resolve: (value: string | null) => void;
 }
@@ -291,6 +294,12 @@ class AppState {
     }, 300);
   }
 
+  /** Forgets a change not written yet: the backend is about to get other settings (a backup
+   * restored), which it must not overwrite. */
+  cancelSave() {
+    clearTimeout(this.#saveTimer);
+  }
+
   /** Writes the settings at once, e.g. before quitting. */
   async flush() {
     clearTimeout(this.#saveTimer);
@@ -353,12 +362,13 @@ class AppState {
   ): Promise<'confirm' | 'alternative' | null> {
     const answer = await this.#ask({ title, message, confirmLabel, danger, alternative });
     if (answer === null) return null;
-    return answer === 'alternative' ? 'alternative' : 'confirm';
+    return answer === ALTERNATIVE ? 'alternative' : 'confirm';
   }
 
-  /** Asks for a password; `null` when cancelled. */
-  askPassword(title: string, message: string, confirmLabel: string): Promise<string | null> {
-    return this.#ask({ title, message, confirmLabel, danger: false, input: '', password: true });
+  /** Asks for a password; `null` when cancelled. With `alternative`, a third button answers
+   * `ALTERNATIVE`. */
+  askPassword(title: string, message: string, confirmLabel: string, alternative?: string): Promise<string | null> {
+    return this.#ask({ title, message, confirmLabel, danger: false, input: '', password: true, alternative });
   }
 
   /** Asks for a line of text; `null` when cancelled. */

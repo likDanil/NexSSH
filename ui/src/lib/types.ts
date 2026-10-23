@@ -137,6 +137,33 @@ export interface ImportReport {
   skipped: string[];
 }
 
+/** What a backup file holds (`backup_open`). */
+export interface BackupSummary {
+  appVersion: string;
+  /** Seconds since the Unix epoch. */
+  created: number;
+  servers: number;
+  groups: number;
+  /** Saved passwords are inside, encrypted with the backup's password. */
+  passwords: boolean;
+}
+
+export interface BackupOpened {
+  path: string;
+  summary: BackupSummary;
+}
+
+export interface BackupExported {
+  path: string;
+  passwords: number;
+}
+
+export interface BackupRestored {
+  servers: number;
+  passwords: number;
+  passwordsFailed: number;
+}
+
 export type FilesSort = 'name' | 'size' | 'modified';
 
 export type ThemeId = 'system' | 'light' | 'graphite' | 'black' | 'navy';

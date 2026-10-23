@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '../i18n.svelte';
-  import type { ConfirmState } from '../state/app.svelte';
+  import { ALTERNATIVE, type ConfirmState } from '../state/app.svelte';
   import Modal from './Modal.svelte';
 
   interface Props {
@@ -52,7 +52,7 @@
     <div class="actions">
       <button type="button" class="btn" onclick={() => request.resolve(null)}>{t('common.cancel')}</button>
       {#if request.alternative}
-        <button type="button" class="btn" onclick={() => request.resolve('alternative')}>{request.alternative}</button>
+        <button type="button" class="btn" onclick={() => request.resolve(ALTERNATIVE)}>{request.alternative}</button>
       {/if}
       <!-- svelte-ignore a11y_autofocus -->
       <button

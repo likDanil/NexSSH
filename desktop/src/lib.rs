@@ -1,6 +1,7 @@
 //! NexSSH desktop shell: creates the window and exposes the core over Tauri IPC.
 
 mod agents;
+mod backup;
 mod commands;
 #[cfg(windows)]
 mod drag;
@@ -125,6 +126,9 @@ pub fn run() {
             commands::app_set_language,
             commands::window_set_fullscreen,
             commands::keychain_status,
+            backup::backup_export,
+            backup::backup_open,
+            backup::backup_restore,
             commands::settings_get,
             commands::settings_set,
             commands::servers_list,
