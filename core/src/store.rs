@@ -186,6 +186,18 @@ impl ServerStore {
         })
     }
 
+    /// Replaces everything with `data` (a restored backup); servers that are not valid are
+    /// left out. Returns what is stored now.
+    pub fn replace(&self, mut data: StoreData) -> Result<StoreData> {
+        data.servers.retain_mut(|s| s.normalize().is_ok());
+        repair(&mut data);
+        self.mutate(|current| {
+            *current = data;
+            Ok(())
+        })?;
+        Ok(self.snapshot())
+    }
+
     /// Merges servers produced by the ssh_config importer.
     ///
     /// Entries are matched by alias first; a matching entry keeps its id, name, group

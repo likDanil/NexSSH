@@ -7,6 +7,9 @@ import type {
   AgentScreenRequest,
   AgentsStatus,
   AppInfo,
+  BackupExported,
+  BackupOpened,
+  BackupRestored,
   CloseRequest,
   EditInfo,
   EditorInfo,
@@ -68,6 +71,14 @@ export const api = {
   setFullscreen: (fullscreen: boolean) => invoke<void>('window_set_fullscreen', { fullscreen }),
   keychainStatus: () => invoke<string | null>('keychain_status'),
   saveSettings: (settings: Settings) => invoke<void>('settings_set', { settings }),
+  /** Asks where to save a backup and writes it; with `password` the saved passwords go in,
+   * encrypted with it. `null` when cancelled. */
+  backupExport: (title: string, fileName: string, password: string | null) =>
+    invoke<BackupExported | null>('backup_export', { title, fileName, password }),
+  /** Asks for a backup file and tells what is inside; `null` when cancelled. */
+  backupOpen: (title: string) => invoke<BackupOpened | null>('backup_open', { title }),
+  backupRestore: (path: string, password: string | null) =>
+    invoke<BackupRestored>('backup_restore', { path, password }),
 
   servers: () => invoke<StoreData>('servers_list'),
   saveServer: (server: Server, secrets: ServerSecrets = {}) =>

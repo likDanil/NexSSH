@@ -71,6 +71,11 @@ impl KnownHosts {
         )
     }
 
+    /// NexSSH's own file, where decisions made in NexSSH are written.
+    pub fn app_file(&self) -> &Path {
+        &self.app_file
+    }
+
     fn files(&self) -> impl Iterator<Item = &Path> {
         std::iter::once(self.app_file.as_path()).chain(self.user_file.as_deref())
     }

@@ -2,6 +2,7 @@
   import logo from '../../assets/logo.png';
   import { keys } from '../actions';
   import { api, errorMessage } from '../api';
+  import { restoreBackup, saveBackup } from '../backup';
   import { HIGHLIGHT_KINDS } from '../highlight';
   import { formatNumber, i18n, LANGUAGES, t, timeAgo, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
@@ -20,6 +21,7 @@
   import ColorPicker from './ColorPicker.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
+  import PasswordInput from './PasswordInput.svelte';
   import Select from './Select.svelte';
 
   const LINE_HEIGHTS = [1, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5];
@@ -185,8 +187,40 @@
     { id: 'files', label: 'settings.files' },
     { id: 'keyboard', label: 'settings.keyboard' },
     { id: 'agents', label: 'settings.agents' },
+    { id: 'backup', label: 'settings.backup' },
     { id: 'about', label: 'settings.about' },
   ];
+
+  // ---- backup -----------------------------------------------------------------------
+
+  let withPasswords = $state(false);
+  let backupPassword = $state('');
+  let backupRepeat = $state('');
+  let backupBusy = $state<'save' | 'restore' | null>(null);
+  const passwordsDiffer = $derived(backupRepeat !== '' && backupRepeat !== backupPassword);
+  const canSaveBackup = $derived(!withPasswords || (backupPassword !== '' && backupRepeat === backupPassword));
+
+  async function saveBackupFile() {
+    if (!canSaveBackup) return;
+    backupBusy = 'save';
+    try {
+      if (await saveBackup(withPasswords ? backupPassword : null)) {
+        backupPassword = '';
+        backupRepeat = '';
+      }
+    } finally {
+      backupBusy = null;
+    }
+  }
+
+  async function restoreBackupFile() {
+    backupBusy = 'restore';
+    try {
+      await restoreBackup();
+    } finally {
+      backupBusy = null;
+    }
+  }
 
   // ---- AI agents --------------------------------------------------------------------
 
@@ -400,7 +434,7 @@
   ]);
 </script>
 
-<Modal title={t('settings.title')} width={600} onclose={() => (app.settingsOpen = false)}>
+<Modal title={t('settings.title')} width={700} onclose={() => (app.settingsOpen = false)}>
   {#snippet toolbar()}
     <div class="tabs segmented" role="tablist">
       {#each SECTIONS as sec (sec.id)}
@@ -911,6 +945,57 @@
         <p class="note">{t('agents.activityEmpty')}</p>
       {/if}
     {/if}
+  {:else if section === 'backup'}
+    <div class="rows">
+      <div class="row top">
+        <span>
+          {t('backup.save')}
+          <small>{t('backup.saveHint')}</small>
+        </span>
+        <button class="btn" disabled={backupBusy !== null || !canSaveBackup} onclick={saveBackupFile}>
+          {t(backupBusy === 'save' ? 'backup.saving' : 'backup.saveButton')}
+        </button>
+      </div>
+      <label class="row top branch last">
+        <span>
+          {t('backup.withPasswords')}
+          <small>{t('backup.withPasswordsHint')}</small>
+        </span>
+        <input type="checkbox" class="toggle" bind:checked={withPasswords} />
+      </label>
+      {#if withPasswords}
+        <div class="row branch deep">
+          <span>{t('backup.password')}</span>
+          <span class="secret">
+            <PasswordInput class="input" bind:value={backupPassword} autocomplete="new-password" aria-label={t('backup.password')} />
+          </span>
+        </div>
+        <div class="row top branch deep last">
+          <span>
+            {t('backup.passwordRepeat')}
+            {#if passwordsDiffer}<small class="warn">{t('backup.passwordMismatch')}</small>{/if}
+          </span>
+          <span class="secret">
+            <PasswordInput
+              class="input"
+              bind:value={backupRepeat}
+              autocomplete="new-password"
+              aria-label={t('backup.passwordRepeat')}
+              onkeydown={(e) => e.key === 'Enter' && void saveBackupFile()}
+            />
+          </span>
+        </div>
+      {/if}
+      <div class="row top">
+        <span>
+          {t('backup.restore')}
+          <small>{t('backup.restoreHint')}</small>
+        </span>
+        <button class="btn" disabled={backupBusy !== null} onclick={restoreBackupFile}>
+          {t(backupBusy === 'restore' ? 'backup.restoring' : 'backup.restoreButton')}
+        </button>
+      </div>
+    </div>
   {:else}
     <div class="about">
       <img src={logo} alt="" />
@@ -1153,6 +1238,68 @@
   }
   .row.sub.off {
     opacity: 0.5;
+  }
+  /* Rows that belong to the row above, drawn as the branches of a tree (├ and └): the line
+   * comes down from the row above and turns towards each row's label. A `deep` row is one level
+   * deeper (under a switch), and its branch turns in the middle of its field. */
+  .row.branch {
+    --x: 6px;
+    --elbow: 15px;
+    position: relative;
+    padding-left: 20px;
+  }
+  .row.branch.deep {
+    --x: 26px;
+    --elbow: 23px;
+    padding-left: 40px;
+  }
+  /* A row and its branches read as one block: no dividers across the tree, only under it. */
+  .row:has(+ .row.branch) {
+    border-bottom-color: transparent;
+  }
+  .row.branch::before,
+  .row.branch::after {
+    content: '';
+    position: absolute;
+    left: var(--x);
+    border-color: color-mix(in srgb, var(--text-3) 70%, transparent);
+    border-style: solid;
+    border-width: 0;
+    pointer-events: none;
+  }
+  /* Down to the next row's top, through this row's divider; the lines of two rows never
+   * overlap (they are translucent). */
+  .row.branch::before {
+    top: 0;
+    bottom: -1px;
+    border-left-width: 1px;
+  }
+  .row.branch::after {
+    top: var(--elbow);
+    width: 8px;
+    border-top-width: 1px;
+  }
+  /* └: one corner, down from the row's top and round into its label. */
+  .row.branch.last::before {
+    display: none;
+  }
+  .row.branch.last::after {
+    top: 0;
+    height: var(--elbow);
+    border-width: 0 0 1px 1px;
+    border-bottom-left-radius: 5px;
+  }
+  /* A label above a hint lines up with the field next to it, where the branch turns. */
+  .row.branch.deep.top > span:first-child {
+    padding-top: 8px;
+  }
+  .secret {
+    width: 220px;
+    flex: none;
+  }
+  .row > .btn {
+    flex: none;
+    white-space: nowrap;
   }
   .shortcuts {
     display: flex;

@@ -458,6 +458,33 @@ messages! {
         ru: "Сервер сохранён, но пароль сохранить не удалось ({error}). Его спросят при подключении.",
     }
 
+    // ---- backups ---------------------------------------------------------------------
+
+    fn backup_filter() {
+        en: "NexSSH backup",
+        ru: "Резервная копия NexSSH",
+    }
+    fn backup_not_ours() {
+        en: "This file is not a NexSSH backup",
+        ru: "Этот файл не является резервной копией NexSSH",
+    }
+    fn backup_too_new(version: &str) {
+        en: "The backup was made by a newer NexSSH ({version}): update NexSSH to restore it",
+        ru: "Копия сделана более новой версией NexSSH ({version}): обновите NexSSH, чтобы восстановить её",
+    }
+    fn backup_damaged() {
+        en: "The passwords in the backup are damaged",
+        ru: "Пароли в резервной копии повреждены",
+    }
+    fn backup_wrong_password() {
+        en: "Wrong password of the backup",
+        ru: "Неверный пароль резервной копии",
+    }
+    fn backup_encryption_failed(error: impl Display) {
+        en: "could not encrypt the passwords: {error}",
+        ru: "не удалось зашифровать пароли: {error}",
+    }
+
     // ---- files (SFTP) ----------------------------------------------------------------
 
     fn sftp_unavailable(error: impl Display) {
