@@ -21,6 +21,7 @@ import type {
   ImportReport,
   KeyInfo,
   LocalShells,
+  LogsExported,
   PickedUpload,
   PixelRect,
   PromptReply,
@@ -79,6 +80,10 @@ export const api = {
   backupOpen: (title: string) => invoke<BackupOpened | null>('backup_open', { title }),
   backupRestore: (path: string, password: string | null) =>
     invoke<BackupRestored>('backup_restore', { path, password }),
+  /** Asks where to save the app's log and writes it; `null` when cancelled. */
+  logsExport: (title: string, fileName: string) => invoke<LogsExported | null>('logs_export', { title, fileName }),
+  logsReveal: () => invoke<void>('logs_reveal'),
+  logPage: (level: 'error' | 'warn' | 'info', message: string) => invoke<void>('log_page', { level, message }),
 
   servers: () => invoke<StoreData>('servers_list'),
   saveServer: (server: Server, secrets: ServerSecrets = {}) =>

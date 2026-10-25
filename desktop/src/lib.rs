@@ -56,6 +56,12 @@ pub fn run() {
         }
     }
     logger::init();
+    log::info!(
+        "NexSSH {} started ({} {})",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     let app = tauri::Builder::default()
         // First, so a second launch hands over before creating anything: the running
         // NexSSH comes to the front instead of a second copy opening next to it (two copies
@@ -129,6 +135,9 @@ pub fn run() {
             backup::backup_export,
             backup::backup_open,
             backup::backup_restore,
+            logger::logs_export,
+            logger::logs_reveal,
+            logger::log_page,
             commands::settings_get,
             commands::settings_set,
             commands::servers_list,

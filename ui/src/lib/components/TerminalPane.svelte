@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { closeTab, sessionMenu } from '../actions';
+  import { closeTab, keys, sessionMenu } from '../actions';
   import { api, errorMessage } from '../api';
   import { t } from '../i18n.svelte';
   import { shortcut } from '../platform';
@@ -12,6 +12,7 @@
   import { TERMINAL_THEMES } from '../themes';
   import Icon from './Icon.svelte';
   import PromptCard from './PromptCard.svelte';
+  import TerminalSearch from './TerminalSearch.svelte';
 
   interface Props {
     tab: Tab;
@@ -23,6 +24,8 @@
   // xterm objects must not become reactive proxies.
   let view: TermView | null = null;
   let loaded = $state(false);
+  // The view for the search bar, once there is one (`view` itself is not reactive).
+  let searchView = $state.raw<TermView | null>(null);
   let frame = 0;
   // The link under the mouse, shown with how to open it.
   let link = $state<HoveredLink | null>(null);
@@ -80,6 +83,7 @@
         conpty,
       );
       view = v;
+      searchView = v;
       v.fit();
       loaded = true;
       observer = new ResizeObserver(fitSoon);
@@ -95,6 +99,7 @@
       sessions.detach(tab.key);
       view?.dispose();
       view = null;
+      searchView = null;
     };
   });
 
@@ -173,6 +178,7 @@
       { label: t('terminal.copy'), icon: 'copy', disabled: !v.term.hasSelection(), action: () => void v.copy() },
       { label: t('terminal.paste'), icon: 'paste', action: () => void v.paste().then(() => v.focus()) },
       { label: t('terminal.selectAll'), action: () => v.term.selectAll() },
+      { label: t('session.find'), icon: 'search', hint: keys.find(), action: () => sessions.find(tab) },
       'separator',
       { label: t('session.clear'), icon: 'eraser', action: () => v.clear() },
     );
@@ -187,6 +193,10 @@
 
 <div class="pane" class:active>
   <div class="host" bind:this={host}></div>
+
+  {#if tab.finding && searchView}
+    <TerminalSearch {tab} view={searchView} />
+  {/if}
 
   {#if active && app.zoomBadge !== null}
     <div class="zoom-badge" aria-live="polite">{t('terminal.fontSize', { size: app.zoomBadge })}</div>

@@ -38,6 +38,9 @@
 * **Keyword highlighting:** words like `error`, `warning`, `ok`, `info` and `debug`, IP and MAC
   addresses get their own color in the output; *Settings → Terminal* changes the colors or turns
   it off. Text a program colored itself and full-screen programs (vim, htop) keep their colors.
+* **Search in the terminal:** <kbd>Ctrl+Shift+F</kbd> (<kbd>⌘F</kbd>) finds text in the output
+  and the scrollback, newest first, highlights every match and counts them; match case, whole
+  word and regular expressions are a click (or <kbd>Alt+C</kbd> / <kbd>Alt+W</kbd> / <kbd>Alt+R</kbd>) away.
 * **The tray:** the close button can hide NexSSH into the tray (*Settings → General*, or the
   question it asks the first time): sessions stay connected, and AI agents keep their access.
   A click on the icon brings the window back; its right-click menu connects to a saved server,
@@ -128,6 +131,7 @@ version 0.1.0 predates in-app updates, so install the next version over it once 
 | Open a link in the terminal | <kbd>Ctrl</kbd>+click | <kbd>⌘</kbd>+click |
 | Terminal font: bigger / smaller / default | <kbd>Ctrl+=</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd>, <kbd>Ctrl</kbd>+wheel | <kbd>⌘=</kbd> / <kbd>⌘-</kbd> / <kbd>⌘0</kbd>, pinch |
 | Toggle sidebar | <kbd>Ctrl+Shift+B</kbd> | <kbd>⌘B</kbd> |
+| Find in the terminal | <kbd>Ctrl+Shift+F</kbd>, then <kbd>Enter</kbd> / <kbd>Shift+Enter</kbd> for older / newer | <kbd>⌘F</kbd> |
 | Files (SFTP) | <kbd>Ctrl+Shift+E</kbd> | <kbd>⌘⇧E</kbd> |
 | Full screen | <kbd>F11</kbd> | <kbd>⌃⌘F</kbd> |
 | Settings | <kbd>Ctrl+,</kbd> | <kbd>⌘,</kbd> |

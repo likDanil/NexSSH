@@ -1,5 +1,6 @@
 import type { ITheme } from '@xterm/xterm';
 import { t } from './i18n.svelte';
+import type { FindColors } from './terminal';
 import type { ResolvedTheme, ThemeId } from './types';
 
 export interface ThemeMeta {
@@ -132,3 +133,13 @@ const navy: ITheme = {
 };
 
 export const TERMINAL_THEMES: Record<ResolvedTheme, ITheme> = { light, graphite, black, navy };
+
+/** Matches of a search in the terminal: amber like the app's accents, the current one brighter.
+ * The text on them keeps its contrast by xterm's minimumContrastRatio. */
+const DARK_FIND: FindColors = { match: '#5e4a1c', active: '#b8862e' };
+export const FIND_COLORS: Record<ResolvedTheme, FindColors> = {
+  light: { match: '#f6e2a6', active: '#f0b43c' },
+  graphite: DARK_FIND,
+  black: DARK_FIND,
+  navy: DARK_FIND,
+};

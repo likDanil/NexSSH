@@ -21,6 +21,8 @@ export const keys = {
   reconnect: () => (isMacLike() ? shortcut('Mod', 'R') : shortcut('Mod', 'Shift', 'R')),
   fullscreen: () => (isMacLike() ? shortcut('Ctrl', 'Mod', 'F') : 'F11'),
   files: () => shortcut('Mod', 'Shift', 'E'),
+  /** Cmd+F on macOS, where Ctrl+Cmd+F is full screen; Ctrl+F stays the shell's. */
+  find: () => (isMacLike() ? shortcut('Mod', 'F') : shortcut('Mod', 'Shift', 'F')),
   /** Like VS Code's new terminal; Ctrl (not Cmd) on macOS too. */
   localTerminal: () => shortcut('Ctrl', 'Shift', '`'),
   zoomIn: () => shortcut('Mod', '='),
@@ -200,6 +202,7 @@ function localMenu(tab: Tab, x: number, y: number) {
       : { label: t('session.stop'), icon: 'power', action: () => sessions.disconnect(tab) },
     { label: t('session.duplicate'), icon: 'duplicate', action: () => sessions.duplicate(tab) },
     'separator',
+    { label: t('session.find'), icon: 'search', hint: keys.find(), action: () => sessions.find(tab) },
     { label: t('session.clear'), icon: 'eraser', action: () => sessions.clear(tab) },
     { label: t('session.fullscreen'), icon: 'fullscreen', hint: keys.fullscreen(), action: toggleFullscreen },
     { label: t('session.terminalSettings'), icon: 'settings', action: () => openSettings('terminal') },
@@ -226,6 +229,7 @@ export function sessionMenu(tab: Tab, x: number, y: number) {
     { label: t('session.files'), icon: 'folder', hint: keys.files(), action: toggleFiles },
     { label: t('session.forwarding'), icon: 'forward', disabled: !connected, action: () => openForwards() },
     'separator',
+    { label: t('session.find'), icon: 'search', hint: keys.find(), action: () => sessions.find(tab) },
     { label: t('session.clear'), icon: 'eraser', action: () => sessions.clear(tab) },
     { label: t('session.fullscreen'), icon: 'fullscreen', hint: keys.fullscreen(), action: toggleFullscreen },
   ];

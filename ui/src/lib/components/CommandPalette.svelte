@@ -158,6 +158,7 @@
       );
       out.push(
         action('session.duplicate', { icon: 'duplicate', run: () => sessions.duplicate(tab) }, 'palette.duplicate.keywords'),
+        action('session.find', { icon: 'search', hint: keys.find(), run: () => sessions.find(tab) }, 'palette.find.keywords'),
         action('session.clear', { icon: 'eraser', run: () => sessions.clear(tab) }, 'palette.clear.keywords'),
         action('session.closeTab', { icon: 'x', hint: keys.closeTab(), run: () => closeTab(tab) }),
       );
@@ -178,6 +179,7 @@
       out.push(
         action('session.files', { icon: 'folder', hint: keys.files(), run: toggleFiles }, 'palette.files.keywords'),
         action('session.duplicate', { icon: 'duplicate', run: () => sessions.duplicate(tab) }, 'palette.duplicate.keywords'),
+        action('session.find', { icon: 'search', hint: keys.find(), run: () => sessions.find(tab) }, 'palette.find.keywords'),
         action('session.clear', { icon: 'eraser', run: () => sessions.clear(tab) }, 'palette.clear.keywords'),
         action('session.closeTab', { icon: 'x', hint: keys.closeTab(), run: () => closeTab(tab) }),
       );

@@ -125,6 +125,15 @@
       return;
     }
 
+    // Search in the terminal: Ctrl+Shift+F (Cmd+F on macOS).
+    if (key === 'f' && (mac ? !shift : shift)) {
+      if (sessions.active) {
+        consume();
+        sessions.find();
+      }
+      return;
+    }
+
     // Files drawer: Mod+Shift+E everywhere.
     if (shift && key === 'e') {
       consume();

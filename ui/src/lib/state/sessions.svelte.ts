@@ -49,6 +49,10 @@ export interface Tab {
   /** Opened again from the last run (state/restore): it connects when the user says so (Enter),
    * so no password is asked for out of the blue. */
   waiting: boolean;
+  /** The search bar is shown over the terminal (Ctrl+Shift+F). */
+  finding: boolean;
+  /** Grows with every request to show the search bar, which puts the focus into its field. */
+  findFocus: number;
 }
 
 /** What the session layer needs from a terminal view. */
@@ -309,6 +313,8 @@ class SessionsState {
       typedUser: null,
       agentOpens: [],
       waiting,
+      finding: false,
+      findFocus: 0,
     };
     this.tabs.push(tab);
     if (!behind || this.activeKey === null) this.activeKey = tab.key;
@@ -545,6 +551,19 @@ class SessionsState {
 
   clear(tab: Tab) {
     terminals.get(tab.key)?.clear();
+  }
+
+  /** Shows the search bar of `tab`, or puts the focus back into it. */
+  find(tab: Tab | null = this.active) {
+    if (!tab) return;
+    tab.finding = true;
+    tab.findFocus++;
+  }
+
+  /** Hides the search bar; the typing goes to the terminal again. */
+  endFind(tab: Tab) {
+    tab.finding = false;
+    terminals.get(tab.key)?.focus();
   }
 
   focusActive() {

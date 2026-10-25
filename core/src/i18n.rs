@@ -458,6 +458,17 @@ messages! {
         ru: "Сервер сохранён, но пароль сохранить не удалось ({error}). Его спросят при подключении.",
     }
 
+    // ---- the app's log ---------------------------------------------------------------
+
+    fn logs_filter() {
+        en: "NexSSH log",
+        ru: "Журнал NexSSH",
+    }
+    fn logs_none() {
+        en: "NexSSH keeps no log on this computer: its folder could not be created",
+        ru: "NexSSH не ведёт журнал на этом компьютере: не удалось создать его папку",
+    }
+
     // ---- backups ---------------------------------------------------------------------
 
     fn backup_filter() {
