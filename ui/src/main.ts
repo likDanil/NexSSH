@@ -4,6 +4,7 @@ import App from './App.svelte';
 import { openRequestedFolders } from './lib/actions';
 import { api } from './lib/api';
 import { showRestored } from './lib/backup';
+import { catchPageErrors } from './lib/logs';
 import { agents } from './lib/state/agents.svelte';
 import { edits } from './lib/state/edits.svelte';
 import { app } from './lib/state/app.svelte';
@@ -12,6 +13,8 @@ import { servers } from './lib/state/servers.svelte';
 import { shells } from './lib/state/shells.svelte';
 import { tray } from './lib/state/tray.svelte';
 import { updates } from './lib/state/updates.svelte';
+
+catchPageErrors();
 
 // Sessions of a previous page instance (e.g. after a reload) cannot be reattached.
 void api.appReady().catch(() => {});

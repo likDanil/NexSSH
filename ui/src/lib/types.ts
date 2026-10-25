@@ -158,6 +158,10 @@ export interface BackupExported {
   passwords: number;
 }
 
+export interface LogsExported {
+  path: string;
+}
+
 export interface BackupRestored {
   servers: number;
   passwords: number;

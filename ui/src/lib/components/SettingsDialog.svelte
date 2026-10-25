@@ -3,6 +3,7 @@
   import { keys } from '../actions';
   import { api, errorMessage } from '../api';
   import { restoreBackup, saveBackup } from '../backup';
+  import { revealLogs, saveLogs } from '../logs';
   import { HIGHLIGHT_KINDS } from '../highlight';
   import { formatNumber, i18n, LANGUAGES, t, timeAgo, tn, type LanguageSetting, type MessageKey } from '../i18n.svelte';
   import { isMac, shortcut } from '../platform';
@@ -173,6 +174,17 @@
 
   function fontSize(delta: number) {
     app.update({ fontSize: clampFontSize(s.fontSize + delta) });
+  }
+
+  let logsBusy = $state(false);
+
+  async function saveLogFile() {
+    logsBusy = true;
+    try {
+      await saveLogs();
+    } finally {
+      logsBusy = false;
+    }
   }
 
   async function copyPath() {
@@ -424,6 +436,7 @@
     ],
     ['shortcut.goToTab', shortcut('Mod', '1…9')],
     ['shortcut.reconnect', keys.reconnect()],
+    ['shortcut.find', keys.find()],
     ['shortcut.files', keys.files()],
     ['shortcut.sidebar', keys.sidebar()],
     ['shortcut.fullscreen', keys.fullscreen()],
@@ -1010,6 +1023,13 @@
         <button class="btn" onclick={copyPath}>{t('settings.copyPath')}</button>
       </div>
       <p class="path mono">{app.info?.dataDir ?? ''}</p>
+      <div class="row top">
+        <span>{t('logs.title')} <small>{t('logs.hint')}</small></span>
+        <span class="buttons">
+          <button class="btn" onclick={revealLogs}>{t('logs.show')}</button>
+          <button class="btn" disabled={logsBusy} onclick={saveLogFile}>{t('logs.save')}</button>
+        </span>
+      </div>
       {#if updates.supported}
         <div class="row">
           <span>
@@ -1402,6 +1422,11 @@
   }
   .note.warn {
     color: var(--amber);
+  }
+  .buttons {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
   }
   .token {
     display: flex;

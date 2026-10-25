@@ -1,8 +1,9 @@
 // xterm.js wrapper. Loaded lazily (dynamic import) when the first session opens, so the
 // app starts without parsing the terminal emulator.
 
-import { Terminal, type IMarker, type ITheme, type IWindowsPty } from '@xterm/xterm';
+import { Terminal, type IDecoration, type IMarker, type ITheme, type IWindowsPty } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
@@ -28,6 +29,55 @@ export type TermSettings = Pick<
   | 'highlightKeywords'
   | 'highlightColors'
 >;
+
+/** How a search matches (the search bar's toggles). */
+export interface FindOptions {
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+}
+
+/** Backgrounds of the matches of a search and of the current one (#RRGGBB). */
+export interface FindColors {
+  match: string;
+  active: string;
+}
+
+/** Where a search is: the current match (from 1; 0 when there is none, or when there are more
+ * matches than are counted) and how many there are. */
+export interface FindResults {
+  index: number;
+  count: number;
+}
+
+/** Matches counted and highlighted; past it the bar says "1000+". */
+export const FIND_LIMIT = 1000;
+
+/** The list xterm 6.0 keeps its decorations in, sorted by their markers' lines, which finds one to
+ * delete by its line. A disposed marker is on line -1 when it takes its decorations with it, and
+ * deletions are put off until the browser is idle: a decoration whose marker went this way, or
+ * that is looked for while one like it waits to be deleted, stays in the list, which is then out
+ * of order and loses the others (the search's highlights and the keyword colors went missing).
+ * The deletions waiting are done first, and one not found by its line is looked for by itself.
+ * Private parts of xterm: when they are not there, nothing is changed. */
+function fixDecorationList(term: Terminal) {
+  const core = (term as unknown as { _core?: { _decorationService?: { _decorations?: object } } })._core;
+  const list = core?._decorationService?._decorations;
+  const proto = list && Object.getPrototypeOf(list);
+  if (!proto || proto.nexsshFixed) return;
+  const { delete: remove, _flushCleanupDeleted: flushDeleted, _flushCleanupInserted: flushInserted } = proto;
+  if (typeof remove !== 'function' || typeof flushDeleted !== 'function' || typeof flushInserted !== 'function') return;
+  proto.delete = function (this: { _array: unknown[] }, value: unknown): boolean {
+    flushDeleted.call(this);
+    if (remove.call(this, value)) return true;
+    flushInserted.call(this);
+    const i = this._array.indexOf(value);
+    if (i < 0) return false;
+    this._array.splice(i, 1);
+    return true;
+  };
+  proto.nexsshFixed = true;
+}
 
 /** Control characters but tab and line breaks, which pastes leave out (see `pasteText`). */
 const PASTE_CONTROLS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g;
@@ -71,10 +121,16 @@ export class TermView {
   #settings: TermSettings;
   #link: string | null = null;
   #cb: TermCallbacks;
-  /** Keyword highlighting: a marker on each row in view with something to color, which takes
-   * the row's decorations with it when disposed. */
+  /** Keyword highlighting: a marker on each row in view with something to color, and the
+   * colors put on them. */
   #marks: IMarker[] = [];
+  #colors: IDecoration[] = [];
   #highlightFrame = 0;
+  /** Loaded with the first search. */
+  #search: SearchAddon | null = null;
+  /** A search is shown: its matches get selected one by one, which is not for the clipboard. */
+  #searching = false;
+  #onFindResults: ((results: FindResults) => void) | null = null;
 
   /** `windowsPty`: the session is a local terminal on Windows (ConPTY), which xterm.js adapts to. */
   constructor(
@@ -121,7 +177,7 @@ export class TermView {
       // Hyperlinks programs print (OSC 8, e.g. `ls --hyperlink`); only web ones.
       linkHandler: { activate, hover: hover(true), leave },
     });
-    this.term.loadAddon(this.#fit);
+    fixDecorationList(this.term);    this.term.loadAddon(this.#fit);
     // Web addresses in the output.
     this.term.loadAddon(new WebLinksAddon(activate, { hover: hover(false), leave }));
     this.term.open(host);
@@ -144,10 +200,10 @@ export class TermView {
       this.#highlightSoon();
     });
     this.term.onSelectionChange(() => {
-      if (!this.#settings.copyOnSelect) return;
+      if (!this.#settings.copyOnSelect || this.#searching) return;
       clearTimeout(this.#copyTimer);
       this.#copyTimer = setTimeout(() => {
-        if (this.term.hasSelection()) void this.copy();
+        if (this.term.hasSelection() && !this.#searching) void this.copy();
       }, 120);
     });
     this.term.attachCustomKeyEventHandler((e) => this.#onKey(e));
@@ -278,14 +334,73 @@ export class TermView {
       this.#marks.push(marker);
       for (const { kind, x, width } of spans) {
         const color = colors[kind];
-        if (isHighlightColor(color)) term.registerDecoration({ marker, x, width, foregroundColor: color });
+        if (!isHighlightColor(color)) continue;
+        const decoration = term.registerDecoration({ marker, x, width, foregroundColor: color });
+        if (decoration) this.#colors.push(decoration);
       }
     }
   }
 
   #unhighlight() {
+    // The decorations go before their markers: a disposed marker is on line -1 when it takes its
+    // decorations with it, and xterm then cannot find them in its list sorted by line, where they
+    // stay and break the lookup of the others (the search's highlights went missing).
+    for (const color of this.#colors) color.dispose();
     for (const mark of this.#marks) mark.dispose();
+    this.#colors = [];
     this.#marks = [];
+  }
+
+  /** Finds `text` in the output and the scrollback, highlights every match and selects the next
+   * one: upwards (older output) with `back`, as a search starts at the newest. Typing more of the
+   * same text keeps the match it is on while it still fits, and so does `stay` (the options
+   * changed). Throws on an invalid regex. */
+  find(text: string, options: FindOptions, back: boolean, colors: FindColors, stay = false): boolean {
+    if (!this.#search) {
+      this.#search = new SearchAddon({ highlightLimit: FIND_LIMIT });
+      this.#search.onDidChangeResults(({ resultIndex, resultCount }) =>
+        this.#onFindResults?.({ index: resultIndex + 1, count: resultCount }),
+      );
+      this.term.loadAddon(this.#search);
+    }
+    this.#searching = true;
+    clearTimeout(this.#copyTimer);
+    // The addon starts from the selected match, and stays on it when it takes the text for a new
+    // one, which it does once its highlights are cleared.
+    if (stay) this.#search.clearDecorations();
+    const search = {
+      ...options,
+      decorations: {
+        matchBackground: colors.match,
+        activeMatchBackground: colors.active,
+        // The current match is also selected, and the selection is drawn over its background;
+        // the border is drawn above both.
+        activeMatchBorder: colors.active,
+        // Required by the typings; the overview ruler is not shown.
+        matchOverviewRuler: colors.match,
+        activeMatchColorOverviewRuler: colors.active,
+      },
+    };
+    return back ? this.#search.findPrevious(text, search) : this.#search.findNext(text, search);
+  }
+
+  /** Called with the count of matches after every search, also when new output changes it. */
+  onFindResults(cb: ((results: FindResults) => void) | null) {
+    this.#onFindResults = cb;
+  }
+
+  /** The search is closed: its highlights and the selected match go. */
+  endFind() {
+    if (!this.#searching) return;
+    this.#searching = false;
+    this.#search?.clearDecorations();
+    this.term.clearSelection();
+  }
+
+  /** The selection if it is on one row: what a search opened now looks for. */
+  selectedLine(): string {
+    const text = this.term.getSelection();
+    return text.includes('\n') ? '' : text.trim();
   }
 
   /** The text of the screen, or of the last `lines` lines of the output with the scrollback
@@ -369,6 +484,8 @@ export class TermView {
   dispose() {
     clearTimeout(this.#copyTimer);
     cancelAnimationFrame(this.#highlightFrame);
+    // A search bar closed after this has nothing left to clear.
+    this.#searching = false;
     this.#webgl?.dispose();
     this.term.dispose();
   }
