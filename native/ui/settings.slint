@@ -1,5 +1,8 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Action, IconButton, Input, Toggle } from "controls.slint";
+import { Segmented } from "segmented.slint";
+import { ColorPicker,ColorTools,ColorValue,ColorSwatch } from "color-picker.slint";
+export { ColorTools,ColorValue,ColorSwatch } from "color-picker.slint";
 import { Select, Choice } from "select.slint";
 import { ThemeCatalog } from "theme.slint";
 import { I18n } from "i18n.slint";
@@ -9,20 +12,91 @@ export { I18n } from "i18n.slint";
 export struct SettingRow { key: string, label: string, hint: string, kind: int, value: string, checked: bool, choices: [Choice], enabled: bool }
 export struct AssociationRow { extensions: string, editor: string, command: string }
 
+// SettingsDialog.svelte .row, .row.top, .row.sub and .sc.
 component Field inherits Rectangle {
     in-out property <SettingRow> entry;
+    in property <bool> shortcut;
+    in property <[ColorSwatch]> presets;
+    in property <[ColorSwatch]> saved;
     callback patch(string,string);
     callback action(string,string);
-    height: root.entry.hint == "" ? 44px : max(76px,44px+hint.preferred-height);
-    opacity: root.entry.enabled ? 1 : 0.5;
-    Text { x: 0px; y: 9px; width: parent.width - 280px; height: 24px; text: root.entry.label; color: Theme.text; vertical-alignment: center; overflow: elide; }
-    hint:=Text { x: 0px; y: 34px; width: parent.width - 280px; text: root.entry.hint; color: Theme.text-2; font-size: 11.5px; wrap: word-wrap; }
-    if root.entry.kind == 1: Toggle { x: parent.width - 34px; y: 12px; label: root.entry.label; checked <=> root.entry.checked; toggled(value) => { root.patch(root.entry.key,value ? "true" : "false"); } }
-    if root.entry.kind == 2: Select { x: parent.width - 260px; y: 6px; width: 260px; choices: root.entry.choices; value <=> root.entry.value; label: root.entry.label; enabled: root.entry.enabled; chosen(value) => { root.patch(root.entry.key,value); } }
-    if root.entry.kind == 3 || root.entry.kind == 4 || root.entry.kind == 5: Input { x: parent.width - 260px; y: 6px; width: 260px; text <=> root.entry.value; placeholder: root.entry.label; edited(value) => { root.patch(root.entry.key,value); } }
-    if root.entry.kind == 6: Action { x: parent.width - self.width; y: 7px; text: root.entry.value; enabled: root.entry.enabled; clicked => { root.action(root.entry.key,""); } }
-    if root.entry.kind == 7: Text { x: parent.width - 320px; width: 320px; height: parent.height; text: root.entry.value; color: Theme.text-2; vertical-alignment: center; horizontal-alignment: right; overflow: elide; font-size: 12px; }
-    Rectangle { x: 0px; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.border-soft; }
+    callback save-color(string,bool);
+    property <length> control-width: root.entry.kind==1 ? 34px:root.entry.kind==8 ? segments.width:root.entry.kind==9 ? 100px:root.entry.kind==5 ? 56px:root.entry.kind==6 ? action.width:root.entry.key=="lineHeight" || root.entry.key=="scrollback" ? 160px:root.entry.key=="agentsPort" ? 90px:260px;
+    height:root.shortcut ? 34px:root.entry.kind==5 ? 40px:root.entry.hint=="" ? 44px:max(44px,caption.preferred-height+hint.preferred-height+16px);
+    opacity:root.entry.enabled ? 1:0.5;
+    caption:=Text {x:root.entry.kind==5 ? 14px:0px;y:root.entry.hint=="" ? (parent.height - self.height)/2:6px;width:parent.width - root.control-width - 16px;height:self.preferred-height;text:root.entry.label;color:Theme.text;wrap:word-wrap;}
+    hint:=Text {x:0px;y:caption.y+caption.height+2px;width:min(380px,parent.width - root.control-width - 16px);height:self.preferred-height;text:root.entry.hint;color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+    if root.entry.kind==1: Toggle {x:parent.width - 34px;y:root.entry.hint=="" ? (parent.height - self.height)/2:6px;label:root.entry.label;checked<=>root.entry.checked;toggled(value)=>{root.patch(root.entry.key,value ? "true":"false");}}
+    if root.entry.kind==2: Select {x:parent.width - root.control-width;y:6px;width:root.control-width;choices:root.entry.choices;value<=>root.entry.value;label:root.entry.label;enabled:root.entry.enabled;chosen(value)=>{root.patch(root.entry.key,value);}}
+    segments:=Segmented {x:parent.width - self.width;y:6px;visible:root.entry.kind==8;choices:root.entry.choices;value<=>root.entry.value;label:root.entry.label;chosen(value)=>{root.patch(root.entry.key,value);}}
+    if root.entry.kind==3 || root.entry.kind==4: Input {x:parent.width - root.control-width;y:6px;width:root.control-width;text<=>root.entry.value;label:root.entry.label;placeholder:root.entry.key=="fontFamily" ? I18n.tr("settings.fontPlaceholder"):root.entry.label;edited(value)=>{root.patch(root.entry.key,value);}}
+    if root.entry.kind==5: ColorPicker {x:parent.width - 56px;y:7px;value<=>root.entry.value;label:root.entry.label;enabled:root.entry.enabled;presets:root.presets;saved:root.saved;picked(value)=>{root.patch(root.entry.key,value);}save-color(value,save)=>{root.save-color(value,save);}}
+    if root.entry.kind==9: HorizontalLayout {x:parent.width - 100px;y:7px;width:100px;height:30px;spacing:8px;
+        Action {width:30px;text:"−";label:I18n.tr("settings.smaller");clicked=>{root.action("font-smaller","");}}
+        Text {width:24px;text:root.entry.value;color:Theme.text;horizontal-alignment:center;vertical-alignment:center;}
+        Action {width:30px;text:"+";label:I18n.tr("settings.larger");clicked=>{root.action("font-larger","");}}
+    }
+    action:=Action {x:parent.width - self.width;y:6px;visible:root.entry.kind==6;text:root.entry.value;enabled:root.entry.enabled;clicked=>{root.action(root.entry.key,"");}}
+    if root.entry.kind==7 && !root.shortcut: Text {x:parent.width - self.width;y:0px;width:self.preferred-width;height:parent.height;text:root.entry.value;color:Theme.text-2;vertical-alignment:center;horizontal-alignment:right;overflow:elide;font-size:root.shortcut ? 10.5px:12px;}
+    if root.entry.kind==7 && root.shortcut: Rectangle {x:parent.width - self.width;y:(parent.height - 18px)/2;width:key.preferred-width+10px;height:18px;border-radius:4px;border-width:1px;border-color:Theme.border;background:Theme.elevated;
+        key:=Text {x:5px;y:0px;width:parent.width - 10px;height:parent.height;text:root.entry.value;font-size:10.5px;color:Theme.text-2;vertical-alignment:center;}
+    }
+    Rectangle {x:0px;y:parent.height - 1px;width:parent.width;height:1px;background:Theme.border-soft;}
+}
+
+component Row inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <length> controls-width:260px;
+    in property <string> status;
+    in property <color> status-color:Theme.green;
+    height:root.hint=="" && root.status=="" ? 44px:max(44px,caption.preferred-height+hint.preferred-height+(root.status=="" ? 0px:status.preferred-height+2px)+16px);
+    caption:=Text {x:0px;y:root.hint=="" ? (parent.height - self.height)/2:6px;width:parent.width - root.controls-width - 16px;height:self.preferred-height;text:root.label;color:Theme.text;wrap:word-wrap;}
+    hint:=Text {x:0px;y:caption.y+caption.height+2px;width:min(380px,parent.width - root.controls-width - 16px);height:self.preferred-height;text:root.hint;color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+    status:=Text {x:0px;y:hint.y+hint.height+2px;width:min(380px,parent.width - root.controls-width - 16px);height:self.preferred-height;text:root.status;color:root.status-color;font-size:11.5px;wrap:word-wrap;}
+    Rectangle {x:parent.width - root.controls-width;y:root.hint=="" ? (parent.height - self.height)/2:6px;width:root.controls-width;height:32px;@children}
+    Rectangle {y:parent.height - 1px;width:parent.width;height:1px;background:Theme.border-soft;}
+}
+
+component ServerChip inherits Rectangle {
+    in property <SettingRow> entry;
+    callback patch(string,string);
+    property <bool> pending;
+    property <string> next;
+    Timer {interval:1ms;running:root.pending;triggered=>{root.pending=false;root.patch(root.entry.key,root.next);}}
+    width:name.preferred-width+access.preferred-width+26px;height:26px;border-radius:13px;border-width:1px;border-color:Theme.border-soft;background:area.has-hover ? Theme.hover:Theme.surface;
+    name:=Text {x:9px;y:0px;width:self.preferred-width;height:26px;text:root.entry.label;color:Theme.text;font-size:12.5px;vertical-alignment:center;}
+    access:=Text {x:name.x+name.width+6px;y:0px;width:self.preferred-width;height:26px;text:I18n.tr(root.entry.value=="allow" ? "agents.accessAllow":"agents.accessAsk");color:Theme.text-2;font-size:11px;vertical-alignment:center;}
+    accessible-role:button;accessible-label:root.entry.label;accessible-action-default=>{popup.show();}
+    area:=TouchArea {clicked=>{popup.show();}}
+    popup:=PopupWindow {x:root.width - self.width;y:30px;width:220px;height:100px;
+        Rectangle {background:Theme.elevated;border-width:1px;border-color:Theme.border;border-radius:10px;
+            VerticalLayout {padding:5px;spacing:0px;
+                for option in root.entry.choices: Action {text:option.label;ghost:true;clicked=>{root.next=option.value;root.pending=true;popup.close();}}
+            }
+        }
+    }
+}
+component ServerChips inherits Rectangle {
+    in property <[SettingRow]> rows;
+    in property <[Choice]> options;
+    callback patch(string,string);
+    property <string> pending-key;
+    Timer {interval:1ms;running:root.pending-key!="";triggered=>{let key=root.pending-key;root.pending-key="";root.patch(key,"ask");}}
+    height:30px;
+    Flickable {x:0px;y:0px;width:parent.width - 32px;height:30px;content-width:max(self.width,chips.preferred-width);content-height:30px;
+        chips:=HorizontalLayout {height:26px;alignment:end;spacing:6px;
+            for setting in root.rows: VerticalLayout {if setting.kind==2 && setting.value!="off": ServerChip {entry:setting;patch(key,value)=>{root.patch(key,value);}}}
+        }
+    }
+    IconButton {x:parent.width - 28px;y:0px;icon:"plus";label:I18n.language=="ru" ? "Открыть доступ к серверу":"Share a server";enabled:root.options.length>0;clicked=>{popup.show();}}
+    popup:=PopupWindow {x:root.width - self.width;y:32px;width:260px;height:min(260px,root.options.length*30px+10px);
+        Rectangle {background:Theme.elevated;border-width:1px;border-color:Theme.border;border-radius:10px;
+            ScrollView {x:5px;y:5px;width:parent.width - 10px;height:parent.height - 10px;
+                VerticalLayout {for option in root.options: Action {text:option.label;ghost:true;clicked=>{root.pending-key=option.value;popup.close();}}}
+            }
+        }
+    }
 }
 
 export component SettingsDialog inherits Rectangle {
@@ -32,11 +106,26 @@ export component SettingsDialog inherits Rectangle {
     in property <[Choice]> editor-choices;
     in property <int> theme;
     in property <string> activity;
+    in property <[ColorSwatch]> color-presets;
+    in property <[ColorSwatch]> saved-colors;
+    in property <string> data-path;
+    in property <string> version;
+    in property <string> update-status;
+    in property <string> keychain-status;
+    in property <bool> keychain-ok;
+    in property <string> agents-summary;
+    in property <bool> agents-error;
+    in property <[Choice]> share-options;
+    in property <[Choice]> snippets;
+    in property <bool> agents-enabled;
+    callback save-color(string,bool);
     callback select-section(string);
     callback patch(string,string);
     callback action(string,string);
     callback association(int,string,string,string);
     callback close();
+    property <string> client:"claude";
+    in property <string> token;
     property <bool> with-passwords;
     property <string> backup-password;
     property <string> backup-repeat;
@@ -47,12 +136,12 @@ export component SettingsDialog inherits Rectangle {
     TouchArea { clicked => { root.close(); } }
     Rectangle {
         x: (parent.width - self.width)/2; y: parent.height * 0.11;
-        width: min(700px,parent.width - 32px); height: min(parent.height * 0.8, 180px + root.rows.length * 66px + (root.section == "general" ? 140px : root.section == "files" ? 220px : root.section == "backup" ? 160px : 0px));
+        width:min(700px,parent.width - 32px);height:min(parent.height*0.8,content.preferred-height+114px);
         border-radius: 12px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
         drop-shadow-blur: 32px; drop-shadow-offset-y: 10px; drop-shadow-color: #30000000;
         TouchArea { }
         Text { x: 20px; y: 18px; text: I18n.tr("settings.title"); color: Theme.text; font-size: 15px; font-weight: 600; }
-        IconButton { x: parent.width - 42px; y: 10px; icon: "x"; label: I18n.tr("window.close"); clicked => { root.close(); } }
+        Rectangle {x:20px;y:52px;width:min(parent.width - 40px,tabs.preferred-width);height:30px;border-radius:7px;background:Theme.hover;}
         Flickable {
             x: 20px; y: 52px; width: parent.width - 40px; height: 30px;
             content-width: max(self.width,tabs.preferred-width); content-height: 30px;
@@ -68,17 +157,19 @@ export component SettingsDialog inherits Rectangle {
                 }
             }
         }
-        ScrollView {
-            x: 20px; y: 96px; width: parent.width - 40px; height: parent.height - 150px;
-            VerticalLayout {
-                spacing: 0px; padding-top: 4px; padding-bottom: 18px;
+        scroll:=ScrollView {
+            vertical-scrollbar-policy:ScrollBarPolicy.always-off;horizontal-scrollbar-policy:ScrollBarPolicy.always-off;
+            x:20px;y:96px;width:parent.width - 30px; height: parent.height - 114px;
+            content:=VerticalLayout {
+                spacing:0px;padding-top:4px;padding-bottom:0px;padding-right:10px;
                 if root.section == "general": VerticalLayout {
-                    for setting[index] in root.rows: VerticalLayout { if setting.key == "language": Field { entry <=> setting; patch(key,value) => { root.patch(key,value); } } }
+                    for setting[index] in root.rows: VerticalLayout { if setting.key == "language": Field { entry <=> setting;presets:root.color-presets;saved:root.saved-colors;patch(key,value) => { root.patch(key,value); } } }
+                    Rectangle {height:14px;}
                     Text { text: I18n.tr("settings.theme"); color: Theme.text-2; font-size: 11.5px; height: 28px; vertical-alignment: center; }
                     HorizontalLayout { spacing: 10px;
                         for choice[index] in ThemeCatalog.entries: Rectangle {
                             height: self.width / 1.35 + 30px;
-                            Rectangle { x: -3px; y: -3px; width: parent.width + 6px; height: parent.width / 1.35 + 6px; border-radius: 12px; border-width: 2px; border-color: root.theme == index - 1 ? Theme.text-2 : transparent; }
+                            Rectangle { x:-4px;y:-4px;width:parent.width+8px;height:parent.width/1.35+8px;border-radius:13px; border-width: 2px; border-color: root.theme == index - 1 ? Theme.text-2 : transparent; }
                             Rectangle { x: 0px; y: 0px; width: parent.width; height: self.width / 1.35; border-radius: 9px; border-width: 1px; border-color: Theme.border; background: choice.frame; clip: true;
                                 if index == 0: Rectangle { x: parent.width/2; width: parent.width/2; height: parent.height; background: #2a2d31; }
                                 Rectangle { x: parent.width*0.28; y: parent.height*0.3; width: parent.width*0.72; height: parent.height*0.7; background: choice.surface; border-top-left-radius: 6px;
@@ -87,7 +178,7 @@ export component SettingsDialog inherits Rectangle {
                                     Rectangle { x: 8px; y: 25px; width: parent.width*0.48; height: 3px; border-radius: 2px; background: choice.text; }
                                 }
                             }
-                            Text { y: parent.width/1.35 + 7px; width: parent.width; horizontal-alignment: center; color: Theme.text-2; font-size: 12px; text: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy")); }
+                            Text { y: parent.width/1.35 + 7px; width: parent.width; horizontal-alignment: center; color:root.theme==index - 1 ? Theme.text:Theme.text-2;font-weight:root.theme==index - 1 ? 500:400; font-size: 12px; text: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy")); }
                             accessible-role: button; accessible-label: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"));
                             accessible-action-default => { root.patch("theme",index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"); }
                             TouchArea { clicked => { root.patch("theme",index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"); } }
@@ -95,8 +186,8 @@ export component SettingsDialog inherits Rectangle {
                     }
                     Rectangle { height: 16px; }
                 }
-                for setting[index] in root.rows: VerticalLayout { if root.section != "general" || setting.key != "language": Field {
-                    entry <=> setting;
+                for setting[index] in root.rows: VerticalLayout { if (root.section != "general" || setting.key != "language") && root.section!="about" && root.section!="agents" && root.section!="backup": Field {
+                    entry <=> setting;shortcut:root.section=="keyboard";presets:root.color-presets;saved:root.saved-colors;save-color(value,save)=>{root.save-color(value,save);}
                     patch(key,value) => { root.patch(key,value); }
                     action(key,value) => { if key == "backup-export" { if !root.with-passwords || (root.backup-password != "" && root.backup-password == root.backup-repeat) { root.action(key,root.with-passwords ? root.backup-password : ""); root.backup-password = ""; root.backup-repeat = ""; } } else { root.action(key,value); } }
                 } }
@@ -119,19 +210,85 @@ export component SettingsDialog inherits Rectangle {
                     }
                     if root.association-editor == "custom": Input { text <=> root.association-command; placeholder: "editor {file}"; }
                 }
-                if root.section == "backup": VerticalLayout { spacing: 10px;
-                    HorizontalLayout { Text { text: I18n.tr("backup.withPasswords"); color: Theme.text; vertical-alignment: center; } Toggle { label: I18n.tr("backup.withPasswords"); checked <=> root.with-passwords; } }
-                    if root.with-passwords: VerticalLayout { spacing: 10px;
-                        Input { text <=> root.backup-password; input-type: password; placeholder: I18n.tr("backup.password"); }
-                        Input { text <=> root.backup-repeat; input-type: password; placeholder: I18n.tr("backup.passwordRepeat"); }
-                        Text { text: root.backup-password == root.backup-repeat && root.backup-password != "" ? "" : I18n.tr("backup.passwordMismatch"); color: Theme.red; font-size: 12px; }
+                if root.section=="about": VerticalLayout {spacing:0px;
+                    Rectangle {height:54px;
+                        Image {x:0px;y:0px;width:44px;height:44px;source:@image-url("../../ui/src/assets/logo.png");image-fit:contain;}
+                        Text {x:58px;y:0px;text:"NexSSH";font-size:16px;font-weight:600;color:Theme.text;}
+                        Text {x:58px;y:24px;width:parent.width - 58px;text:root.version;color:Theme.text-2;font-size:12.5px;}
+                    }
+                    Row {label:I18n.tr("settings.dataFolder");hint:I18n.tr("settings.dataFolderHint");controls-width:130px;Action {width:130px;text:I18n.tr("settings.copyPath");clicked=>{root.action("copy-data-path","");}}}
+                    Rectangle {height:36px;background:Theme.surface;border-width:1px;border-color:Theme.border-soft;border-radius:7px;
+                        TextInput {x:10px;y:0px;width:parent.width - 20px;height:parent.height;text:root.data-path;color:Theme.text;font-family:"JetBrains Mono";font-size:11.5px;read-only:true;single-line:true;vertical-alignment:center;accessible-role:text-input;accessible-label:I18n.tr("settings.dataFolder");}
+                    }
+                    Row {label:I18n.tr("logs.title");hint:I18n.tr("logs.hint");controls-width:236px;
+                        HorizontalLayout {spacing:6px;Action {text:I18n.tr("logs.show");clicked=>{root.action("logs-show","");}}Action {text:I18n.tr("logs.save");clicked=>{root.action("logs-export","");}}}
+                    }
+                    Row {label:I18n.tr("update.title");hint:root.update-status;controls-width:172px;Action {width:172px;text:I18n.tr("update.check");clicked=>{root.action("updates-check","");}}}
+                    for setting in root.rows: VerticalLayout {if setting.key=="autoUpdateCheck": Field {entry<=>setting;patch(key,value)=>{root.patch(key,value);}}}
+                    Row {label:I18n.tr("settings.keychain");controls-width:240px;Text {x:0px;y:0px;width:240px;height:32px;text:root.keychain-status;color:root.keychain-ok ? Theme.green:Theme.amber;horizontal-alignment:right;vertical-alignment:center;font-size:12px;}}
+                    Text {text:I18n.tr("settings.license");color:Theme.text-3;font-size:12px;height:46px;vertical-alignment:center;TouchArea {clicked=>{root.action("project-home","");}}}
+                }
+                if root.section=="agents": VerticalLayout {spacing:0px;
+                    Row {label:I18n.tr("agents.enable");hint:I18n.tr("agents.enableHint");status:root.agents-enabled ? root.agents-summary:"";status-color:root.agents-error ? Theme.amber:Theme.green;controls-width:34px;Toggle {label:I18n.tr("agents.enable");checked:root.agents-enabled;toggled(value)=>{root.patch("agentsEnabled",value ? "true":"false");}}}
+                    if root.agents-enabled: VerticalLayout {spacing:0px;
+                        Rectangle {height:54px;
+                            Text {x:0px;y:20px;text:I18n.tr("agents.connect");font-size:11.5px;color:Theme.text-2;}
+                            Segmented {x:parent.width - self.width;y:16px;value<=>root.client;choices:[{value:"claude",label:"Claude Code"},{value:"codex",label:"Codex"},{value:"json",label:"JSON"},{value:"http",label:"HTTP"}];}
+                        }
+                        for snippet in root.snippets: VerticalLayout {if snippet.value==root.client: Rectangle {
+                            height:max(64px,code.preferred-height+24px);background:Theme.surface;border-width:1px;border-color:Theme.border-soft;border-radius:7px;
+                            code:=Text {x:12px;y:12px;width:parent.width - 132px;height:self.preferred-height;text:snippet.label;color:Theme.text;font-family:"JetBrains Mono";font-size:11.5px;wrap:word-wrap;}
+                            Action {x:parent.width - self.width - 7px;y:7px;icon:"copy";text:I18n.tr("agents.copy");clicked=>{root.action("agents-copy-"+root.client,root.token);}}
+                        } }
+                        Text {text:I18n.tr("agents.hint"+(root.client=="claude" ? "Claude":root.client=="codex" ? "Codex":root.client=="json" ? "Json":"Http"));color:Theme.text-2;font-size:11.5px;wrap:word-wrap;height:self.preferred-height+22px;vertical-alignment:center;}
+                        if root.client=="http": HorizontalLayout {spacing:6px;alignment:start;height:38px;
+                            Action {text:I18n.tr(root.token=="" ? "agents.showToken":"agents.hideToken");clicked=>{root.action(root.token=="" ? "agents-reveal-token":"agents-hide-token","");}}
+                            Action {text:I18n.tr("agents.newToken");clicked=>{root.action("agents-renew","");}}
+                        }
+                        if root.token!="": Text {text:root.token;color:Theme.text;font-family:"JetBrains Mono";font-size:11.5px;wrap:word-wrap;}
+                        for setting in root.rows: VerticalLayout {if setting.key=="agentsPort": Field {entry<=>setting;patch(key,value)=>{root.patch(key,value);}}}
+                        Row {label:I18n.tr("agents.shared");controls-width:380px;ServerChips {width:380px;rows:root.rows;options:root.share-options;patch(key,value)=>{root.patch(key,value);}}}
+                        Rectangle {height:44px;
+                            Text {x:0px;y:13px;text:I18n.tr("agents.activity");color:Theme.text-2;font-size:11.5px;}
+                            if root.activity!="": Action {x:parent.width - self.width;y:8px;text:I18n.tr("agents.clear");ghost:true;clicked=>{root.action("agents-clear","");}}
+                        }
+                        Text {text:root.activity=="" ? I18n.tr("agents.activityEmpty"):root.activity;color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
                     }
                 }
-                if root.section == "agents" && root.activity != "": Text { text: root.activity; color: Theme.text-2; font-size: 12px; wrap: word-wrap; }
-                Rectangle { vertical-stretch: 1; }
+                if root.section=="backup": VerticalLayout {spacing:0px;
+                    Row {label:I18n.tr("backup.save");hint:I18n.tr("backup.saveHint");controls-width:156px;
+                        Action {width:156px;text:I18n.tr("backup.saveButton");enabled:!root.with-passwords || (root.backup-password!="" && root.backup-password==root.backup-repeat);clicked=>{root.action("backup-export",root.with-passwords ? root.backup-password:"");root.backup-password="";root.backup-repeat="";}}
+                    }
+                    Row {label:I18n.tr("backup.withPasswords");hint:I18n.tr("backup.withPasswordsHint");controls-width:34px;
+                        Toggle {label:I18n.tr("backup.withPasswords");checked<=>root.with-passwords;}
+                    }
+                    if root.with-passwords: VerticalLayout {spacing:0px;
+                        Row {label:I18n.tr("backup.password");controls-width:220px;Input {width:220px;text<=>root.backup-password;input-type:password;label:I18n.tr("backup.password");}}
+                        Row {label:I18n.tr("backup.passwordRepeat");hint:root.backup-password==root.backup-repeat ? "":I18n.tr("backup.passwordMismatch");controls-width:220px;Input {width:220px;text<=>root.backup-repeat;input-type:password;label:I18n.tr("backup.passwordRepeat");}}
+                    }
+                    Row {label:I18n.tr("backup.restore");hint:I18n.tr("backup.restoreHint");controls-width:156px;Action {width:156px;text:I18n.tr("backup.restoreButton");clicked=>{root.action("backup-import","");}}}
+                }
             }
         }
-        Rectangle { y: parent.height - 50px; width: parent.width; height: 1px; background: Theme.border-soft; }
-        Action { x: parent.width - self.width - 20px; y: parent.height - 40px; text: I18n.tr("window.close"); clicked => { root.close(); } }
+        // The scrollbar has its own stable gutter, like Modal.svelte's scrollbar-gutter.
+        settings-scrollbar:=Rectangle {
+            x:parent.width - 16px;y:96px;width:10px;height:scroll.height;
+            visible:scroll.content-height>scroll.visible-height;
+            property <length> maximum:max(0px,scroll.content-height - scroll.visible-height);
+            accessible-role:slider;accessible-label:I18n.tr("settings.title");accessible-value:-scroll.content-y/1px;
+            accessible-action-increment=>{scroll.content-y=max(-self.maximum,scroll.content-y - 40px);}
+            accessible-action-decrement=>{scroll.content-y=min(0px,scroll.content-y+40px);}
+            thumb:=Rectangle {x:3px;y:(parent.height - self.height)*(-scroll.content-y)/max(1px,parent.maximum);width:4px;height:max(24px,parent.height*scroll.visible-height/max(1px,scroll.content-height));border-radius:2px;background:track.has-hover ? Theme.text-2:Theme.text-3.with-alpha(0.65);}
+            track:=TouchArea {
+                property <length> start;
+                pointer-event(event)=>{if event.kind==PointerEventKind.down {
+                    if self.mouse-y<thumb.y || self.mouse-y>thumb.y+thumb.height {scroll.content-y= -min(settings-scrollbar.maximum,max(0px,(self.mouse-y - thumb.height/2)/max(1px,self.height - thumb.height)*settings-scrollbar.maximum));}
+                    self.start=scroll.content-y;
+                }}
+                moved=>{if self.pressed {scroll.content-y=min(0px,max(-settings-scrollbar.maximum,self.start - (self.mouse-y - self.pressed-y)/max(1px,self.height - thumb.height)*settings-scrollbar.maximum));}}
+                scroll-event(event)=>{scroll.content-y=min(0px,max(-settings-scrollbar.maximum,scroll.content-y+event.delta-y));accept}
+            }
+        }
+
     }
 }

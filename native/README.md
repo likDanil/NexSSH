@@ -42,6 +42,10 @@ cargo run -p nexssh-slint
   are preserved before recovery.
 - Fonts, themes, cursor style/blink, status bar, sidebar hiding, default/custom shell,
   paste policy, copy on selection, right-click behaviour and keyword colours.
+- Settings retain the 1.x segmented choices, font stepper, theme previews, About,
+  backup and agent layouts. Colour swatches open an HSV picker with Hex, RGB, HSL,
+  presets and saved colours. The themed scrollbar has a dedicated gutter outside
+  the controls; the hidden-sidebar button stays at the left edge of the title bar.
 - CPU or GPU renderer (after restart); configurable history for new tabs.
 - Quick SSH connection (`user@host:port`, including bracketed IPv6).
 - Multiple local and SSH sessions, switching/closing tabs and reconnecting.

@@ -3,6 +3,7 @@
 mod agents;
 mod agents_ui;
 mod app;
+mod colors;
 mod editor;
 mod explorer;
 mod files;

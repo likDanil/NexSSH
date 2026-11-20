@@ -1,0 +1,69 @@
+import { Theme,IconButton,Input } from "controls.slint";
+import { I18n } from "i18n.slint";
+export struct ColorValue {hex:string,digits:string,color:color,hue:float,saturation:float,brightness:float,red:int,green:int,blue:int,hsl-s:float,hsl-l:float}
+export struct ColorSwatch {hex:string,color:color}
+export global ColorTools {
+    pure callback parse(string)->ColorValue;
+    pure callback edit(string)->ColorValue;
+    pure callback contains([ColorSwatch],string)->bool;
+    pure callback hsv(float,float,float)->ColorValue;
+    pure callback channel(ColorValue,string,string)->ColorValue;
+}
+
+export component ColorPicker inherits Rectangle {
+    in-out property <string> value;
+    in property <string> label;
+    in property <bool> enabled:true;
+    in property <[ColorSwatch]> presets;
+    in property <[ColorSwatch]> saved;
+    callback picked(string);
+    callback save-color(string,bool);
+    property <ColorValue> state;
+    property <bool> is-saved:ColorTools.contains(root.saved,root.state.hex);
+    public function pick(next:ColorValue) {if next.hex!="" {root.state=next;root.value=next.hex;root.picked(next.hex);}}
+    width:56px;height:26px;border-radius:8px;border-width:1px;border-color:Theme.border;background:Theme.bg;
+    Rectangle {x:2px;y:2px;width:parent.width - 4px;height:parent.height - 4px;border-radius:6px;background:ColorTools.parse(root.value).color;}
+    accessible-role:button;accessible-label:root.label;accessible-enabled:root.enabled;
+    accessible-action-default=>{if root.enabled {root.state=ColorTools.parse(root.value);picker.show();}}
+    TouchArea {enabled:root.enabled;clicked=>{root.state=ColorTools.parse(root.value);picker.show();}}
+    picker:=PopupWindow {
+        x:root.width - self.width;y: -self.height - 6px;width:500px;height:root.saved.length>6 ? 324px:292px;
+        Rectangle {
+            background:Theme.elevated;border-width:1px;border-color:Theme.border;border-radius:14px;
+            square:=Rectangle {
+                x:16px;y:16px;width:230px;height:196px;border-radius:7px;
+                background:@linear-gradient(90deg,#fff,ColorTools.hsv(root.state.hue,100,100).color);
+                Rectangle {background:@linear-gradient(0deg,#000,transparent);border-radius:7px;}
+                Rectangle {x:root.state.saturation/100*parent.width - 9px;y:(1-root.state.brightness/100)*parent.height - 9px;width:18px;height:18px;border-radius:9px;border-width:2.5px;border-color:#fff;background:root.state.color;}
+                area:=TouchArea {
+                    pointer-event(event)=>{if event.kind==PointerEventKind.down {root.pick(ColorTools.hsv(root.state.hue,min(100,max(0,self.mouse-x/self.width*100)),min(100,max(0,100-self.mouse-y/self.height*100))));}}
+                    moved=>{if self.pressed {root.pick(ColorTools.hsv(root.state.hue,min(100,max(0,self.mouse-x/self.width*100)),min(100,max(0,100-self.mouse-y/self.height*100))));}}
+                }
+            }
+            Rectangle {x:16px;y:226px;width:230px;height:14px;border-radius:7px;
+                background:@linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+                Rectangle {x:7px+(parent.width - 14px)*root.state.hue/360 - 9px;y:-2px;width:18px;height:18px;border-radius:9px;border-width:2.5px;border-color:#fff;background:ColorTools.hsv(root.state.hue,100,100).color;}
+                TouchArea {
+                    pointer-event(event)=>{if event.kind==PointerEventKind.down {root.pick(ColorTools.hsv(min(360,max(0,(self.mouse-x - 7px)/(self.width - 14px)*360)),root.state.saturation,root.state.brightness));}}
+                    moved=>{if self.pressed {root.pick(ColorTools.hsv(min(360,max(0,(self.mouse-x - 7px)/(self.width - 14px)*360)),root.state.saturation,root.state.brightness));}}
+                }
+            }
+            Rectangle {x:264px;y:16px;width:26px;height:26px;border-radius:5px;background:root.state.color;}
+            Text {x:300px;y:16px;width:146px;height:28px;text:root.label;color:Theme.text;font-weight:500;vertical-alignment:center;overflow:elide;}
+            IconButton {x:462px;y:14px;width:22px;height:22px;icon:"x";label:I18n.tr("color.close");clicked=>{picker.close();}}
+            if root.is-saved: IconButton {x:436px;y:14px;width:22px;height:22px;icon:"trash";label:I18n.tr("color.unsave");clicked=>{root.save-color(root.state.hex,false);}}
+            Text {x:264px;y:56px;text:I18n.tr("color.hex");color:Theme.text-2;font-size:11.5px;}
+            Input {x:264px;y:76px;width:220px;monospace:true;text:root.state.digits;label:I18n.tr("color.hex");edited(text)=>{root.pick(ColorTools.edit(text));}accepted(text)=>{root.pick(ColorTools.parse(text));}}
+            for name[index] in ["R","G","B","H","S","L"]: Rectangle {
+                x:264px+mod(index,3)*75px;y:120px+floor(index/3)*38px;width:69px;height:32px;background:Theme.input;border-radius:7px;border-width:1px;border-color:Theme.border;
+                Text {x:8px;y:0px;width:10px;height:32px;text:name;color:Theme.text-3;font-size:10px;vertical-alignment:center;}
+                TextInput {x:23px;y:0px;width:40px;height:32px;text:index==0 ? root.state.red:index==1 ? root.state.green:index==2 ? root.state.blue:index==3 ? round(root.state.hue):index==4 ? round(root.state.hsl-s):round(root.state.hsl-l);color:Theme.text;font-family:"JetBrains Mono";font-size:11px;vertical-alignment:center;single-line:true;accessible-role:text-input;accessible-label:name;accessible-action-set-value(value)=>{self.text=value;root.pick(ColorTools.channel(root.state,name,value));}edited=>{root.pick(ColorTools.channel(root.state,name,self.text));}}
+            }
+            HorizontalLayout {x:264px;y:202px;width:220px;height:26px;spacing:6px;
+                for swatch in root.presets: Rectangle {border-radius:5px;background:swatch.color;accessible-role:button;accessible-label:swatch.hex;accessible-action-default=>{root.pick(ColorTools.parse(swatch.hex));}TouchArea {clicked=>{root.pick(ColorTools.parse(swatch.hex));}}}
+            }
+            for swatch[index] in root.saved: Rectangle {x:264px+mod(index,7)*32px;y:240px+floor(index/7)*32px;width:26px;height:26px;border-radius:5px;background:swatch.color;accessible-role:button;accessible-label:swatch.hex;accessible-action-default=>{root.pick(ColorTools.parse(swatch.hex));}TouchArea {clicked=>{root.pick(ColorTools.parse(swatch.hex));}}}
+            if !root.is-saved && root.saved.length<14: IconButton {x:264px+mod(root.saved.length,7)*32px;y:240px+floor(root.saved.length/7)*32px;width:26px;height:26px;icon:"plus";label:I18n.tr("color.save");clicked=>{root.save-color(root.state.hex,true);}}
+        }
+    }
+}

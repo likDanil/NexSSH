@@ -91,19 +91,46 @@ def run(binary):
         process, ui = start()
         try:
             ui.press("Настройки")
-            ui.choose("Язык", "English")
+            ui.press("English")
             wait_for(lambda: saved()["language"] == "en", "Language choice was not saved")
             ui.press("Terminal", "Tab")
-            ui.choose("Cursor", "Block")
+            ui.press("Block")
             wait_for(lambda: saved()["cursorStyle"] == "block", "Cursor choice was not saved")
             ui.press("Blinking cursor", "Switch")
             ui.press("General", "Tab")
-            font = wait_for(lambda: ui.find("Font size", "TextInput"), "Font input inaccessible")[0]
-            ui.call("set_element_value", {"elementHandle": font, "value": "17"})
+            for _ in range(4):ui.press("Larger")
             wait_for(lambda: saved()["fontSize"] == 17 and saved()["cursorBlink"], "Changes were not persisted")
+            ui.press("Terminal","Tab")
+            swatch=ui.find("Error")[0]
+            scrollbar=ui.find("Settings","Slider")[0]
+            swatch_bounds=ui.call("get_element_properties",{"elementHandle":swatch})
+            scrollbar_bounds=ui.call("get_element_properties",{"elementHandle":scrollbar})
+            assert scrollbar_bounds["absolutePosition"]["x"]>swatch_bounds["absolutePosition"]["x"]+swatch_bounds["size"]["width"],"Settings scrollbar overlaps controls"
+            ui.call("invoke_accessibility_action",{"elementHandle":scrollbar,"action":"Increment"})
+            moved=ui.call("get_element_properties",{"elementHandle":scrollbar})
+            assert float(moved["accessibleValue"])>float(scrollbar_bounds["accessibleValue"]),"Settings scrollbar does not scroll"
+            ui.call("invoke_accessibility_action",{"elementHandle":scrollbar,"action":"Decrement"})
+            ui.press("Error")
+            color=wait_for(lambda:ui.find("Hex","TextInput"),"Colour picker did not open")[0]
+            ui.call("set_element_value",{"elementHandle":color,"value":"8686fe"})
+            wait_for(lambda:saved()["highlightColors"]["error"]=="#8686fe","Colour edit was not applied")
+            red=ui.find("R","TextInput")[0]
+            ui.call("set_element_value",{"elementHandle":red,"value":"100"})
+            wait_for(lambda:saved()["highlightColors"]["error"]=="#6486fe","RGB channel edit was not applied")
+            ui.call("set_element_value",{"elementHandle":color,"value":"8686fe"})
+            wait_for(lambda:saved()["highlightColors"]["error"]=="#8686fe","Hex edit did not restore the colour")
+            ui.press("Save the color")
+            wait_for(lambda:"#8686fe" in saved()["savedColors"],"Saved colour was not persisted")
+            ui.call("dispatch_key_event",{"windowHandle":ui.window,"text":"\x1b"})
+            assert ui.find("General","Tab"),"Closing a colour popup must keep Settings open"
             for label in ["Files", "Keyboard", "AI agents", "Backup", "About"]:
                 ui.press(label, "Tab")
             ui.call("dispatch_key_event",{"windowHandle":ui.window,"text":"\x1b"})
+            ui.press("Hide sidebar")
+            reveal=wait_for(lambda:ui.find("Show sidebar"),"Missing button to reopen sidebar")[0]
+            properties=ui.call("get_element_properties",{"elementHandle":reveal})
+            assert properties["absolutePosition"]["x"]<30 and properties["computedOpacity"]==1
+            ui.press("Show sidebar")
             ui.press("Close")
             process.wait(timeout=5)
         finally:
@@ -123,7 +150,7 @@ def run(binary):
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=5)
-        print("PASS: dropdowns, language, cursor, font, seven sections, persistence and restart; legacy data preserved")
+        print("PASS: settings, colours, sidebar reveal, seven sections, persistence and restart; legacy data preserved")
 
 
 if __name__ == "__main__":

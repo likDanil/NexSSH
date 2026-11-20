@@ -2,9 +2,9 @@ import { ScrollView, CheckBox, Palette } from "std-widgets.slint";
 import { Theme, Icon, Action, IconButton, Input, NavLink, Toggle } from "controls.slint";
 import { ThemeCatalog } from "theme.slint";
 import "../assets/fonts/JetBrainsMono.ttf";
-import { SettingsDialog, SettingRow, AssociationRow, Choice, I18n } from "settings.slint";
+import { SettingsDialog, SettingRow, AssociationRow, Choice, I18n,ColorTools,ColorValue,ColorSwatch } from "settings.slint";
 import { FilesDrawer,FileRow,EditRow } from "files.slint";
-export { I18n } from "settings.slint";
+export { I18n,ColorTools } from "settings.slint";
 
 // Layout values come from App.svelte, Sidebar, TabBar, ServerRow, Home and Modal.
 export struct ServerRow {
@@ -41,6 +41,20 @@ export component AppWindow inherits Window {
     in property <[AssociationRow]> settings-associations;
     in property <[Choice]> settings-editors;
     in property <string> agents-activity;
+    in property <[ColorSwatch]> settings-color-presets;
+    in property <[ColorSwatch]> settings-saved-colors;
+    in property <string> settings-data-path;
+    in property <string> settings-version;
+    in property <string> settings-update-status;
+    in property <string> settings-keychain-status;
+    in property <bool> settings-keychain-ok;
+    in property <string> settings-agents-summary;
+    in property <bool> settings-agents-error;
+    in property <[Choice]> settings-share-options;
+    in property <[Choice]> settings-snippets;
+    in property <bool> settings-agents-enabled;
+    in-out property <string> settings-agent-token;
+    callback settings-save-color(string,bool);
     callback open-settings();
     callback settings-select(string);
     callback settings-update(string,string);
@@ -141,7 +155,7 @@ export component AppWindow inherits Window {
     callback close-decide(string,bool,bool);
     public function focus-terminal() { keyboard.focus(); }
     public function show-quick-connect() { root.palette-text = ""; root.palette-index = 0; root.palette-query(""); root.overlay = "quick"; }
-    public function close-overlay() { root.overlay = ""; keyboard.focus(); }
+    public function close-overlay() { root.settings-agent-token="";root.overlay = ""; keyboard.focus(); }
     public function add-server() {
         root.server-name = ""; root.server-host = ""; root.server-user = ""; root.server-port = "22"; root.server-group = "";
         root.overlay = "server";
@@ -189,7 +203,7 @@ export component AppWindow inherits Window {
             }
             Rectangle {
                 x: root.sidebar-size + 4px; width: root.width - self.x - 176px; height: 40px;
-                if root.sidebar-hidden: IconButton { y: 6px; icon: "sidebar"; label: I18n.tr("tabs.showSidebar"); clicked => { root.sidebar-hidden = false; } }
+                if root.sidebar-hidden: IconButton { x:0px; y: 6px; icon: "sidebar"; label: I18n.tr("tabs.showSidebar"); clicked => { root.sidebar-hidden = false; } }
                 Flickable {
                     x: root.sidebar-hidden ? 32px : 0px; width: parent.width - self.x; height: 40px;
                     content-width: max(self.width, tab-layout.preferred-width);
@@ -416,7 +430,10 @@ export component AppWindow inherits Window {
     if root.overlay == "settings" && !root.prompt-visible: SettingsDialog {
         section <=> root.settings-section;
         rows: root.settings-rows; associations: root.settings-associations; editor-choices: root.settings-editors;
-        theme: root.theme; activity: root.agents-activity;
+        theme:root.theme;activity:root.agents-activity;
+        color-presets:root.settings-color-presets;saved-colors:root.settings-saved-colors;save-color(value,save)=>{root.settings-save-color(value,save);}
+        data-path:root.settings-data-path;version:root.settings-version;update-status:root.settings-update-status;keychain-status:root.settings-keychain-status;keychain-ok:root.settings-keychain-ok;
+        agents-summary:root.settings-agents-summary;agents-error:root.settings-agents-error;share-options:root.settings-share-options;snippets:root.settings-snippets;agents-enabled:root.settings-agents-enabled;token:root.settings-agent-token;
         select-section(section) => { root.settings-select(section); }
         patch(key,value) => { root.settings-update(key,value); }
         action(key,value) => { root.settings-action(key,value); }

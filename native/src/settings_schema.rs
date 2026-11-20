@@ -20,7 +20,9 @@ pub fn choices(values: &[(&str, &str)], language: &str) -> ModelRc<Choice> {
         .iter()
         .map(|(value, label)| Choice {
             value: (*value).into(),
-            label: if label.contains('.') {
+            label: if language == "ru" && label.parse::<f64>().is_ok() {
+                label.replace('.', ",")
+            } else if label.contains('.') {
                 i18n::tr(label, language)
             } else {
                 (*label).into()
@@ -89,8 +91,8 @@ pub fn rows(settings: &Settings, section: &str, context: &Context<'_>) -> ModelR
                 "",
                 &[
                     ("system", "settings.languageSystem"),
-                    ("ru", "Русский"),
                     ("en", "English"),
+                    ("ru", "Русский"),
                 ],
             ));
             rows.push(input("fontFamily", "settings.font", ""));
@@ -157,11 +159,46 @@ pub fn rows(settings: &Settings, section: &str, context: &Context<'_>) -> ModelR
                 "settings.scrollback",
                 "",
                 &[
-                    ("1000", "1 000"),
-                    ("5000", "5 000"),
-                    ("10000", "10 000"),
-                    ("50000", "50 000"),
-                    ("100000", "100 000"),
+                    (
+                        "1000",
+                        if language == "ru" {
+                            "1 000 строк"
+                        } else {
+                            "1 000 lines"
+                        },
+                    ),
+                    (
+                        "5000",
+                        if language == "ru" {
+                            "5 000 строк"
+                        } else {
+                            "5 000 lines"
+                        },
+                    ),
+                    (
+                        "10000",
+                        if language == "ru" {
+                            "10 000 строк"
+                        } else {
+                            "10 000 lines"
+                        },
+                    ),
+                    (
+                        "50000",
+                        if language == "ru" {
+                            "50 000 строк"
+                        } else {
+                            "50 000 lines"
+                        },
+                    ),
+                    (
+                        "100000",
+                        if language == "ru" {
+                            "100 000 строк"
+                        } else {
+                            "100 000 lines"
+                        },
+                    ),
                 ],
             );
             history.hint = if language == "ru" {
@@ -503,6 +540,24 @@ pub fn rows(settings: &Settings, section: &str, context: &Context<'_>) -> ModelR
             rows.push(action("project-home", "settings.about", "", "edit.open"));
         }
     }
+    for row in &mut rows {
+        if [
+            "language",
+            "closeAction",
+            "restoreTabs",
+            "cursorStyle",
+            "rightClickPaste",
+            "pasteWarning",
+            "filesDoubleClick",
+        ]
+        .contains(&row.key.as_str())
+        {
+            row.kind = 8;
+        }
+        if row.key == "fontSize" {
+            row.kind = 9;
+        }
+    }
     ModelRc::new(VecModel::from(rows))
 }
 
@@ -546,7 +601,7 @@ mod tests {
                             "{section}: {text}"
                         );
                     }
-                    if row.kind == 2 && !row.value.is_empty() {
+                    if [2, 8].contains(&row.kind) && !row.value.is_empty() {
                         assert!(
                             row.choices.iter().any(|choice| choice.value == row.value),
                             "{section}: {} = {}",

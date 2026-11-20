@@ -25,12 +25,14 @@ pub enum ServiceEvent {
     Preference(&'static str, String),
     Update(String),
     Clipboard(String),
+    AgentToken(String),
 }
 
 pub struct Services {
     pub shells: Vec<ShellProfile>,
     pub editors: Vec<(String, String)>,
     pub keychain: String,
+    pub keychain_available: bool,
     pub updates: String,
     pub receiver: mpsc::Receiver<ServiceEvent>,
     sender: mpsc::Sender<ServiceEvent>,
@@ -55,6 +57,7 @@ impl Services {
             shells: vec![],
             editors: vec![],
             keychain: "…".into(),
+            keychain_available: false,
             updates: String::new(),
             receiver,
             sender,

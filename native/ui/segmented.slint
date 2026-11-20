@@ -1,0 +1,26 @@
+import { Theme } from "controls.slint";
+import { Choice } from "select.slint";
+
+// app.css .segmented: 2px padding/gap, 26px buttons, 11px horizontal padding.
+export component Segmented inherits Rectangle {
+    in property <[Choice]> choices;
+    in-out property <string> value;
+    in property <string> label;
+    callback chosen(string);
+    width:segments.preferred-width;height:30px;horizontal-stretch:0;
+    background:Theme.hover;border-radius:7px;
+    accessible-role:groupbox;accessible-label:root.label;
+    segments:=HorizontalLayout {
+        padding:2px;spacing:2px;alignment:start;
+        for choice in root.choices: Rectangle {
+            width:caption.preferred-width+22px;height:26px;border-radius:5px;
+            background:choice.value==root.value ? Theme.elevated:transparent;
+            accessible-role:button;accessible-label:choice.label;accessible-checked:choice.value==root.value;
+            accessible-action-default=>{root.value=choice.value;root.chosen(choice.value);}
+            forward-focus:focus;
+            focus:=FocusScope {key-pressed(event)=>{if event.text==Key.Return || event.text==" " {root.value=choice.value;root.chosen(choice.value);accept}else{reject}}}
+            caption:=Text {x:11px;y:0px;width:parent.width - 22px;height:parent.height;text:choice.label;color:choice.value==root.value || area.has-hover ? Theme.text:Theme.text-2;font-weight:500;vertical-alignment:center;horizontal-alignment:center;}
+            area:=TouchArea {clicked=>{root.value=choice.value;root.chosen(choice.value);}}
+        }
+    }
+}

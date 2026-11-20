@@ -595,6 +595,43 @@ impl App {
         }
     }
 
+    fn refresh_saved_colors(&self, ui: &AppWindow) {
+        let preset = crate::settings::defaults();
+        let values = crate::highlight::KINDS
+            .iter()
+            .filter_map(|kind| preset["highlightColors"][kind].as_str())
+            .chain(["#8c929b"]);
+        let swatch = |hex: &str| crate::ColorSwatch {
+            hex: hex.into(),
+            color: crate::colors::parse(hex).unwrap_or_default().color,
+        };
+        ui.set_settings_color_presets(ModelRc::new(VecModel::from(
+            values.map(swatch).collect::<Vec<_>>(),
+        )));
+        ui.set_settings_saved_colors(ModelRc::new(VecModel::from(
+            self.settings.value["savedColors"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+                .filter(|c| crate::settings::valid_color(c))
+                .take(14)
+                .map(swatch)
+                .collect::<Vec<_>>(),
+        )));
+    }
+    fn agent_snippet(&self, client: &str) -> String {
+        let exe = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let json = serde_json::to_string(&exe).unwrap();
+        match client {
+            "claude"=>format!("claude mcp add --scope user nexssh\n  {json} mcp"),
+            "codex"=>format!("[mcp_servers.nexssh]\ncommand = {json}\nargs = [\"mcp\"]"),
+            "http"=>serde_json::to_string_pretty(&serde_json::json!({"mcpServers":{"nexssh":{"type":"http","url":self.agents.status.url,"headers":{"Authorization":"Bearer <token>"}}}})).unwrap(),
+            _=>serde_json::to_string_pretty(&serde_json::json!({"mcpServers":{"nexssh":{"command":exe,"args":["mcp"]}}})).unwrap(),
+        }
+    }
     fn refresh_settings(&self, ui: &AppWindow) {
         let snapshot = self.core.store.snapshot();
         let context = settings_schema::Context {
@@ -643,6 +680,39 @@ impl App {
             label: i18n::tr("settings.editorCustom", lang).into(),
         });
         ui.set_settings_editors(ModelRc::new(VecModel::from(editors)));
+        ui.set_settings_data_path(self.core.data_dir.display().to_string().into());
+        ui.set_settings_version(
+            i18n::tr("settings.version", lang)
+                .replace("{version}", env!("CARGO_PKG_VERSION"))
+                .into(),
+        );
+        ui.set_settings_update_status(self.services.updates.as_str().into());
+        ui.set_settings_keychain_status(self.services.keychain.as_str().into());
+        ui.set_settings_keychain_ok(self.services.keychain_available);
+        ui.set_settings_agents_summary(self.agents.summary.as_str().into());
+        ui.set_settings_agents_error(self.agents.status.error.is_some());
+        ui.set_settings_share_options(ModelRc::new(VecModel::from(
+            snapshot
+                .servers
+                .iter()
+                .filter(|s| s.agents == nexssh_core::AgentAccess::Off)
+                .map(|s| crate::Choice {
+                    value: format!("agent-server:{}", s.id).into(),
+                    label: s.name.as_str().into(),
+                })
+                .collect::<Vec<_>>(),
+        )));
+        ui.set_settings_agents_enabled(self.settings.boolean("agentsEnabled"));
+        ui.set_settings_snippets(ModelRc::new(VecModel::from(
+            ["claude", "codex", "json", "http"]
+                .into_iter()
+                .map(|client| crate::Choice {
+                    value: client.into(),
+                    label: self.agent_snippet(client).into(),
+                })
+                .collect::<Vec<_>>(),
+        )));
+        self.refresh_saved_colors(ui);
     }
 
     fn patch_setting(&mut self, ui: &AppWindow, key: &str, value: &str) {
@@ -742,6 +812,23 @@ impl App {
     fn setting_action(&mut self, ui: &AppWindow, key: &str, value: &str) {
         self.settings.capture(ui);
         match key {
+            "font-smaller" | "font-larger" => {
+                let next = (self.settings.number("fontSize")
+                    + if key == "font-smaller" { -1.0 } else { 1.0 })
+                .clamp(9.0, 28.0);
+                self.patch_setting(ui, "fontSize", &next.to_string());
+                self.refresh_settings(ui);
+            }
+            "agents-hide-token" => ui.set_settings_agent_token("".into()),
+            "agents-reveal-token" => {
+                let agents = Arc::clone(&self.agents.controller);
+                let core = Arc::clone(&self.core);
+                self.services.job(move || {
+                    Ok(Some(ServiceEvent::AgentToken(
+                        agents.token_blocking(&core.secrets),
+                    )))
+                });
+            }
             "backup-export" => self.services.export(
                 Arc::clone(&self.core),
                 self.settings.value.clone(),
@@ -812,6 +899,11 @@ impl App {
         while let Ok(event) = self.services.receiver.try_recv() {
             let lang = i18n::resolve(self.settings.text("language"));
             match event {
+                ServiceEvent::AgentToken(token) => {
+                    if ui.get_overlay() == "settings" && ui.get_settings_section() == "agents" {
+                        ui.set_settings_agent_token(token.into());
+                    }
+                }
                 ServiceEvent::Clipboard(text) => report(
                     ui,
                     arboard::Clipboard::new().and_then(|mut c| c.set_text(text)),
@@ -821,6 +913,7 @@ impl App {
                     editors,
                     keychain,
                 } => {
+                    self.services.keychain_available = keychain.is_none();
                     self.services.shells = shells;
                     self.services.editors = editors;
                     self.services.keychain = keychain
@@ -1566,6 +1659,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let ui = AppWindow::new()?;
     i18n::init(&ui, settings.text("language"));
+    crate::colors::init(&ui);
     settings.apply(&ui);
     if let Some(path) = &settings.recovery {
         ui.set_notice(format!("Повреждённые настройки сохранены: {path}").into());
@@ -1649,6 +1743,21 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             "filesShowHidden",
             if show { "true" } else { "false" },
         );
+    });
+    bind!(on_settings_save_color, |state, window, color, save| {
+        let mut saved = state.settings.value["savedColors"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        saved.retain(|c| c.as_str() != Some(color.as_str()));
+        if save && crate::settings::valid_color(&color) {
+            if saved.len() >= 14 {
+                saved.remove(0);
+            }
+            saved.push(color.to_string().into());
+        }
+        state.settings.set_value("savedColors", saved.into());
+        state.refresh_saved_colors(&window);
     });
     bind!(on_open_settings, |state, window| {
         state.refresh_settings(&window);
@@ -2010,6 +2119,7 @@ mod tests {
             Core::with_secrets(dir.path(), nexssh_core::secrets::Secrets::in_memory()).unwrap();
         let (sender, events) = mpsc::channel();
         i18n::init(&ui, "ru");
+        crate::colors::init(&ui);
         let core = Arc::new(core);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
