@@ -1,0 +1,47 @@
+import { Theme, Icon } from "controls.slint";
+import { ScrollView } from "std-widgets.slint";
+export struct Choice { value: string, label: string }
+
+export component Select inherits Rectangle {
+    in property <[Choice]> choices;
+    in-out property <string> value;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback chosen(string);
+    property <bool> choice-pending;
+    property <string> pending-value;
+    Timer {interval:1ms;running:root.choice-pending;triggered=>{let value=root.pending-value;root.choice-pending=false;root.chosen(value);}}
+    height: 32px; border-radius: 7px; border-width: 1px; border-color: Theme.border; background: Theme.input;
+    opacity: root.enabled ? 1 : 0.5;
+    accessible-role: combobox; accessible-label: root.label; accessible-value: root.value; accessible-enabled: root.enabled;
+    accessible-action-expand => { if root.enabled { popup.show(); } }
+    Text { x: 10px; width: parent.width - 36px; height: parent.height; color: Theme.text; vertical-alignment: center; overflow: elide;
+        text: root.value;
+    }
+    for choice in root.choices: Rectangle {
+        x: 10px; y: 1px; width: parent.width - 36px; height: parent.height - 2px;
+        visible: choice.value == root.value; background: Theme.input;
+        Text { x:0px;y:0px;width:parent.width;height:parent.height; text: choice.label; color: Theme.text; vertical-alignment: center; overflow: elide; accessible-role: none; }
+    }
+    Icon { x: parent.width - 25px; y: 9.5px; width: 13px; height: 13px; name: "chevronDown"; colorize: Theme.text-2; }
+    TouchArea { enabled: root.enabled; clicked => { popup.show(); } }
+    popup := PopupWindow {
+        x: 0px; y: root.height + 4px; width: root.width;
+        height: min(260px, root.choices.length * 30px + 12px);
+        Rectangle {
+            background: Theme.elevated; border-width: 1px; border-color: Theme.border; border-radius: 10px;
+            ScrollView {
+                x: 5px; y: 5px; width: parent.width - 10px; height: parent.height - 10px;
+                VerticalLayout { spacing: 0px;
+                    for choice in root.choices: Rectangle {
+                        height: 30px; border-radius: 6px; background: choice.value == root.value ? Theme.active : area.has-hover ? Theme.hover : transparent;
+                        accessible-role: button; accessible-label: choice.label;
+                        accessible-action-default => { root.value = choice.value;root.pending-value=choice.value;root.choice-pending=true;popup.close(); }
+                        Text { x: 9px; width: parent.width - 18px; height: parent.height; text: choice.label; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                        area := TouchArea { clicked => { root.value = choice.value;root.pending-value=choice.value;root.choice-pending=true;popup.close(); } }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -63,6 +63,7 @@ export component IconButton inherits Rectangle {
 export component Input inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
+    in property <string> label;
     in property <string> icon;
     in property <bool> search;
     in property <bool> bare;
@@ -76,6 +77,7 @@ export component Input inherits Rectangle {
     background: root.bare ? transparent : root.search && !edit.has-focus ? Theme.hover : Theme.input;
     forward-focus: edit;
     accessible-role: text-input;
+    accessible-label:root.label=="" ? root.placeholder:root.label;
     accessible-placeholder-text: root.placeholder;
     accessible-value <=> root.text;
     accessible-action-set-value(value) => { root.text = value; root.edited(value); }
@@ -104,12 +106,13 @@ export component Input inherits Rectangle {
 export component Toggle inherits Rectangle {
     in-out property <bool> checked;
     in property <string> label;
+    callback toggled(bool);
     width: 34px; height: 20px; horizontal-stretch: 0; vertical-stretch: 0;
     border-radius: 10px; background: root.checked ? Theme.green : Theme.active;
     accessible-role: switch; accessible-label: root.label; accessible-checked: root.checked;
-    accessible-action-default => { root.checked = !root.checked; }
+    accessible-action-default => { root.checked = !root.checked; root.toggled(root.checked); }
     Rectangle { x: root.checked ? 16px : 2px; y: 2px; width: 16px; height: 16px; border-radius: 8px; background: Theme.bg; }
-    TouchArea { clicked => { root.checked = !root.checked; } }
+    TouchArea { clicked => { root.checked = !root.checked; root.toggled(root.checked); } }
 }
 
 export component NavLink inherits Rectangle {

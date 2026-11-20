@@ -10,15 +10,34 @@ repository.workspace = true
 
 [dependencies]
 nexssh-core.workspace = true
-slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "accessibility"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync", "net", "io-util", "io-std", "macros"] }
 vt100 = "0.18.1"
 arboard = { version = "3.7", default-features = false }
 serde_json.workspace = true
+serde.workspace = true
+regex = "1"
+sys-locale = "0.3"
+rfd = "0.18"
+open = "5"
+log.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+semver = "1"
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+getrandom = "0.4"
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "renderer-software", "accessibility", "system-tray"] }
 
 [build-dependencies]
 slint-build = "=1.19.0"
+serde_json.workspace = true
 
 [dev-dependencies]
 i-slint-backend-testing = "=1.19.0"
 tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation"] }
+winreg = "0.55"

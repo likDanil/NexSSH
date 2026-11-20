@@ -1,0 +1,137 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme, Action, IconButton, Input, Toggle } from "controls.slint";
+import { Select, Choice } from "select.slint";
+import { ThemeCatalog } from "theme.slint";
+import { I18n } from "i18n.slint";
+export { Choice } from "select.slint";
+export { I18n } from "i18n.slint";
+
+export struct SettingRow { key: string, label: string, hint: string, kind: int, value: string, checked: bool, choices: [Choice], enabled: bool }
+export struct AssociationRow { extensions: string, editor: string, command: string }
+
+component Field inherits Rectangle {
+    in-out property <SettingRow> entry;
+    callback patch(string,string);
+    callback action(string,string);
+    height: root.entry.hint == "" ? 44px : max(76px,44px+hint.preferred-height);
+    opacity: root.entry.enabled ? 1 : 0.5;
+    Text { x: 0px; y: 9px; width: parent.width - 280px; height: 24px; text: root.entry.label; color: Theme.text; vertical-alignment: center; overflow: elide; }
+    hint:=Text { x: 0px; y: 34px; width: parent.width - 280px; text: root.entry.hint; color: Theme.text-2; font-size: 11.5px; wrap: word-wrap; }
+    if root.entry.kind == 1: Toggle { x: parent.width - 34px; y: 12px; label: root.entry.label; checked <=> root.entry.checked; toggled(value) => { root.patch(root.entry.key,value ? "true" : "false"); } }
+    if root.entry.kind == 2: Select { x: parent.width - 260px; y: 6px; width: 260px; choices: root.entry.choices; value <=> root.entry.value; label: root.entry.label; enabled: root.entry.enabled; chosen(value) => { root.patch(root.entry.key,value); } }
+    if root.entry.kind == 3 || root.entry.kind == 4 || root.entry.kind == 5: Input { x: parent.width - 260px; y: 6px; width: 260px; text <=> root.entry.value; placeholder: root.entry.label; edited(value) => { root.patch(root.entry.key,value); } }
+    if root.entry.kind == 6: Action { x: parent.width - self.width; y: 7px; text: root.entry.value; enabled: root.entry.enabled; clicked => { root.action(root.entry.key,""); } }
+    if root.entry.kind == 7: Text { x: parent.width - 320px; width: 320px; height: parent.height; text: root.entry.value; color: Theme.text-2; vertical-alignment: center; horizontal-alignment: right; overflow: elide; font-size: 12px; }
+    Rectangle { x: 0px; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.border-soft; }
+}
+
+export component SettingsDialog inherits Rectangle {
+    in-out property <string> section: "general";
+    in property <[SettingRow]> rows;
+    in property <[AssociationRow]> associations;
+    in property <[Choice]> editor-choices;
+    in property <int> theme;
+    in property <string> activity;
+    callback select-section(string);
+    callback patch(string,string);
+    callback action(string,string);
+    callback association(int,string,string,string);
+    callback close();
+    property <bool> with-passwords;
+    property <string> backup-password;
+    property <string> backup-repeat;
+    property <string> extensions;
+    property <string> association-editor: "system";
+    property <string> association-command;
+    background: Theme.overlay;
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        x: (parent.width - self.width)/2; y: parent.height * 0.11;
+        width: min(700px,parent.width - 32px); height: min(parent.height * 0.8, 180px + root.rows.length * 66px + (root.section == "general" ? 140px : root.section == "files" ? 220px : root.section == "backup" ? 160px : 0px));
+        border-radius: 12px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
+        drop-shadow-blur: 32px; drop-shadow-offset-y: 10px; drop-shadow-color: #30000000;
+        TouchArea { }
+        Text { x: 20px; y: 18px; text: I18n.tr("settings.title"); color: Theme.text; font-size: 15px; font-weight: 600; }
+        IconButton { x: parent.width - 42px; y: 10px; icon: "x"; label: I18n.tr("window.close"); clicked => { root.close(); } }
+        Flickable {
+            x: 20px; y: 52px; width: parent.width - 40px; height: 30px;
+            content-width: max(self.width,tabs.preferred-width); content-height: 30px;
+            tabs := HorizontalLayout {
+                spacing: 2px; padding: 2px; alignment: start;
+                for name in ["general","terminal","files","keyboard","agents","backup","about"]: Rectangle {
+                    height: 26px; width: title.preferred-width + 22px; border-radius: 5px;
+                    background: root.section == name ? Theme.elevated : area.has-hover ? Theme.hover : transparent;
+                    accessible-role: tab; accessible-label: I18n.tr("settings." + name);
+                    accessible-action-default => { root.section = name; root.select-section(name); }
+                    title := Text { text: I18n.tr("settings." + name); color: root.section == name ? Theme.text : Theme.text-2; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+                    area := TouchArea { clicked => { root.section = name; root.select-section(name); } }
+                }
+            }
+        }
+        ScrollView {
+            x: 20px; y: 96px; width: parent.width - 40px; height: parent.height - 150px;
+            VerticalLayout {
+                spacing: 0px; padding-top: 4px; padding-bottom: 18px;
+                if root.section == "general": VerticalLayout {
+                    for setting[index] in root.rows: VerticalLayout { if setting.key == "language": Field { entry <=> setting; patch(key,value) => { root.patch(key,value); } } }
+                    Text { text: I18n.tr("settings.theme"); color: Theme.text-2; font-size: 11.5px; height: 28px; vertical-alignment: center; }
+                    HorizontalLayout { spacing: 10px;
+                        for choice[index] in ThemeCatalog.entries: Rectangle {
+                            height: self.width / 1.35 + 30px;
+                            Rectangle { x: -3px; y: -3px; width: parent.width + 6px; height: parent.width / 1.35 + 6px; border-radius: 12px; border-width: 2px; border-color: root.theme == index - 1 ? Theme.text-2 : transparent; }
+                            Rectangle { x: 0px; y: 0px; width: parent.width; height: self.width / 1.35; border-radius: 9px; border-width: 1px; border-color: Theme.border; background: choice.frame; clip: true;
+                                if index == 0: Rectangle { x: parent.width/2; width: parent.width/2; height: parent.height; background: #2a2d31; }
+                                Rectangle { x: parent.width*0.28; y: parent.height*0.3; width: parent.width*0.72; height: parent.height*0.7; background: choice.surface; border-top-left-radius: 6px;
+                                    Rectangle { x: 8px; y: 9px; width: parent.width*0.38; height: 3px; border-radius: 2px; background: choice.accent; }
+                                    Rectangle { x: 8px; y: 17px; width: parent.width*0.62; height: 3px; border-radius: 2px; background: choice.text; }
+                                    Rectangle { x: 8px; y: 25px; width: parent.width*0.48; height: 3px; border-radius: 2px; background: choice.text; }
+                                }
+                            }
+                            Text { y: parent.width/1.35 + 7px; width: parent.width; horizontal-alignment: center; color: Theme.text-2; font-size: 12px; text: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy")); }
+                            accessible-role: button; accessible-label: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"));
+                            accessible-action-default => { root.patch("theme",index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"); }
+                            TouchArea { clicked => { root.patch("theme",index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"); } }
+                        }
+                    }
+                    Rectangle { height: 16px; }
+                }
+                for setting[index] in root.rows: VerticalLayout { if root.section != "general" || setting.key != "language": Field {
+                    entry <=> setting;
+                    patch(key,value) => { root.patch(key,value); }
+                    action(key,value) => { if key == "backup-export" { if !root.with-passwords || (root.backup-password != "" && root.backup-password == root.backup-repeat) { root.action(key,root.with-passwords ? root.backup-password : ""); root.backup-password = ""; root.backup-repeat = ""; } } else { root.action(key,value); } }
+                } }
+                if root.section == "files": VerticalLayout { spacing: 8px;
+                    Text { text: I18n.tr("settings.associations"); color: Theme.text; font-size: 13px; font-weight: 600; height: 32px; vertical-alignment: center; }
+                    Text { text: I18n.tr("settings.associationsHint"); color: Theme.text-2; font-size: 11.5px; wrap: word-wrap; }
+                    for association[index] in root.associations: VerticalLayout { spacing: 5px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: association.extensions; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                            Select { width: 220px; choices: root.editor-choices; value <=> association.editor; label: I18n.tr("settings.editor"); chosen(value) => { root.association(index,association.extensions,value,association.command); } }
+                            IconButton { icon: "x"; label: I18n.tr("common.remove"); clicked => { root.association(index,"","",""); } }
+                        }
+                        if association.editor == "custom": Input { text <=> association.command; placeholder: "editor {file}"; edited(value) => { root.association(index,association.extensions,association.editor,value); } }
+                    }
+                    HorizontalLayout { spacing: 8px;
+                        Input { text <=> root.extensions; placeholder: "log, txt"; }
+                        Select { width: 220px; choices: root.editor-choices; value <=> root.association-editor; label: I18n.tr("settings.editor"); }
+                        Action { text: I18n.tr("settings.associationAdd"); clicked => { root.association(-1,root.extensions,root.association-editor,root.association-command); root.extensions = ""; root.association-command = ""; } }
+                    }
+                    if root.association-editor == "custom": Input { text <=> root.association-command; placeholder: "editor {file}"; }
+                }
+                if root.section == "backup": VerticalLayout { spacing: 10px;
+                    HorizontalLayout { Text { text: I18n.tr("backup.withPasswords"); color: Theme.text; vertical-alignment: center; } Toggle { label: I18n.tr("backup.withPasswords"); checked <=> root.with-passwords; } }
+                    if root.with-passwords: VerticalLayout { spacing: 10px;
+                        Input { text <=> root.backup-password; input-type: password; placeholder: I18n.tr("backup.password"); }
+                        Input { text <=> root.backup-repeat; input-type: password; placeholder: I18n.tr("backup.passwordRepeat"); }
+                        Text { text: root.backup-password == root.backup-repeat && root.backup-password != "" ? "" : I18n.tr("backup.passwordMismatch"); color: Theme.red; font-size: 12px; }
+                    }
+                }
+                if root.section == "agents" && root.activity != "": Text { text: root.activity; color: Theme.text-2; font-size: 12px; wrap: word-wrap; }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+        Rectangle { y: parent.height - 50px; width: parent.width; height: 1px; background: Theme.border-soft; }
+        Action { x: parent.width - self.width - 20px; y: parent.height - 40px; text: I18n.tr("window.close"); clicked => { root.close(); } }
+    }
+}

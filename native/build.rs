@@ -1,5 +1,7 @@
 //! Keep the Svelte 1.x design sources authoritative during the migration.
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
+#[path = "build/settings.rs"]
+mod settings;
 
 fn block<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -13,6 +15,7 @@ fn block<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 
 fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    settings::generate(&out);
     let css_path = "../ui/src/app.css";
     let icons_path = "../ui/src/lib/components/Icon.svelte";
     let palettes_path = "../ui/src/lib/themes.ts";
