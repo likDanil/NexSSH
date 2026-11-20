@@ -31,7 +31,11 @@ cargo run -p nexssh-slint
 
 ## Implemented
 
-- Native dark window, server list and search.
+- 1.x window layout: 240px resizable sidebar, 40px custom title bar, compact tabs,
+  collapsible server groups, rounded terminal surface and session status bar.
+- Light, Graphite, Black, Navy and System themes; bundled JetBrains Mono.
+- Server home screen, sidebar search, quick-connect palette and session actions menu.
+- Add a server and import `~/.ssh/config`; basic appearance settings.
 - Quick SSH connection (`user@host:port`, including bracketed IPv6).
 - Multiple local and SSH sessions, switching/closing tabs and reconnecting.
 - Username, password, private-key passphrase, keyboard-interactive/2FA and host-key dialogs.
@@ -47,9 +51,10 @@ cargo run -p nexssh-slint
 1. **Terminal compatibility:** real-world vim, htop, tmux and ConPTY coverage;
    mouse reporting, text selection, IME, search, links, resizing/reflow and rendering performance.
    Current copy copies the entire visible screen; mouse selection is not implemented.
-2. **Server management:** create/edit/delete, group management, SSH config import,
-   shell selection, settings, translations and themes. The preview currently uses Russian
-   UI labels and the default local shell.
+2. **Server management:** full edit/delete dialogs, group management, shell selection,
+   the remaining settings sections and translations. The preview currently uses Russian
+   UI labels and the default local shell. The server editor and settings dialog contain
+   only the controls implemented in the native client so far.
 3. **Files and tools:** SFTP UI, transfers, forwarding controls, metrics and the AI-agent bridge.
 4. **Desktop integration:** tray, session restoration, window state, drag-and-drop,
    Explorer integration, signed updates and packaging.
@@ -61,11 +66,22 @@ by this prototype. SSH and platform-specific behavior need testing on all suppor
 
 ## Structure
 
-- `ui/app.slint`: native window and components.
+- `ui/app.slint`: native window layout, ported from the original Svelte components.
+- `ui/controls.slint`: controls ported from the shared CSS.
+- `build.rs`: generates Slint theme colors and SVG assets directly from `ui/src/app.css`
+  and `ui/src/lib/components/Icon.svelte`, plus terminal palettes and theme previews
+  from `ui/src/lib/themes.ts`. These 1.x files remain the source of truth.
+- `src/appearance.rs`: inherits 1.x `settings.json`; saves native appearance changes
+  separately to `native-settings.json`.
 - `src/app.rs`: UI-thread controller, session lifecycle and event bridge.
 - `src/terminal.rs`: bounded terminal parser, ANSI colors, input encoding and terminal replies.
 - `src/prompts.rs`: SSH prompts and responses.
 - `../core`: shared SSH, local PTY and storage implementation.
+
+Layout measurements are ported from `App.svelte`, `Sidebar.svelte`, `TabBar.svelte`,
+`ServerRow.svelte`, `Home.svelte`, `CommandPalette.svelte` and `Modal.svelte`, rather
+than estimated from screenshots. Native text rasterization, shadows and window-system
+integration can still differ from WebView rendering; full pixel parity is not yet claimed.
 
 For UI inspection in development, Slint provides an optional local MCP server:
 

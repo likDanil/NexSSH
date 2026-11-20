@@ -4,6 +4,7 @@ use slint::{Model, ModelRc, VecModel};
 use crate::{AppWindow, PromptField};
 
 pub fn show(ui: &AppWindow, prompt: &Prompt) {
+    ui.set_prompt_auth(true);
     let field = |label: &str, secret: bool, value: &str| PromptField {
         label: label.into(),
         secret,
@@ -111,6 +112,7 @@ pub fn reply(ui: &AppWindow, prompt: &Prompt, accept: bool) -> PromptReply {
 
 pub fn clear(ui: &AppWindow) {
     ui.set_prompt_visible(false);
+    ui.set_prompt_auth(false);
     ui.set_prompt_fields(ModelRc::default());
     ui.set_prompt_detail("".into());
 }

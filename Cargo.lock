@@ -4586,6 +4586,7 @@ dependencies = [
  "arboard",
  "i-slint-backend-testing",
  "nexssh-core",
+ "serde_json",
  "slint",
  "slint-build",
  "tempfile",

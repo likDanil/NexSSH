@@ -1,0 +1,127 @@
+import { Theme } from "theme.slint";
+export { Theme } from "theme.slint";
+import { Icon } from "icons.slint";
+export { Icon } from "icons.slint";
+
+// Geometry and colors follow app.css shared controls and the Svelte components.
+export component Action inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    in property <bool> ghost;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 30px;
+    width: label.preferred-width + 26px + (root.icon == "" ? 0px : 20px);
+    horizontal-stretch: 0; vertical-stretch: 0;
+    border-radius: 7px;
+    border-width: 1px;
+    border-color: root.primary ? Theme.primary : root.ghost ? transparent : Theme.border;
+    background: root.primary ? Theme.primary : area.has-hover ? Theme.hover : root.ghost ? transparent : Theme.elevated;
+    opacity: root.enabled ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    forward-focus: focus;
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); accept } else { reject }
+        }
+    }
+    if root.icon != "": Icon {
+        x: 12px; y: 8px; width: 14px; height: 14px; name: root.icon;
+        colorize: root.primary ? Theme.primary-text : Theme.text;
+    }
+    label := Text {
+        x: root.icon == "" ? 12px : 32px;
+        width: parent.width - self.x - 12px; height: parent.height;
+        text: root.text; font-size: 13px; font-weight: 500;
+        color: root.primary ? Theme.primary-text : Theme.text;
+        vertical-alignment: center;
+    }
+    area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    in property <color> ink: Theme.text-2;
+    callback clicked();
+    width: 28px; height: 28px; horizontal-stretch: 0; vertical-stretch: 0;
+    border-radius: 7px;
+    background: area.has-hover && root.enabled ? (root.danger ? #c42b1c : Theme.hover) : transparent;
+    accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Icon { name: root.icon; width: 16px; height: 16px; x: (parent.width - self.width)/2; y: (parent.height - self.height)/2; colorize: area.has-hover && root.danger ? white : root.ink; }
+    area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+export component Input inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <string> icon;
+    in property <bool> search;
+    in property <bool> bare;
+    in property <float> font-size: 13;
+    in property <InputType> input-type: InputType.text;
+    callback edited(string);
+    callback accepted(string);
+    height: 32px;
+    border-radius: 7px; border-width: root.bare ? 0px : 1px;
+    border-color: edit.has-focus ? (root.search ? Theme.border : Theme.text-3) : root.search ? transparent : Theme.border;
+    background: root.bare ? transparent : root.search && !edit.has-focus ? Theme.hover : Theme.input;
+    forward-focus: edit;
+    accessible-role: text-input;
+    accessible-placeholder-text: root.placeholder;
+    accessible-value <=> root.text;
+    accessible-action-set-value(value) => { root.text = value; root.edited(value); }
+    if edit.has-focus && !root.search && !root.bare: Rectangle {
+        x: -3px; y: -3px; width: parent.width + 6px; height: parent.height + 6px;
+        border-radius: 10px; border-width: 3px; border-color: Theme.focus;
+    }
+    if root.icon != "": Icon { x: 10px; y: (parent.height - 14px)/2; width: 14px; height: 14px; name: root.icon; colorize: Theme.text-2; }
+    Text {
+        x: edit.x; width: edit.width; height: parent.height;
+        visible: root.text == ""; text: root.placeholder; color: Theme.text-2;
+        font-size: root.font-size * 1px; vertical-alignment: center; overflow: elide;
+    }
+    edit := TextInput {
+        accessible-role: none;
+        x: root.icon == "" ? 10px : 32px; width: parent.width - self.x - 10px; height: parent.height;
+        text <=> root.text; color: Theme.text; font-size: root.font-size * 1px; single-line: true;
+        selection-background-color: Theme.focus; selection-foreground-color: Theme.text;
+        input-type: root.input-type; vertical-alignment: center;
+        edited => { root.edited(self.text); }
+        accepted => { root.accepted(self.text); }
+    }
+}
+
+// SettingsDialog.svelte .toggle (34x20, 16px thumb, 14px travel).
+export component Toggle inherits Rectangle {
+    in-out property <bool> checked;
+    in property <string> label;
+    width: 34px; height: 20px; horizontal-stretch: 0; vertical-stretch: 0;
+    border-radius: 10px; background: root.checked ? Theme.green : Theme.active;
+    accessible-role: switch; accessible-label: root.label; accessible-checked: root.checked;
+    accessible-action-default => { root.checked = !root.checked; }
+    Rectangle { x: root.checked ? 16px : 2px; y: 2px; width: 16px; height: 16px; border-radius: 8px; background: Theme.bg; }
+    TouchArea { clicked => { root.checked = !root.checked; } }
+}
+
+export component NavLink inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> selected;
+    callback clicked();
+    height: 30px; border-radius: 7px;
+    background: root.selected ? Theme.active : area.has-hover ? Theme.hover : transparent;
+    accessible-role: button; accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    Icon { x: 10px; y: 7.5px; width: 15px; height: 15px; name: root.icon; colorize: Theme.text-2; }
+    Text { x: 35px; width: parent.width - 43px; height: parent.height; text: root.text; color: Theme.text; font-size: 13px; vertical-alignment: center; }
+    area := TouchArea { clicked => { root.clicked(); } }
+}

@@ -1,54 +1,50 @@
-import { LineEdit, ScrollView, CheckBox, Palette } from "std-widgets.slint";
+import { ScrollView, CheckBox, Palette } from "std-widgets.slint";
+import { Theme, Icon, Action, IconButton, Input, NavLink, Toggle } from "controls.slint";
+import { ThemeCatalog } from "theme.slint";
+import "../assets/fonts/JetBrainsMono.ttf";
 
-export struct ServerRow { id: string, name: string, address: string, group: string }
-export struct TabRow { title: string, status: string }
+// Layout values come from App.svelte, Sidebar, TabBar, ServerRow, Home and Modal.
+export struct ServerRow {
+    id: string, name: string, address: string, host: string, group: string,
+    header: bool, count: int, collapsed: bool, hidden: bool, state: int, auth: string,
+}
+export struct TabRow { title: string, status: string, state: int, local: bool }
 export struct TerminalCell {
     row: int, col: int, span: int, text: string,
     foreground: color, background: color, bold: bool, underline: bool,
 }
 export struct PromptField { label: string, secret: bool, value: string }
 
-component Action inherits Rectangle {
-    in property <string> text;
-    in property <bool> primary: false;
-    in property <bool> enabled: true;
-    callback clicked();
-    accessible-role: button;
-    accessible-label: root.text;
-    accessible-enabled: root.enabled;
-    accessible-action-default => { if root.enabled { root.clicked(); } }
-    height: 32px;
-    horizontal-stretch: 0;
-    vertical-stretch: 0;
-    width: label.preferred-width + 24px;
-    border-radius: 5px;
-    background: !root.enabled ? #222428 : root.primary ? #528c72 : area.has-hover ? #373a40 : #2a2d31;
-    label := Text {
-        text: root.text;
-        color: root.enabled ? #e5e7eb : #686e77;
-        font-size: 12px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-    area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
-}
-
 export component AppWindow inherits Window {
-    title: "NexSSH 2.0 · Slint preview";
-    preferred-width: 1160px;
-    preferred-height: 740px;
-    min-width: 780px;
-    min-height: 480px;
-    background: #141517;
-    default-font-family: "Segoe UI";
+    title: "NexSSH 2.0";
+    icon: @image-url("../../ui/src/assets/logo.png");
+    preferred-width: 1180px; preferred-height: 760px;
+    min-width: 780px; min-height: 480px;
+    no-frame: true; resize-border-width: 5px;
+    background: Theme.frame;
+    default-font-family: "Segoe UI Variable Text";
     default-font-size: 13px;
-    init => { Palette.color-scheme = ColorScheme.dark; }
-
+    in-out property <int> theme;
+    out property <bool> system-dark;
+    out property <int> resolved-theme: root.theme < 0 ? (root.system-dark ? 1 : 0) : root.theme;
+    in-out property <float> sidebar-width: 240;
+    in-out property <bool> sidebar-hidden;
+    in-out property <bool> show-status: true;
+    in-out property <float> font-size: 13;
+    in-out property <float> line-height: 1.25;
+    in-out property <string> overlay;
     in property <[ServerRow]> servers;
+    in property <[ServerRow]> grouped-servers;
+    in property <[ServerRow]> home-servers;
+    in property <[ServerRow]> palette-servers;
+    in property <bool> filter-active;
     in property <[TabRow]> tabs;
     in property <int> active-tab: -1;
+    in property <int> active-state;
+    in property <bool> active-local;
+    in property <string> selected-server;
     in property <[TerminalCell]> cells;
-    in property <string> terminal-font: "Consolas";
+    in-out property <string> terminal-font: "JetBrains Mono";
     in property <int> cursor-row;
     in property <int> cursor-col;
     in property <bool> cursor-visible;
@@ -56,21 +52,37 @@ export component AppWindow inherits Window {
     in property <string> notice;
     in property <int> scrollback;
     in property <bool> prompt-visible;
+    in property <bool> prompt-auth;
     in property <bool> prompt-host-key;
     in property <bool> prompt-can-accept: true;
     in property <string> prompt-title;
     in property <string> prompt-detail;
     in-out property <[PromptField]> prompt-fields;
     in-out property <bool> remember-host;
-    out property <int> terminal-cols: max(2, min(400, floor((root.width - 249px) / root.cell-width)));
-    out property <int> terminal-rows: max(2, min(150, floor((root.height - 167px - (root.notice == "" ? 0px : 44px)) / root.cell-height)));
+    out property <int> terminal-cols: max(2, min(400, floor((root.width - root.sidebar-size - 36px) / root.cell-width)));
+    out property <int> terminal-rows: max(2, min(150, floor((root.height - 68px - root.status-height) / root.cell-height)));
+    property <length> sidebar-size: root.sidebar-hidden ? 0px : root.sidebar-width * 1px;
+    property <length> status-height: root.show-status && root.active-tab >= 0 ? 26px : 0px;
     property <length> cell-width: metrics.preferred-width;
-    property <length> cell-height: 21px;
+    property <length> cell-height: ceil(root.font-size * root.line-height) * 1px;
+    property <string> resolved-font: root.terminal-font == "" ? "JetBrains Mono" : root.terminal-font;
+    property <string> server-name;
+    property <string> server-host;
+    property <string> server-user;
+    property <string> server-port: "22";
+    property <string> server-group;
+    property <string> palette-text;
+    property <int> palette-index;
     callback filter-servers(string);
     callback refresh-servers();
+    callback toggle-group(string);
+    callback show-home();
     callback connect-server(string);
     callback quick-connect(string);
+    callback palette-query(string);
     callback open-local();
+    callback save-server(string, string, string, string, string);
+    callback import-servers();
     callback select-tab(int);
     callback close-tab(int);
     callback reconnect();
@@ -79,206 +91,409 @@ export component AppWindow inherits Window {
     callback copy-screen();
     callback paste();
     callback answer-prompt(bool);
+    callback close-window();
     public function focus-terminal() { keyboard.focus(); }
-    forward-focus: keyboard;
+    public function show-quick-connect() { root.palette-text = ""; root.palette-index = 0; root.palette-query(""); root.overlay = "quick"; }
+    public function close-overlay() { root.overlay = ""; keyboard.focus(); }
+    public function add-server() {
+        root.server-name = ""; root.server-host = ""; root.server-user = ""; root.server-port = "22"; root.server-group = "";
+        root.overlay = "server";
+    }
+    forward-focus: shortcuts;
+    init => { root.system-dark = Palette.color-scheme == ColorScheme.dark; Theme.variant = root.resolved-theme; Palette.color-scheme = root.resolved-theme == 0 ? ColorScheme.light : ColorScheme.dark; }
+    changed theme => { Theme.variant = root.resolved-theme; Palette.color-scheme = root.resolved-theme == 0 ? ColorScheme.light : ColorScheme.dark; }
 
-    metrics := Text {
-        text: "M";
-        font-family: root.terminal-font;
-        font-size: 14px;
-        visible: false;
-    }
-    VerticalLayout {
-        spacing: 0px;
-        Rectangle {
-            height: 56px;
-            background: #1c1e22;
-            HorizontalLayout {
-                padding-left: 20px; padding-right: 16px; padding-top: 12px; padding-bottom: 12px; spacing: 14px;
-                Text { text: "NexSSH"; color: #e5e7eb; font-size: 20px; font-weight: 650; vertical-alignment: center; horizontal-stretch: 0; }
-                Text { text: "2.0.0 alpha · Slint"; color: #8c929b; vertical-alignment: center; }
-                HorizontalLayout {
-                    alignment: end; spacing: 8px;
-                    destination := LineEdit {
-                        placeholder-text: "user@host:22";
-                        min-width: 190px;
-                        accepted => { root.quick-connect(self.text); keyboard.focus(); }
-                    }
-                    Action { text: "Подключить"; primary: true; clicked => { root.quick-connect(destination.text); keyboard.focus(); } }
-                    Action { text: "+ Локальный"; clicked => { root.open-local(); keyboard.focus(); } }
+    metrics := Text { text: "M"; font-family: root.resolved-font; font-size: root.font-size * 1px; visible: false; }
+    shortcuts := FocusScope {
+        width: 100%; height: 100%;
+        forward-focus: keyboard;
+        capture-key-pressed(event) => {
+            if event.text == Key.Escape && root.prompt-visible { root.answer-prompt(false); return accept; }
+            if event.text == Key.Escape && root.overlay != "" { root.close-overlay(); return accept; }
+            if root.prompt-visible { return reject; }
+            if root.overlay == "quick" {
+                let count = root.palette-servers.length + (root.palette-text == "" ? 0 : 1);
+                if event.text == Key.DownArrow { root.palette-index = min(count - 1, root.palette-index + 1); return accept; }
+                if event.text == Key.UpArrow { root.palette-index = max(0, root.palette-index - 1); return accept; }
+                if event.text == Key.Return && count > 0 {
+                    if root.palette-text != "" && root.palette-index == 0 { root.quick-connect(root.palette-text); }
+                    else { root.connect-server(root.palette-servers[root.palette-index - (root.palette-text == "" ? 0 : 1)].id); }
+                    return accept;
                 }
             }
+            if event.modifiers.control && (event.modifiers.shift || root.active-tab < 0) && (event.text == "k" || event.text == "K") { root.show-quick-connect(); return accept; }
+            if event.modifiers.control && event.modifiers.shift && (event.text == "t" || event.text == "T") { root.show-quick-connect(); return accept; }
+            if event.modifiers.control && event.text == "," { root.overlay = "settings"; return accept; }
+            reject
         }
-        HorizontalLayout {
-            spacing: 1px;
+        // Custom title bar: same 40px strip and window controls as the web client.
+        WindowMoveArea {
+            x: 0px; y: 0px; height: 40px;
+            TouchArea { double-clicked => { root.maximized = !root.maximized; } }
+            if !root.sidebar-hidden: Rectangle {
+                x: 0px; y: 0px; width: root.sidebar-size; height: 40px;
+                Image { source: @image-url("../../ui/src/assets/logo.png"); x: 16px; y: 10px; width: 20px; height: 20px; image-fit: contain; }
+                Text { x: 45px; height: 40px; text: "NexSSH"; font-size: 13.5px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+                IconButton { x: parent.width - 38px; y: 6px; icon: "sidebar"; label: "Скрыть боковую панель"; clicked => { root.sidebar-hidden = true; } }
+            }
             Rectangle {
-                width: 248px;
-                background: #1c1e22;
+                x: root.sidebar-size + 4px; width: root.width - self.x - 176px; height: 40px;
+                if root.sidebar-hidden: IconButton { y: 6px; icon: "sidebar"; label: "Показать боковую панель"; clicked => { root.sidebar-hidden = false; } }
+                Flickable {
+                    x: root.sidebar-hidden ? 32px : 0px; width: parent.width - self.x; height: 40px;
+                    content-width: max(self.width, tab-layout.preferred-width);
+                    content-height: 40px;
+                    tab-layout := HorizontalLayout {
+                        height: 40px; padding-top: 5px; padding-bottom: 5px; spacing: 2px; alignment: start;
+                        for tab[index] in root.tabs: Rectangle {
+                            width: min(200px, max(96px, tab-name.preferred-width + 57px)); height: 30px;
+                            border-radius: 8px; border-width: 1px;
+                            border-color: index == root.active-tab ? Theme.border-soft : transparent;
+                            background: index == root.active-tab ? Theme.surface : tab-touch.has-hover ? Theme.hover : transparent;
+                            accessible-role: AccessibleRole.tab; accessible-label: tab.title;
+                            accessible-action-default => { root.select-tab(index); keyboard.focus(); }
+                            if !tab.local: Rectangle { x: 11px; y: 11.5px; width: 7px; height: 7px; border-radius: 4px; border-width: tab.state == 0 ? 1.5px : 0px; border-color: Theme.text-3; background: tab.state == 2 ? Theme.green : tab.state == 1 ? Theme.amber : transparent; }
+                            if tab.local: Icon { name: "terminal"; x: 7px; y: 8px; width: 14px; height: 14px; colorize: tab.state == 2 ? Theme.green : Theme.text-2; }
+                            tab-name := Text { x: 26px; width: parent.width - 50px; height: parent.height; text: tab.title; font-weight: 500; color: index == root.active-tab ? Theme.text : Theme.text-2; vertical-alignment: center; overflow: elide; }
+                            tab-touch := TouchArea { clicked => { root.select-tab(index); keyboard.focus(); } }
+                            IconButton { x: parent.width - 24px; y: 6px; width: 18px; height: 18px; icon: "x"; label: "Закрыть вкладку"; opacity: index == root.active-tab || tab-touch.has-hover ? 1 : 0; clicked => { root.close-tab(index); keyboard.focus(); } }
+                        }
+                        IconButton { icon: "plus"; label: "Новое подключение"; clicked => { root.show-quick-connect(); } }
+                        IconButton { width: 20px; icon: "chevronDown"; label: "Новая вкладка"; clicked => { root.overlay = root.overlay == "new" ? "" : "new"; } }
+                    }
+                }
+            }
+            if root.active-tab >= 0: IconButton { x: root.width - 176px; y: 6px; icon: "more"; label: "Действия с сессией"; clicked => { root.overlay = root.overlay == "menu" ? "" : "menu"; } }
+            IconButton { x: root.width - 138px; height: 40px; width: 46px; border-radius: 0px; icon: "winMin"; label: "Свернуть"; clicked => { root.minimized = true; } }
+            IconButton { x: root.width - 92px; height: 40px; width: 46px; border-radius: 0px; icon: root.maximized ? "winRestore" : "winMax"; label: "Развернуть"; clicked => { root.maximized = !root.maximized; } }
+            IconButton { x: root.width - 46px; height: 40px; width: 46px; border-radius: 0px; icon: "winClose"; label: "Закрыть окно"; danger: true; clicked => { root.close-window(); } }
+        }
+
+        if !root.sidebar-hidden: Rectangle {
+            x: 0px; y: 40px; width: root.sidebar-size; height: root.height - 40px;
+            Input { x: 10px; y: 4px; height: 30px; width: parent.width - 20px; placeholder: "Поиск серверов"; icon: "search"; search: true; edited(text) => { root.filter-servers(text); } }
+            VerticalLayout {
+                x: 10px; y: 42px; width: parent.width - 20px; height: 123px; spacing: 1px;
+                NavLink { text: "Серверы"; icon: "server"; selected: root.active-tab < 0; clicked => { root.show-home(); } }
+                NavLink { text: "Подключиться"; icon: "zap"; clicked => { root.show-quick-connect(); } }
+                NavLink { text: "Локальный терминал"; icon: "terminal"; clicked => { root.open-local(); keyboard.focus(); } }
+                NavLink { text: "Настройки"; icon: "settings"; clicked => { root.overlay = "settings"; } }
+            }
+            Rectangle { y: 174px; width: parent.width; height: 1px; background: Theme.border-soft; }
+            ScrollView {
+                x: 10px; y: 181px; width: parent.width - 20px; height: parent.height - 231px;
                 VerticalLayout {
-                    padding: 14px; spacing: 12px;
+                    padding: 0px; spacing: 0px;
+                    for server in root.grouped-servers: Rectangle {
+                        height: server.header ? 32px : server.hidden ? 0px : 40px;
+                        visible: !server.hidden;
+                        border-radius: server.header ? 6px : 8px;
+                        background: !server.header && root.selected-server == server.id ? Theme.active : row-touch.has-hover ? Theme.hover : transparent;
+                        accessible-role: button; accessible-label: server.name;
+                        accessible-action-default => { if server.header { root.toggle-group(server.group); } else { root.connect-server(server.id); keyboard.focus(); } }
+                        if server.header: Rectangle {
+                            y: 4px; height: 28px;
+                            Icon { name: server.collapsed ? "chevronRight" : "chevronDown"; x: 4px; y: 8px; width: 12px; height: 12px; colorize: Theme.text-2; }
+                            Text { x: 24px; width: parent.width - 50px; height: 28px; text: server.name; color: Theme.text-2; font-size: 11.5px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                            Text { x: parent.width - 28px; width: 22px; height: 28px; text: server.count; color: Theme.text-3; font-size: 11.5px; horizontal-alignment: right; vertical-alignment: center; }
+                        }
+                        if !server.header: Rectangle {
+                            Rectangle { x: 12px; y: 17px; width: 7px; height: 7px; border-radius: 4px; background: server.state == 2 ? Theme.green : server.state == 1 ? Theme.amber : Theme.text-3; }
+                            Text { x: 29px; y: 4px; width: parent.width - 35px; height: 17px; text: server.name; color: Theme.text; font-weight: 500; overflow: elide; }
+                            Text { x: 29px; y: 21px; width: parent.width - 35px; height: 15px; text: server.host; color: Theme.text-2; font-size: 11.5px; overflow: elide; }
+                        }
+                        row-touch := TouchArea { clicked => { if server.header { root.toggle-group(server.group); } else { root.connect-server(server.id); keyboard.focus(); } } }
+                    }
+                    if root.grouped-servers.length == 0: Rectangle { height: 44px; Text { x: 8px; y: 12px; text: root.filter-active ? "Совпадений не найдено." : "Серверов пока нет."; color: Theme.text-2; } }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            Rectangle { y: parent.height - 50px; width: parent.width; height: 1px; background: Theme.border-soft; }
+            Rectangle {
+                x: 10px; y: parent.height - 42px; width: parent.width - 52px; height: 32px;
+                border-radius: 7px; background: add-touch.has-hover ? Theme.hover : transparent;
+                Icon { name: "plus"; x: 10px; y: 8.5px; width: 15px; height: 15px; colorize: Theme.text-2; }
+                Text { x: 34px; height: 32px; text: "Добавить сервер"; color: Theme.text-2; font-weight: 500; vertical-alignment: center; }
+                accessible-role: button; accessible-label: "Добавить сервер";
+                accessible-action-default => { root.add-server(); }
+                add-touch := TouchArea { clicked => { root.add-server(); } }
+            }
+            IconButton { x: parent.width - 38px; y: parent.height - 40px; icon: "import"; label: "Импорт SSH config"; clicked => { root.import-servers(); } }
+            TouchArea {
+                x: parent.width - 3px; width: 6px; mouse-cursor: col-resize;
+                property <float> start-width;
+                pointer-event(event) => { if event.kind == PointerEventKind.down { self.start-width = root.sidebar-width; } }
+                moved => { if self.pressed { root.sidebar-width = min(380, max(190, self.start-width + (self.mouse-x - self.pressed-x)/1px)); } }
+                double-clicked => { root.sidebar-width = 240; }
+            }
+        }
+
+        surface := Rectangle {
+            x: root.sidebar-size + 6px; y: 40px;
+            width: root.width - root.sidebar-size - 12px;
+            height: root.height - 46px - root.status-height;
+            border-radius: 10px; border-width: 1px; border-color: Theme.border;
+            background: Theme.surface;
+            clip: true;
+            terminal := Rectangle {
+                x: 17px; y: 13px; width: parent.width - 24px; height: parent.height - 22px;
+                visible: root.active-tab >= 0;
+                keyboard := FocusScope {
+                    enabled: !root.prompt-visible && root.overlay == "";
+                    key-pressed(event) => { root.terminal-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift); accept }
+                }
+                TouchArea { clicked => { keyboard.focus(); } scroll-event(event) => { root.scroll-terminal(event.delta-y > 0px ? 3 : -3); accept } }
+                for cell in root.cells: Rectangle {
+                    x: cell.col * root.cell-width; y: cell.row * root.cell-height;
+                    width: cell.span * root.cell-width; height: root.cell-height; background: cell.background;
+                    Text { text: cell.text; color: cell.foreground; font-family: root.resolved-font; font-size: root.font-size * 1px; font-weight: cell.bold ? 650 : 400; vertical-alignment: center; }
+                    if cell.underline: Rectangle { y: parent.height - 2px; height: 1px; background: cell.foreground; }
+                }
+                if root.cursor-visible: Rectangle { x: root.cursor-col * root.cell-width; y: root.cursor-row * root.cell-height; width: 1px; height: root.cell-height; background: Theme.text; }
+            }
+            if root.active-tab < 0 && root.servers.length == 0: Rectangle {
+                width: parent.width; height: parent.height;
+                VerticalLayout {
+                    alignment: center; spacing: 0px; padding: 24px;
+                    HorizontalLayout { alignment: center; Image { source: @image-url("../../ui/src/assets/logo.png"); width: 64px; height: 64px; } }
+                    Rectangle { height: 18px; }
+                    Text { text: "Добро пожаловать в NexSSH"; color: Theme.text; font-size: 20px; font-weight: 600; horizontal-alignment: center; }
+                    Rectangle { height: 8px; }
+                    Text { text: "Добавьте первый сервер или импортируйте хосты, которые уже есть в ~/.ssh/config."; max-width: 400px; color: Theme.text-2; wrap: word-wrap; horizontal-alignment: center; }
+                    Rectangle { height: 22px; }
+                    if surface.width >= 740px: HorizontalLayout {
+                        alignment: center; spacing: 8px;
+                        Action { text: "Добавить сервер"; icon: "plus"; primary: true; clicked => { root.add-server(); } }
+                        Action { text: "Импорт ~/.ssh/config"; icon: "import"; clicked => { root.import-servers(); } }
+                        Action { text: "Быстрое подключение"; icon: "zap"; ghost: true; clicked => { root.show-quick-connect(); } }
+                        Action { text: "Локальный терминал"; icon: "terminal"; ghost: true; clicked => { root.open-local(); keyboard.focus(); } }
+                    }
+                    if surface.width < 740px: VerticalLayout {
+                        spacing: 8px;
+                        HorizontalLayout {
+                            alignment: center; spacing: 8px;
+                            Action { text: "Добавить сервер"; icon: "plus"; primary: true; clicked => { root.add-server(); } }
+                            Action { text: "Импорт ~/.ssh/config"; icon: "import"; clicked => { root.import-servers(); } }
+                        }
+                        HorizontalLayout {
+                            alignment: center; spacing: 8px;
+                            Action { text: "Быстрое подключение"; icon: "zap"; ghost: true; clicked => { root.show-quick-connect(); } }
+                            Action { text: "Локальный терминал"; icon: "terminal"; ghost: true; clicked => { root.open-local(); keyboard.focus(); } }
+                        }
+                    }
+                    Rectangle { height: 18px; }
+                    Text { text: "Нажмите Ctrl+K в любой момент, чтобы искать серверы и выполнять команды."; font-size: 12px; color: Theme.text-3; horizontal-alignment: center; }
+                }
+            }
+            if root.active-tab < 0 && root.servers.length > 0: ScrollView {
+                width: parent.width; height: parent.height;
+                VerticalLayout {
+                    padding-left: 28px; padding-right: 28px; padding-top: 28px; padding-bottom: 20px; spacing: 0px;
                     HorizontalLayout {
-                        Text { text: "СЕРВЕРЫ"; color: #8c929b; font-size: 11px; vertical-alignment: center; }
-                        Action { text: "Обновить"; clicked => { root.refresh-servers(); } }
-                    }
-                    LineEdit { placeholder-text: "Поиск сервера…"; edited(text) => { root.filter-servers(text); } }
-                    ScrollView {
                         VerticalLayout {
-                            spacing: 4px; padding: 0px;
-                            for server in root.servers: Rectangle {
-                                accessible-role: button;
-                                accessible-label: server.name + " " + server.address;
-                                accessible-action-default => { root.connect-server(server.id); keyboard.focus(); }
-                                height: 64px;
-                                background: server-area.has-hover ? #2a2d31 : transparent;
-                                border-radius: 5px;
-                                VerticalLayout {
-                                    padding: 8px; spacing: 2px;
-                                    Text { text: server.name; color: #d6d9de; font-weight: 600; overflow: elide; }
-                                    Text { text: server.address; color: #8c929b; font-size: 11px; overflow: elide; }
-                                    Text { text: server.group == "" ? "Без группы" : server.group; color: #686e77; font-size: 10px; overflow: elide; }
-                                }
-                                server-area := TouchArea { clicked => { root.connect-server(server.id); keyboard.focus(); } }
-                            }
-                            if root.servers.length == 0: Text {
-                                text: "Нет серверов.\nИспользуйте быстрое подключение\nили локальный терминал.";
-                                color: #8c929b; font-size: 11px; wrap: word-wrap;
-                            }
-                            Rectangle { vertical-stretch: 1; }
+                            Text { text: "Серверы"; color: Theme.text; font-size: 20px; font-weight: 600; }
+                            Text { text: "Сохранено серверов: " + root.servers.length; color: Theme.text-2; }
                         }
+                        Action { text: "Добавить сервер"; icon: "plus"; clicked => { root.add-server(); } }
                     }
-                    Text { text: "Экспериментальная версия"; color: #686e77; font-size: 11px; }
+                    Rectangle { height: 18px; }
+                    for server in root.home-servers: Rectangle {
+                        height: server.header ? 32px : 38px;
+                        border-radius: 8px; background: home-row.has-hover && !server.header ? Theme.hover : transparent;
+                        if server.header: Text { x: 10px; height: 32px; text: server.name; color: Theme.text-2; font-size: 11.5px; font-weight: 600; vertical-alignment: center; }
+                        if !server.header: Rectangle {
+                            Rectangle { x: 12px; y: 16px; width: 6px; height: 6px; border-radius: 3px; background: server.state == 2 ? Theme.green : Theme.text-3; }
+                            Text { x: 32px; width: parent.width * 0.28 - 32px; height: 38px; text: server.name; color: Theme.text; font-weight: 500; vertical-alignment: center; overflow: elide; }
+                            Text { x: parent.width * 0.28; width: parent.width * 0.45; height: 38px; text: server.address; color: Theme.text-2; font-family: root.resolved-font; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+                            Text { x: parent.width * 0.75; width: parent.width * 0.25; height: 38px; text: server.auth; color: Theme.text-2; horizontal-alignment: right; vertical-alignment: center; font-size: 11px; }
+                        }
+                        home-row := TouchArea { enabled: !server.header; clicked => { root.connect-server(server.id); keyboard.focus(); } }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            if root.active-tab >= 0 && root.active-state == 0: Rectangle {
+                x: (parent.width - self.width)/2; y: parent.height - 58px; width: min(500px, parent.width - 40px); height: 40px;
+                border-radius: 12px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
+                HorizontalLayout { padding: 5px; spacing: 10px; Text { text: root.status; color: Theme.text-2; overflow: elide; vertical-alignment: center; } Action { text: root.active-local ? "Перезапустить" : "Переподключить"; clicked => { root.reconnect(); keyboard.focus(); } } }
+            }
+        }
+        if root.status-height > 0px: Rectangle {
+            x: root.sidebar-size + 6px; y: root.height - 26px; width: root.width - self.x - 6px; height: 26px;
+            Rectangle { x: 12px; y: 10px; width: 6px; height: 6px; border-radius: 3px; background: root.active-state == 2 ? Theme.green : Theme.text-3; }
+            Text { x: 26px; width: parent.width - 170px; height: 26px; text: root.status; color: Theme.text-2; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+            Text { x: parent.width - 130px; width: 116px; height: 26px; text: root.scrollback > 0 ? "История: " + root.scrollback : root.terminal-cols + " × " + root.terminal-rows; color: Theme.text-3; font-size: 11.5px; horizontal-alignment: right; vertical-alignment: center; }
+        }
+    // Popup actions keep the working surface as uncluttered as TabBar.svelte.
+    if root.overlay == "menu" || root.overlay == "new": Rectangle {
+        TouchArea { clicked => { root.close-overlay(); } }
+        Rectangle {
+            x: root.overlay == "menu" ? root.width - 360px : root.sidebar-size + 10px;
+            y: 40px; width: 210px; height: root.overlay == "menu" ? 120px : 86px;
+            background: Theme.bg; border-radius: 10px; border-width: 1px; border-color: Theme.border;
+            VerticalLayout {
+                padding: 8px; spacing: 4px;
+                if root.overlay == "new": NavLink { icon: "zap"; text: "Подключиться"; clicked => { root.show-quick-connect(); } }
+                if root.overlay == "new": NavLink { icon: "terminal"; text: "Локальный терминал"; clicked => { root.close-overlay(); root.open-local(); keyboard.focus(); } }
+                if root.overlay == "menu": NavLink { icon: "refresh"; text: "Переподключить"; clicked => { root.close-overlay(); root.reconnect(); } }
+                if root.overlay == "menu": NavLink { icon: "copy"; text: "Копировать экран"; clicked => { root.close-overlay(); root.copy-screen(); } }
+                if root.overlay == "menu": NavLink { icon: "paste"; text: "Вставить"; clicked => { root.close-overlay(); root.paste(); } }
+            }
+        }
+    }
+    if root.overlay == "quick" && !root.prompt-visible: Rectangle {
+        background: Theme.overlay;
+        TouchArea { clicked => { root.close-overlay(); } }
+        Rectangle {
+            x: (parent.width - self.width)/2; y: root.height * 0.12;
+            width: min(580px, parent.width - 32px);
+            height: min(root.height * 0.62, 50px + 28px + 36px * (root.palette-servers.length + (root.palette-text == "" ? 0 : 1)) + 34px);
+            border-radius: 14px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
+            drop-shadow-blur: 32px; drop-shadow-offset-y: 10px; drop-shadow-color: root.resolved-theme == 0 ? #1a212834 : #60000000;
+            TouchArea { }
+            Input {
+                x: 6px; y: 0px; width: parent.width - 22px; height: 50px;
+                init => { self.focus(); }
+                bare: true; icon: "zap"; font-size: 14.5;
+                placeholder: "user@host:port или имя сервера";
+                text <=> root.palette-text;
+                edited(text) => { root.palette-index = 0; root.palette-query(text); }
+                accepted(text) => { root.quick-connect(text); }
+            }
+            Rectangle { y: 50px; width: parent.width; height: 1px; background: Theme.border-soft; }
+            ScrollView {
+                x: 6px; y: 51px; width: parent.width - 12px; height: parent.height - 85px;
+                VerticalLayout {
+                    padding-top: 6px; padding-bottom: 6px; spacing: 0px;
+                    if root.palette-text != "": NavLink { icon: "zap"; height: 36px; selected: root.palette-index == 0; text: "Подключиться к " + root.palette-text; clicked => { root.quick-connect(root.palette-text); } }
+                    Text { text: "СЕРВЕРЫ"; font-size: 11px; color: Theme.text-3; height: 22px; vertical-alignment: center; }
+                    for server[index] in root.palette-servers: Rectangle {
+                        height: 36px; border-radius: 8px; background: root.palette-index == index + (root.palette-text == "" ? 0 : 1) ? Theme.hover : transparent;
+                        Rectangle { x: 15px; y: 15px; width: 6px; height: 6px; border-radius: 3px; background: server.state == 2 ? Theme.green : Theme.text-3; }
+                        Text { x: 38px; width: parent.width * 0.45 - 38px; height: 36px; text: server.name; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                        Text { x: parent.width * 0.45; width: parent.width * 0.55 - 10px; height: 36px; text: server.address; color: Theme.text-2; font-family: root.resolved-font; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+                        accessible-role: button; accessible-label: server.name;
+                        accessible-action-default => { root.connect-server(server.id); }
+                        palette-row := TouchArea { moved => { root.palette-index = index + (root.palette-text == "" ? 0 : 1); } clicked => { root.connect-server(server.id); } }
+                    }
                 }
             }
             Rectangle {
-                VerticalLayout {
-                    spacing: 0px;
-                    Rectangle {
-                        height: 44px; background: #1c1e22;
-                        HorizontalLayout {
-                            padding: 6px; spacing: 5px; alignment: start;
-                            for tab[index] in root.tabs: Rectangle {
-                                width: 158px; border-radius: 5px;
-                                background: index == root.active-tab ? #373a40 : #25272b;
-                                HorizontalLayout {
-                                    padding-left: 10px; padding-right: 28px; spacing: 6px;
-                                    Text { text: tab.title; color: #d6d9de; overflow: elide; vertical-alignment: center; }
-                                }
-                                TouchArea { clicked => { root.select-tab(index); keyboard.focus(); } }
-                                Rectangle {
-                                    x: parent.width - 25px; width: 24px; height: parent.height;
-                                    Text { text: "×"; color: #8c929b; horizontal-alignment: center; vertical-alignment: center; }
-                                    TouchArea { clicked => { root.close-tab(index); keyboard.focus(); } }
-                                }
-                            }
-                        }
-                    }
-                    Rectangle {
-                        height: 39px;
-                        HorizontalLayout {
-                            padding-left: 12px; padding-right: 12px; padding-top: 3px; padding-bottom: 4px; spacing: 7px;
-                            Text { text: root.status; color: #8c929b; font-size: 11px; vertical-alignment: center; overflow: elide; }
-                            Action { text: "Переподключить"; enabled: root.active-tab >= 0; clicked => { root.reconnect(); keyboard.focus(); } }
-                            Action { text: "Копировать экран"; enabled: root.active-tab >= 0; clicked => { root.copy-screen(); keyboard.focus(); } }
-                            Action { text: "Вставить"; enabled: root.active-tab >= 0; clicked => { root.paste(); keyboard.focus(); } }
-                        }
-                    }
-                    terminal := Rectangle {
-                        clip: true;
-                        background: #141517;
-                        keyboard := FocusScope {
-                            enabled: !root.prompt-visible;
-                            key-pressed(event) => {
-                                root.terminal-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift);
-                                accept
-                            }
-                        }
-                        TouchArea {
-                            clicked => { keyboard.focus(); }
-                            scroll-event(event) => {
-                                root.scroll-terminal(event.delta-y > 0px ? 3 : -3);
-                                accept
-                            }
-                        }
-                        for cell in root.cells: Rectangle {
-                            x: cell.col * root.cell-width;
-                            y: cell.row * root.cell-height;
-                            width: cell.span * root.cell-width;
-                            height: root.cell-height;
-                            background: cell.background;
-                            Text {
-                                text: cell.text;
-                                color: cell.foreground;
-                                font-family: root.terminal-font;
-                                font-size: 14px;
-                                font-weight: cell.bold ? 700 : 400;
-                                vertical-alignment: center;
-                            }
-                            if cell.underline: Rectangle { y: parent.height - 2px; height: 1px; background: cell.foreground; }
-                        }
-                        if root.cursor-visible && root.active-tab >= 0: Rectangle {
-                            x: root.cursor-col * root.cell-width;
-                            y: root.cursor-row * root.cell-height;
-                            width: root.cell-width;
-                            height: root.cell-height;
-                            background: #80d6d9de;
-                        }
-                        if root.active-tab < 0: VerticalLayout {
-                            alignment: center; spacing: 14px; padding: 40px;
-                            Text { text: "NexSSH 2.0"; color: #d6d9de; font-size: 30px; horizontal-alignment: center; }
-                            Text { text: "Выберите сервер или откройте локальный терминал"; color: #8c929b; horizontal-alignment: center; }
-                            HorizontalLayout {
-                                alignment: center;
-                                Action { text: "Открыть локальный терминал"; primary: true; clicked => { root.open-local(); keyboard.focus(); } }
-                            }
-                        }
-                    }
-                    if root.notice != "": Rectangle {
-                        height: 44px; background: #302b21;
-                        Text { x: 12px; width: parent.width - 24px; text: root.notice; color: #e1bd79; wrap: word-wrap; vertical-alignment: center; font-size: 12px; }
-                    }
-                }
-            }
-        }
-        Rectangle {
-            height: 28px; background: #1c1e22;
-            HorizontalLayout {
-                x: 0px; y: 0px; width: parent.width; height: parent.height;
-                padding-left: 14px; padding-right: 14px;
-                Text { text: "Rust + Slint · native preview"; color: #686e77; font-size: 11px; vertical-alignment: center; }
-                Text { text: root.scrollback > 0 ? "История: " + root.scrollback + " строк" : root.terminal-cols + " × " + root.terminal-rows; color: #8c929b; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                y: parent.height - 34px; width: parent.width; height: 34px;
+                background: Theme.frame; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;
+                Rectangle { width: parent.width; y: 0px; height: 1px; background: Theme.border-soft; }
+                Text { x: 14px; width: parent.width - 28px; height: parent.height; text: "↑  ↓  Навигация      ↵  Открыть      Ctrl+↵  Новая вкладка      esc  Закрыть"; color: Theme.text-3; font-size: 11.5px; vertical-alignment: center; }
             }
         }
     }
-    if root.prompt-visible: Rectangle {
-        background: #b0000000;
-        TouchArea { }
+    if root.overlay == "settings" || root.overlay == "server" || root.prompt-visible: Rectangle {
+        x: root.prompt-visible && root.prompt-auth ? root.sidebar-size + 6px : 0px;
+        y: root.prompt-visible && root.prompt-auth ? 40px : 0px;
+        width: root.prompt-visible && root.prompt-auth ? root.width - root.sidebar-size - 12px : root.width;
+        height: root.prompt-visible && root.prompt-auth ? root.height - 46px - root.status-height : root.height;
+        background: root.prompt-visible && root.prompt-auth ? Theme.surface.with-alpha(0.72) : Theme.overlay;
+        TouchArea { clicked => { if !root.prompt-visible { root.close-overlay(); } } }
         Rectangle {
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            width: min(560px, parent.width - 40px);
-            height: min(dialog.preferred-height, parent.height - 40px);
-            background: #26282c; border-radius: 8px;
+            x: (parent.width - self.width)/2;
+            y: root.prompt-visible && root.prompt-auth ? (parent.height - self.height)/2 : root.height * 0.11;
+            width: min(root.prompt-visible && root.prompt-auth ? 420px : root.overlay == "settings" ? 700px : 560px, parent.width - 40px);
+            height: min(dialog.preferred-height, parent.height * 0.8);
+            border-radius: 12px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
+            drop-shadow-blur: 32px; drop-shadow-offset-y: 10px; drop-shadow-color: root.resolved-theme == 0 ? #1a212834 : #60000000;
+            TouchArea { }
             dialog := VerticalLayout {
-                padding: 24px; spacing: 16px;
-                Text { text: root.prompt-title; color: #e5e7eb; font-size: 18px; font-weight: 600; }
-                Text { text: root.prompt-detail; color: #b3b8c0; wrap: word-wrap; font-size: 12px; }
-                for field[index] in root.prompt-fields: VerticalLayout {
-                    spacing: 5px;
-                    Text { text: field.label; color: #b3b8c0; wrap: word-wrap; }
-                    LineEdit {
-                        init => { if index == 0 { self.focus(); } }
-                        text <=> field.value;
-                        input-type: field.secret ? password : text;
-                        accepted => { root.answer-prompt(true); }
-                    }
-                }
-                if root.prompt-host-key: CheckBox { text: "Запомнить ключ сервера"; checked <=> root.remember-host; }
+                padding: root.prompt-visible && root.prompt-auth ? 18px : 20px;
+                spacing: root.prompt-visible && root.prompt-auth ? 10px : 14px;
                 HorizontalLayout {
-                    alignment: end; spacing: 8px;
-                    Action { text: "Отмена"; clicked => { root.answer-prompt(false); } }
-                    Action { text: root.prompt-host-key ? "Доверять ключу" : "Продолжить"; enabled: root.prompt-can-accept; primary: true; clicked => { root.answer-prompt(true); } }
+                    Text { text: root.prompt-visible ? root.prompt-title : root.overlay == "server" ? "Добавить сервер" : "Настройки"; color: Theme.text; font-size: root.prompt-visible && root.prompt-auth ? 14px : 15px; font-weight: 600; vertical-alignment: center; }
+                    IconButton { visible: !root.prompt-auth; icon: "x"; label: "Закрыть диалог"; clicked => { if root.prompt-visible { root.answer-prompt(false); } else { root.close-overlay(); } } }
+                }
+                if root.overlay == "settings" && !root.prompt-visible: VerticalLayout {
+                    spacing: 16px;
+                    Text { text: "Тема"; color: Theme.text-2; font-size: 12px; }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        for choice[index] in ThemeCatalog.entries: Rectangle {
+                            height: self.width / 1.35 + 26px;
+                            Rectangle {
+                                x: -3px; y: -3px; width: parent.width + 6px; height: parent.width / 1.35 + 6px;
+                                border-radius: 12px; border-width: 2px;
+                                border-color: root.theme == index - 1 ? Theme.text-2 : transparent;
+                            }
+                            Rectangle {
+                                x: 0px; y: 0px; width: parent.width; height: self.width / 1.35;
+                                border-radius: 9px; border-width: 1px; border-color: Theme.border; background: choice.frame; clip: true;
+                                if index == 0: Rectangle { x: parent.width/2; width: parent.width/2; height: parent.height; background: #2a2d31; }
+                                Rectangle {
+                                    x: parent.width * 0.28; y: parent.height * 0.3; width: parent.width * 0.72; height: parent.height * 0.7;
+                                    border-top-left-radius: 6px; background: choice.surface;
+                                    Rectangle { x: 8px; y: 9px; width: parent.width * 0.38; height: 3px; border-radius: 2px; background: choice.accent; opacity: 0.85; }
+                                    Rectangle { x: 8px; y: 17px; width: parent.width * 0.62; height: 3px; border-radius: 2px; background: choice.text; opacity: 0.85; }
+                                    Rectangle { x: 8px; y: 25px; width: parent.width * 0.48; height: 3px; border-radius: 2px; background: choice.text; opacity: 0.85; }
+                                }
+                            }
+                            Text { y: parent.width / 1.35 + 7px; width: parent.width; text: choice.name; horizontal-alignment: center; font-size: 12px; color: root.theme == index - 1 ? Theme.text : Theme.text-2; }
+                            accessible-role: button; accessible-label: choice.name;
+                            accessible-action-default => { root.theme = index - 1; }
+                            TouchArea { clicked => { root.theme = index - 1; } }
+                        }
+                    }
+                    Rectangle {
+                        height: 44px;
+                        Text { x: 0px; height: 44px; text: "Шрифт терминала"; color: Theme.text; vertical-alignment: center; }
+                        Input { x: parent.width - 260px; y: 6px; width: 260px; text <=> root.terminal-font; placeholder: "JetBrains Mono"; }
+                        Rectangle { y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.border-soft; }
+                    }
+                    Rectangle {
+                        height: 44px;
+                        Text { x: 0px; height: 44px; text: "Размер шрифта"; color: Theme.text; vertical-alignment: center; }
+                        HorizontalLayout {
+                            x: parent.width - 124px; y: 7px; width: 124px; height: 30px; spacing: 8px;
+                            Action { text: "−"; clicked => { root.font-size = max(8, root.font-size - 1); } }
+                            Text { text: root.font-size; color: Theme.text; horizontal-alignment: center; vertical-alignment: center; }
+                            Action { text: "+"; clicked => { root.font-size = min(36, root.font-size + 1); } }
+                        }
+                        Rectangle { y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.border-soft; }
+                    }
+                    Rectangle {
+                        height: 44px;
+                        Text { x: 0px; height: 44px; text: "Строка состояния"; color: Theme.text; vertical-alignment: center; }
+                        Toggle { x: parent.width - 34px; y: 12px; checked <=> root.show-status; label: "Строка состояния"; }
+                    }
+                    HorizontalLayout { alignment: end; Action { text: "Готово"; clicked => { root.close-overlay(); } } }
+                }
+                if root.overlay == "server" && !root.prompt-visible: VerticalLayout {
+                    spacing: 10px;
+                    Text { text: "Название"; color: Theme.text-2; font-size: 12px; }
+                    Input { init => { self.focus(); } text <=> root.server-name; placeholder: "Мой сервер"; }
+                    Text { text: "Хост"; color: Theme.text-2; font-size: 12px; }
+                    Input { text <=> root.server-host; placeholder: "example.com"; }
+                    HorizontalLayout { spacing: 12px; VerticalLayout { Text { text: "Пользователь"; color: Theme.text-2; font-size: 12px; } Input { text <=> root.server-user; placeholder: "root"; } } VerticalLayout { Text { text: "Порт"; color: Theme.text-2; font-size: 12px; } Input { text <=> root.server-port; } } }
+                    Text { text: "Группа"; color: Theme.text-2; font-size: 12px; }
+                    Input { text <=> root.server-group; placeholder: "Без группы"; }
+                    HorizontalLayout { alignment: end; spacing: 8px; Action { text: "Отмена"; clicked => { root.close-overlay(); } } Action { text: "Сохранить"; primary: true; clicked => { root.save-server(root.server-name, root.server-host, root.server-user, root.server-port, root.server-group); } } }
+                }
+                if root.prompt-visible: VerticalLayout {
+                    spacing: 14px;
+                    Text { text: root.prompt-detail; color: Theme.text-2; wrap: word-wrap; }
+                    for field[index] in root.prompt-fields: VerticalLayout {
+                        spacing: 5px;
+                        Text { text: field.label; color: Theme.text-2; wrap: word-wrap; font-size: 12px; }
+                        Input { init => { if index == 0 { self.focus(); } } text <=> field.value; input-type: field.secret ? password : text; accepted(text) => { root.answer-prompt(true); } }
+                    }
+                    if root.prompt-host-key: CheckBox { text: "Запомнить ключ сервера"; checked <=> root.remember-host; }
+                    HorizontalLayout { alignment: end; spacing: 8px; Action { text: "Отмена"; clicked => { root.answer-prompt(false); } } Action { text: root.prompt-host-key ? "Доверять ключу" : "Продолжить"; enabled: root.prompt-can-accept; primary: true; clicked => { root.answer-prompt(true); } } }
                 }
             }
         }
     }
+    if root.notice != "": Rectangle {
+        x: root.width - self.width - 20px; y: root.height - self.height - 20px;
+        width: min(460px, root.width - 40px); height: 66px;
+        border-radius: 10px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
+        Text { x: 14px; y: 10px; width: parent.width - 50px; height: parent.height - 20px; text: root.notice; color: Theme.text; wrap: word-wrap; vertical-alignment: center; }
+        IconButton { x: parent.width - 32px; y: 5px; icon: "x"; label: "Закрыть уведомление"; clicked => { root.dismiss-notice(); } }
+    }
+    }
+    callback dismiss-notice();
 }

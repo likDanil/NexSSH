@@ -5,8 +5,7 @@ use slint::Color;
 
 use crate::TerminalCell;
 
-pub const BACKGROUND: Color = Color::from_rgb_u8(20, 21, 23);
-const FOREGROUND: Color = Color::from_rgb_u8(214, 217, 222);
+include!(concat!(env!("OUT_DIR"), "/terminal_palettes.rs"));
 const SCROLLBACK: usize = 5000;
 
 #[derive(Default)]
@@ -45,6 +44,7 @@ impl vt100::Callbacks for Replies {
 pub struct Terminal {
     pub parser: vt100::Parser<Replies>,
     pub dirty: bool,
+    theme: usize,
 }
 
 impl Terminal {
@@ -57,6 +57,15 @@ impl Terminal {
                 Replies::default(),
             ),
             dirty: true,
+            theme: 0,
+        }
+    }
+
+    pub fn set_theme(&mut self, theme: i32) {
+        let theme = theme.clamp(0, 3) as usize;
+        if self.theme != theme {
+            self.theme = theme;
+            self.dirty = true;
         }
     }
 
@@ -116,6 +125,8 @@ impl Terminal {
         let screen = self.parser.screen();
         let (rows, cols) = screen.size();
         let mut cells: Vec<TerminalCell> = Vec::new();
+        let palette = PALETTES[self.theme];
+        let background = rgb(palette[0]);
         for row in 0..rows.get() {
             for col in 0..cols.get() {
                 let Some(cell) = screen.cell(row, col) else {
@@ -124,8 +135,14 @@ impl Terminal {
                 if cell.is_wide_continuation() {
                     continue;
                 }
-                let mut fg = color(cell.fgcolor(), FOREGROUND);
-                let mut bg = color(cell.bgcolor(), BACKGROUND);
+                let foreground = match cell.fgcolor() {
+                    vt100::Color::Idx(index) if index < 8 && cell.bold() => {
+                        vt100::Color::Idx(index + 8)
+                    }
+                    other => other,
+                };
+                let mut fg = color(foreground, rgb(palette[1]), &palette);
+                let mut bg = color(cell.bgcolor(), background, &palette);
                 if cell.inverse() ^ screen.inverse() {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -137,7 +154,7 @@ impl Terminal {
                 } else {
                     cell.contents()
                 };
-                if text == " " && bg == BACKGROUND && !cell.underline() {
+                if text == " " && bg == background && !cell.underline() {
                     continue;
                 }
                 let span = if cell.is_wide() { 2 } else { 1 };
@@ -176,39 +193,23 @@ fn nonzero(value: u16) -> NonZeroU16 {
     NonZeroU16::new(value.max(1)).unwrap()
 }
 
-fn color(value: vt100::Color, default: Color) -> Color {
+fn rgb(value: u32) -> Color {
+    Color::from_rgb_u8((value >> 16) as u8, (value >> 8) as u8, value as u8)
+}
+
+fn color(value: vt100::Color, default: Color, palette: &[u32; 18]) -> Color {
     match value {
         vt100::Color::Default => default,
         vt100::Color::Rgb(r, g, b) => Color::from_rgb_u8(r, g, b),
+        vt100::Color::Idx(index) if index < 16 => rgb(palette[index as usize + 2]),
+        vt100::Color::Idx(index) if index >= 232 => {
+            let value = 8 + (index - 232) * 10;
+            Color::from_rgb_u8(value, value, value)
+        }
         vt100::Color::Idx(index) => {
-            const ANSI: [[u8; 3]; 16] = [
-                [20, 21, 23],
-                [224, 122, 118],
-                [92, 184, 135],
-                [217, 170, 85],
-                [119, 157, 219],
-                [185, 143, 212],
-                [114, 190, 198],
-                [214, 217, 222],
-                [104, 110, 119],
-                [241, 154, 149],
-                [131, 210, 166],
-                [235, 199, 130],
-                [154, 186, 237],
-                [208, 174, 232],
-                [152, 214, 219],
-                [245, 246, 248],
-            ];
-            let [r, g, b] = if index < 16 {
-                ANSI[index as usize]
-            } else if index >= 232 {
-                [8 + (index - 232) * 10; 3]
-            } else {
-                let n = index - 16;
-                let level = |v| if v == 0 { 0 } else { 55 + v * 40 };
-                [level(n / 36), level(n / 6 % 6), level(n % 6)]
-            };
-            Color::from_rgb_u8(r, g, b)
+            let n = index - 16;
+            let level = |v| if v == 0 { 0 } else { 55 + v * 40 };
+            Color::from_rgb_u8(level(n / 36), level(n / 6 % 6), level(n % 6))
         }
     }
 }
@@ -298,6 +299,21 @@ pub fn encode_key(text: &str, control: bool, alt: bool, shift: bool, application
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changing_theme_recolors_existing_ansi_output_and_preserves_truecolor() {
+        let mut terminal = Terminal::new(4, 40);
+        terminal.process(b"\x1b[31mred\x1b[38;2;17;34;51mfixed");
+        let light = terminal.frame();
+        terminal.set_theme(1);
+        assert!(terminal.dirty);
+        let dark = terminal.frame();
+        assert_ne!(light[0].foreground, dark[0].foreground);
+        assert_ne!(light[0].background, dark[0].background);
+        assert_eq!(light[1].foreground, Color::from_rgb_u8(17, 34, 51));
+        assert_eq!(light[1].foreground, dark[1].foreground);
+        assert_eq!(terminal.parser.screen().contents(), "redfixed");
+    }
 
     #[test]
     fn screen_tracks_escape_sequences_utf8_and_wide_cells() {

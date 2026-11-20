@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     rc::Rc,
     sync::{Arc, Mutex, mpsc},
     time::Duration,
@@ -9,10 +9,10 @@ use std::{
 use nexssh_core::{
     Core, Destination, EventSink, Prompt, PtySize, Server, SessionEvent, SessionId, SessionStatus,
 };
-use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::{
-    AppWindow, ServerRow, TabRow, prompts,
+    AppWindow, ServerRow, TabRow, appearance, prompts,
     terminal::{self, Terminal},
 };
 
@@ -38,6 +38,8 @@ struct Tab {
     token: u64,
     id: SessionId,
     title: String,
+    local: bool,
+    server_id: Option<String>,
     status: SessionStatus,
     message: String,
     terminal: SharedTerminal,
@@ -66,6 +68,7 @@ struct App {
     active: Option<usize>,
     next_token: u64,
     filter: String,
+    collapsed: HashSet<String>,
     dialog: Option<Dialog>,
     tabs_dirty: bool,
 }
@@ -73,25 +76,83 @@ struct App {
 impl App {
     fn servers(&self, ui: &AppWindow) {
         let filter = self.filter.to_lowercase();
-        let rows: Vec<ServerRow> = self
-            .core
-            .store
-            .snapshot()
+        let snapshot = self.core.store.snapshot();
+        let rows: Vec<ServerRow> = snapshot
             .servers
             .into_iter()
-            .filter(|s| {
-                format!("{} {} {} {}", s.name, s.host, s.user, s.group)
-                    .to_lowercase()
-                    .contains(&filter)
-            })
             .map(|s| ServerRow {
                 id: s.id.clone().into(),
                 name: s.name.clone().into(),
                 address: s.destination().into(),
-                group: s.group.into(),
+                host: s.host.clone().into(),
+                group: s.group.clone().into(),
+                state: self
+                    .tabs
+                    .iter()
+                    .filter(|t| t.server_id.as_deref() == Some(&s.id))
+                    .map(|t| state_code(t.status))
+                    .max()
+                    .unwrap_or(0),
+                auth: match s.auth {
+                    nexssh_core::AuthKind::Auto => "Авто",
+                    nexssh_core::AuthKind::Password => "Пароль",
+                    nexssh_core::AuthKind::Key => "Ключ",
+                    nexssh_core::AuthKind::Agent => "SSH-агент",
+                }
+                .into(),
+                ..ServerRow::default()
             })
             .collect();
+        let mut groups = snapshot.groups;
+        for row in &rows {
+            if !groups.iter().any(|g| g == row.group.as_str()) {
+                groups.push(row.group.to_string());
+            }
+        }
+        let group_rows = |rows: &[ServerRow], collapse: bool| {
+            let mut grouped = vec![];
+            for group in &groups {
+                let members: Vec<_> = rows
+                    .iter()
+                    .filter(|row| row.group == group.as_str())
+                    .collect();
+                if members.is_empty() && collapse && !filter.is_empty() {
+                    continue;
+                }
+                let collapsed = collapse && filter.is_empty() && self.collapsed.contains(group);
+                if !group.is_empty() || groups.len() > 1 {
+                    grouped.push(ServerRow {
+                        header: true,
+                        group: group.as_str().into(),
+                        name: if group.is_empty() {
+                            "Без группы"
+                        } else {
+                            group
+                        }
+                        .into(),
+                        count: members.len() as i32,
+                        collapsed,
+                        ..ServerRow::default()
+                    });
+                }
+                grouped.extend(members.into_iter().map(|row| {
+                    let mut row = row.clone();
+                    row.hidden = collapsed;
+                    row
+                }));
+            }
+            grouped
+        };
+        let filtered: Vec<_> = rows
+            .iter()
+            .filter(|row| matches_server(row, &filter))
+            .cloned()
+            .collect();
+        ui.set_grouped_servers(ModelRc::new(VecModel::from(group_rows(&filtered, true))));
+        ui.set_home_servers(ModelRc::new(VecModel::from(group_rows(&rows, false))));
+        ui.set_palette_servers(ModelRc::new(VecModel::from(rows.clone())));
         ui.set_servers(ModelRc::new(VecModel::from(rows)));
+        ui.set_filter_active(!filter.is_empty());
     }
 
     fn active(&self) -> Option<&Tab> {
@@ -120,6 +181,10 @@ impl App {
     }
 
     fn start(&mut self, ui: &AppWindow, target: Target) {
+        let (local, server_id) = match &target {
+            Target::Ssh(s) => (false, Some(s.id.clone())),
+            _ => (true, None),
+        };
         let size = size(ui);
         let terminal = Arc::new(Mutex::new(Terminal::new(
             size.rows as u16,
@@ -146,6 +211,8 @@ impl App {
             token,
             id,
             title,
+            local,
+            server_id,
             terminal,
             status: SessionStatus::Connecting,
             message: "Подключение…".into(),
@@ -163,6 +230,7 @@ impl App {
         self.dialog = None;
         prompts::clear(ui);
         self.active = Some(index);
+        ui.invoke_close_overlay();
         self.tabs[index].terminal.lock().unwrap().dirty = true;
         self.tabs_dirty = true;
     }
@@ -175,7 +243,7 @@ impl App {
         self.core.sessions.close(tab.id);
         self.dialog = None;
         prompts::clear(ui);
-        self.active = if self.tabs.is_empty() {
+        self.active = if self.tabs.is_empty() || self.active.is_none() {
             None
         } else {
             Some(match self.active.unwrap_or(0) {
@@ -239,16 +307,27 @@ impl App {
                 .map(|tab| TabRow {
                     title: tab.title.clone().into(),
                     status: status_text(tab.status).into(),
+                    state: state_code(tab.status),
+                    local: tab.local,
                 })
                 .collect();
             ui.set_tabs(ModelRc::new(VecModel::from(rows)));
             ui.set_active_tab(self.active.map_or(-1, |i| i as i32));
+            ui.set_active_state(self.active().map_or(0, |t| state_code(t.status)));
+            ui.set_active_local(self.active().is_some_and(|t| t.local));
+            ui.set_selected_server(
+                self.active()
+                    .and_then(|t| t.server_id.as_deref())
+                    .unwrap_or("")
+                    .into(),
+            );
             ui.set_status(
                 self.active()
                     .map_or("Готово", |t| t.message.as_str())
                     .into(),
             );
             self.tabs_dirty = false;
+            self.servers(ui);
         }
         let Some(tab) = self.active() else {
             ui.set_cells(ModelRc::default());
@@ -257,6 +336,7 @@ impl App {
             return;
         };
         let mut terminal = tab.terminal.lock().unwrap();
+        terminal.set_theme(ui.get_resolved_theme());
         let size = size(ui);
         if terminal.resize(size.rows as u16, size.cols as u16) {
             let _ = self.core.sessions.resize(tab.id, size);
@@ -294,6 +374,25 @@ impl App {
 
     fn key(&mut self, ui: &AppWindow, text: &str, ctrl: bool, alt: bool, shift: bool) {
         if self.dialog.is_some() {
+            return;
+        }
+        if ctrl && text == "\t" && !self.tabs.is_empty() {
+            let step = if shift { self.tabs.len() - 1 } else { 1 };
+            self.select(ui, (self.active.unwrap_or(0) + step) % self.tabs.len());
+            return;
+        }
+        if ctrl && shift && text.eq_ignore_ascii_case("w") {
+            if let Some(index) = self.active {
+                self.close(ui, index);
+            }
+            return;
+        }
+        if text == "\n"
+            && self
+                .active()
+                .is_some_and(|t| t.status == SessionStatus::Disconnected)
+        {
+            report(ui, self.core.sessions.reconnect(self.active().unwrap().id));
             return;
         }
         if ctrl && shift && text.eq_ignore_ascii_case("v") {
@@ -410,12 +509,26 @@ impl App {
     }
 }
 
+fn matches_server(row: &ServerRow, filter: &str) -> bool {
+    format!("{} {} {}", row.name, row.address, row.group)
+        .to_lowercase()
+        .contains(filter)
+}
+
 fn status_text(status: SessionStatus) -> &'static str {
     match status {
         SessionStatus::Connecting => "Подключение…",
         SessionStatus::Connected => "Подключено",
         SessionStatus::Disconnected => "Соединение завершено",
         SessionStatus::Closed => "Закрыто",
+    }
+}
+
+fn state_code(status: SessionStatus) -> i32 {
+    match status {
+        SessionStatus::Connecting => 1,
+        SessionStatus::Connected => 2,
+        _ => 0,
     }
 }
 
@@ -434,10 +547,8 @@ fn report<T, E: std::fmt::Display>(ui: &AppWindow, result: Result<T, E>) {
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
-    if !cfg!(windows) {
-        ui.set_terminal_font("monospace".into());
-    }
     let data_dir = nexssh_core::default_data_dir().ok_or("Не найдена папка данных NexSSH")?;
+    appearance::load(&ui, &data_dir);
     let (sender, events) = mpsc::channel();
     let app = Rc::new(RefCell::new(App {
         core: Core::open(data_dir)?,
@@ -450,6 +561,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         active: None,
         next_token: 1,
         filter: String::new(),
+        collapsed: HashSet::new(),
         dialog: None,
         tabs_dirty: true,
     }));
@@ -477,6 +589,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     bind!(on_quick_connect, |state, window, destination| {
+        if let Some(server) = state.core.store.find(&destination) {
+            report(&window, state.open(&window, Some(server)));
+            return;
+        }
         match Destination::parse(&destination) {
             Ok(d) => report(&window, state.open(&window, Some(d.to_server()))),
             Err(error) => window.set_notice(error.to_string().into()),
@@ -486,8 +602,76 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         state.filter = filter.to_string();
         state.servers(&window);
     });
+    bind!(on_palette_query, |_state, window, query| {
+        let query = query.to_lowercase();
+        let rows: Vec<_> = window
+            .get_servers()
+            .iter()
+            .filter(|row| matches_server(row, &query))
+            .collect();
+        window.set_palette_servers(ModelRc::new(VecModel::from(rows)));
+    });
     bind!(on_refresh_servers, |state, window| {
         state.servers(&window);
+    });
+    bind!(on_toggle_group, |state, window, group| {
+        if !state.collapsed.remove(group.as_str()) {
+            state.collapsed.insert(group.to_string());
+        }
+        state.servers(&window);
+    });
+    bind!(on_show_home, |state, window| {
+        state.active = None;
+        state.tabs_dirty = true;
+        state.dialog = None;
+        prompts::clear(&window);
+        window.invoke_close_overlay();
+    });
+    bind!(on_save_server, |state,
+                           window,
+                           name,
+                           host,
+                           user,
+                           port,
+                           group| {
+        match port.parse::<u16>().ok().filter(|p| *p != 0) {
+            Some(port) => match state.core.store.save_server(Server {
+                name: name.to_string(),
+                host: host.to_string(),
+                user: user.to_string(),
+                port,
+                group: group.to_string(),
+                ..Server::default()
+            }) {
+                Ok(_) => {
+                    state.servers(&window);
+                    window.invoke_close_overlay();
+                }
+                Err(error) => window.set_notice(error.to_string().into()),
+            },
+            None => window.set_notice("Порт должен быть от 1 до 65535".into()),
+        }
+    });
+    bind!(on_import_servers, |state, window| {
+        match state.core.import_ssh_config(None, "") {
+            Ok(report) => {
+                state.servers(&window);
+                window.set_notice(
+                    format!(
+                        "Импортировано: {}, обновлено: {}",
+                        report.summary.added, report.summary.updated
+                    )
+                    .into(),
+                );
+            }
+            Err(error) => window.set_notice(error.to_string().into()),
+        }
+    });
+    bind!(on_dismiss_notice, |_state, window| {
+        window.set_notice("".into());
+    });
+    ui.on_close_window(|| {
+        let _ = slint::quit_event_loop();
     });
     bind!(on_select_tab, |state, window, index| {
         state.select(&window, index as usize);
@@ -537,6 +721,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await;
     });
+    appearance::save(&ui, &app.core.data_dir)?;
     result?;
     Ok(())
 }
@@ -568,6 +753,7 @@ mod tests {
             active: None,
             next_token: 1,
             filter: String::new(),
+            collapsed: HashSet::new(),
             dialog: None,
             tabs_dirty: true,
         };
@@ -663,7 +849,15 @@ mod tests {
         assert_eq!(ui.get_servers().row_count(), 1);
         app.filter = "missing".into();
         app.servers(&ui);
-        assert_eq!(ui.get_servers().row_count(), 0);
+        assert_eq!(ui.get_grouped_servers().row_count(), 0);
+        assert_eq!(ui.get_servers().row_count(), 1);
+        assert_eq!(ui.get_home_servers().row_count(), 2);
+        app.filter.clear();
+        app.collapsed.insert("Infrastructure".into());
+        app.servers(&ui);
+        assert!(ui.get_grouped_servers().row_data(0).unwrap().collapsed);
+        assert!(ui.get_grouped_servers().row_data(1).unwrap().hidden);
+        assert!(!ui.get_home_servers().row_data(1).unwrap().hidden);
     }
 
     #[test]
@@ -674,6 +868,8 @@ mod tests {
                 token,
                 id: token,
                 title: format!("Tab {token}"),
+                local: false,
+                server_id: None,
                 status: SessionStatus::Connecting,
                 message: String::new(),
                 terminal: Arc::new(Mutex::new(Terminal::new(24, 80))),
