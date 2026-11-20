@@ -75,9 +75,11 @@ impl Files {
             let mut resolved = path.clone();
             let result = async {
                 let sftp = core.sessions.sftp(session).await?;
-                if resolved.is_empty() {
-                    resolved = sftp.home().await?;
-                }
+                resolved = if resolved.is_empty() {
+                    sftp.home().await?
+                } else {
+                    sftp.resolve(&resolved).await?
+                };
                 sftp.list(&resolved).await
             }
             .await;

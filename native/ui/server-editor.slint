@@ -1,0 +1,214 @@
+import { CheckBox } from "std-widgets.slint";
+import { Theme, Action, IconButton, Input } from "controls.slint";
+import { Select, Choice } from "select.slint";
+import { Segmented } from "segmented.slint";
+import { I18n } from "i18n.slint";
+
+export struct ServerForm {
+    id:string, name:string, host:string, port:string, user:string, group:string,
+    sftp-root:string, auth:string, identity-file:string, jump-host:string, jump-user:string,
+    keepalive:string, timeout:string, commands:string, agents:string,
+    password:string, jump-password:string, has-password:bool, has-jump-password:bool,
+    forget-password:bool, forget-jump-password:bool,
+}
+export struct ForwardRow { kind:string, bind-host:string, bind-port:string, target-host:string, target-port:string }
+
+// ServerEditor.svelte: 46px rows, 16px gap, 300px controls and 11.5px hints.
+component EditorRow inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <length> control-width:300px;
+    in property <length> control-height:32px;
+    height:max(46px,max(root.control-height+14px,caption.preferred-height+(root.hint=="" ? 0px:hint.preferred-height+2px)+16px));
+    caption:=Text {x:0px;y:root.hint=="" ? (parent.height - self.height)/2:7px;width:parent.width - root.control-width - 16px;height:self.preferred-height;text:root.label;color:Theme.text;wrap:word-wrap;}
+    hint:=Text {x:0px;y:caption.y+caption.height+2px;width:min(260px,caption.width);height:self.preferred-height;text:root.hint;color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+    Rectangle {x:parent.width - root.control-width;y:7px;width:root.control-width;height:root.control-height;@children}
+    Rectangle {y:parent.height - 1px;height:1px;background:Theme.border-soft;}
+}
+
+component Suggest inherits Rectangle {
+    in-out property <string> value;
+    in property <string> label;
+    in property <string> placeholder;
+    in property <[Choice]> choices;
+    in property <bool> mono;
+    height:32px;
+    Input {x:0px;y:0px;width:parent.width;height:32px;text<=>root.value;label:root.label;placeholder:root.placeholder;monospace:root.mono;}
+    if root.choices.length>0: Select {x:parent.width - 29px;y:1px;width:28px;popup-width:root.width;height:30px;choices:root.choices;label:root.label;chosen(value)=>{root.value=value;}}
+}
+
+component PasswordField inherits Rectangle {
+    in-out property <string> value;
+    in property <string> label;
+    in property <string> placeholder;
+    in property <bool> enabled:true;
+    callback reveal();
+    property <bool> shown;
+    height:32px;
+    opacity:root.enabled ? 1:0.5;
+    Input {x:0px;y:0px;width:parent.width - 32px;label:root.label;text<=>root.value;placeholder:root.placeholder;input-type:root.shown ? text:password;enabled:root.enabled;}
+    IconButton {x:parent.width - 30px;y:2px;icon:root.shown ? "eyeOff":"eye";label:I18n.tr(root.shown ? "password.hide":"password.show");enabled:root.enabled;clicked=>{root.shown=!root.shown;if root.shown && root.value=="" {root.reveal();}}}
+}
+
+component CommandsInput inherits Rectangle {
+    in-out property <string> text;
+    in property <string> label;
+    in property <string> placeholder;
+    height:154px;background:Theme.input;border-radius:7px;border-width:1px;border-color:edit.has-focus ? Theme.text-3:Theme.border;
+    accessible-role:text-input;accessible-label:root.label;accessible-value<=>root.text;
+    accessible-action-set-value(value)=>{root.text=value;}
+    forward-focus:edit;
+    Flickable {
+        x:10px;y:9px;width:parent.width - 20px;height:parent.height - 18px;
+        content-width:self.width;content-height:max(self.height,edit.preferred-height);
+        edit:=TextInput {
+            x:0px;y:0px;width:parent.width;height:max(parent.height,self.preferred-height);
+            text<=>root.text;color:Theme.text;font-family:"JetBrains Mono";font-size:12.5px;single-line:false;wrap:word-wrap;
+            page-height:parent.height;selection-background-color:Theme.focus;selection-foreground-color:Theme.text;accessible-role:none;
+            cursor-position-changed(position)=>{
+                if position.y+parent.content-y<0px {parent.content-y=min(0px,-position.y);}
+                else if position.y+parent.content-y>parent.height - 20px {parent.content-y=min(0px,max(parent.height - self.height,parent.height - position.y - 20px));}
+            }
+        }
+        if root.text=="": Text {x:0px;y:0px;width:parent.width;text:root.placeholder;color:Theme.text-3;font-family:"JetBrains Mono";font-size:12.5px;wrap:word-wrap;}
+    }
+}
+
+export component ServerEditor inherits Rectangle {
+    in-out property <ServerForm> form;
+    in-out property <[ForwardRow]> forwards;
+    in property <[Choice]> groups;
+    in property <[Choice]> keys;
+    in property <[Choice]> jumps;
+    in property <string> key-detail;
+    in property <string> jump-hint;
+    in property <bool> jump-typed;
+    in property <bool> keychain-ok;
+    in property <bool> agents-enabled;
+    in property <bool> busy;
+    in property <string> error;
+    in property <string> error-section;
+    in-out property <string> section:"general";
+    callback action(string);
+    callback save(bool);
+    background:Theme.overlay;
+    TouchArea {clicked=>{if !root.busy {root.action("cancel");}}}
+    dialog:=Rectangle {
+        x:(parent.width - self.width)/2;y:parent.height*0.11;
+        width:min(600px,parent.width - 40px);height:min(parent.height*0.8,106px+max(268px,content.preferred-height)+20px+54px);
+        background:Theme.bg;border-radius:12px;border-width:1px;border-color:Theme.border;
+        drop-shadow-blur:32px;drop-shadow-offset-y:10px;drop-shadow-color:#60000000;
+        TouchArea {}
+        Text {x:20px;y:20px;width:parent.width - 40px;height:20px;text:I18n.tr(root.form.id=="" ? "editor.titleNew":"editor.titleEdit");color:Theme.text;font-size:15px;font-weight:600;}
+        Flickable {
+            x:20px;y:56px;width:parent.width - 40px;height:30px;content-height:30px;content-width:max(self.width,strip.preferred-width);
+            Rectangle {x:0px;y:0px;width:strip.preferred-width;height:30px;border-radius:7px;background:Theme.hover;
+                strip:=HorizontalLayout {padding:2px;spacing:2px;alignment:start;
+                    for tab in [{value:"general",label:I18n.tr("editor.tabGeneral")},{value:"login",label:I18n.tr("editor.tabLogin")},{value:"connection",label:I18n.tr("editor.tabConnection")},{value:"forwarding",label:I18n.tr("editor.tabForwarding")},{value:"commands",label:I18n.tr("editor.tabCommands")},{value:"agents",label:I18n.tr("editor.tabAgents")}]: Rectangle {
+                        width:caption.preferred-width+22px+(root.error-section==tab.value ? 10px:0px);height:26px;border-radius:5px;background:root.section==tab.value ? Theme.elevated:transparent;
+                        accessible-role:AccessibleRole.tab;accessible-label:tab.label;accessible-checked:root.section==tab.value;
+                        accessible-action-default=>{root.section=tab.value;viewport.content-y=0px;}
+                        caption:=Text {x:11px;height:26px;text:tab.label;color:root.section==tab.value || tab-touch.has-hover ? Theme.text:Theme.text-2;font-weight:500;vertical-alignment:center;}
+                        if root.error-section==tab.value: Rectangle {x:parent.width - 10px;y:10px;width:6px;height:6px;border-radius:3px;background:Theme.red;}
+                        tab-touch:=TouchArea {clicked=>{root.section=tab.value;viewport.content-y=0px;}}
+                    }
+                }
+            }
+        }
+        viewport:=Flickable {
+            x:20px;y:106px;width:parent.width - 40px;height:parent.height - 180px;
+            content-width:self.width;content-height:max(self.height,content.preferred-height);
+            content:=VerticalLayout {
+                x:0px;y:0px;width:viewport.width;spacing:0px;
+                if root.section=="general": VerticalLayout {spacing:0px;
+                    EditorRow {label:I18n.tr("editor.host");HorizontalLayout {spacing:6px;
+                        Input {init=>{if root.form.id=="" {self.focus();}}text<=>root.form.host;label:I18n.tr("editor.host");placeholder:I18n.tr("editor.hostPlaceholder");}
+                        Text {width:3px;text:":";color:Theme.text-3;vertical-alignment:center;}
+                        Input {width:76px;text<=>root.form.port;label:I18n.tr("editor.port");}
+                    }}
+                    EditorRow {label:I18n.tr("editor.name");hint:I18n.tr("editor.nameHint");Input {text<=>root.form.name;label:I18n.tr("editor.name");placeholder:root.form.host=="" ? "web-01":root.form.host;}}
+                    EditorRow {label:I18n.tr("editor.user");hint:I18n.tr("editor.userHint");Input {text<=>root.form.user;label:I18n.tr("editor.user");placeholder:I18n.tr("editor.userPlaceholder");}}
+                    EditorRow {label:I18n.tr("editor.group");hint:I18n.tr("editor.groupHint");Suggest {value<=>root.form.group;label:I18n.tr("editor.group");choices:root.groups;placeholder:I18n.tr("group.production");}}
+                    EditorRow {label:I18n.tr("editor.sftpRoot");hint:I18n.tr("editor.sftpRootHint");Input {text<=>root.form.sftp-root;label:I18n.tr("editor.sftpRoot");placeholder:"~";monospace:true;}}
+                }
+                if root.section=="login": VerticalLayout {spacing:0px;
+                    EditorRow {label:I18n.tr("editor.method");hint:I18n.tr("auth."+root.form.auth+".hint");control-width:auth.width;
+                        auth:=Segmented {label:I18n.tr("editor.method");value<=>root.form.auth;choices:[{value:"auto",label:I18n.tr("auth.auto")},{value:"password",label:I18n.tr("auth.password")},{value:"key",label:I18n.tr("auth.key")},{value:"agent",label:I18n.tr("auth.agent")}];}
+                    }
+                    if root.form.auth=="password": EditorRow {label:I18n.tr("editor.password");control-height:root.form.has-password ? 62px:32px;
+                        VerticalLayout {spacing:4px;
+                            PasswordField {value<=>root.form.password;label:I18n.tr("editor.password");placeholder:I18n.tr(root.form.has-password && !root.form.forget-password ? "editor.passwordSaved":"editor.passwordEmpty");enabled:!root.form.forget-password;reveal=>{root.action("reveal-password");}}
+                            if root.form.has-password: CheckBox {text:I18n.tr("editor.forgetPassword");checked<=>root.form.forget-password;}
+                        }
+                    }
+                    if root.form.auth=="key" || root.form.auth=="auto": EditorRow {label:I18n.tr(root.form.auth=="key" ? "editor.privateKey":"editor.privateKeyOptional");hint:root.key-detail;
+                        HorizontalLayout {spacing:6px;
+                            Suggest {value<=>root.form.identity-file;label:I18n.tr("editor.privateKey");placeholder:"~/.ssh/id_ed25519";choices:root.keys;mono:true;}
+                            Action {height:32px;text:I18n.tr("editor.browse");icon:"folder";clicked=>{root.action("browse-key");}}
+                        }
+                    }
+                    if root.form.auth=="password" && !root.keychain-ok: Text {text:I18n.tr("editor.keychainUnavailable");color:Theme.amber;wrap:word-wrap;}
+                }
+                if root.section=="connection": VerticalLayout {spacing:0px;
+                    EditorRow {label:I18n.tr("editor.jumpHost");hint:I18n.tr("editor.jumpHint");Suggest {value<=>root.form.jump-host;label:I18n.tr("editor.jumpHost");choices:root.jumps;placeholder:I18n.tr("editor.jumpPlaceholder");}}
+                    if root.jump-typed: EditorRow {label:I18n.tr("editor.jumpUser");Input {text<=>root.form.jump-user;label:I18n.tr("editor.jumpUser");placeholder:I18n.tr("editor.userPlaceholder");}}
+                    if root.jump-typed: EditorRow {label:I18n.tr("editor.jumpPassword");control-height:root.form.has-jump-password ? 62px:32px;
+                        VerticalLayout {spacing:4px;
+                            PasswordField {value<=>root.form.jump-password;label:I18n.tr("editor.jumpPassword");placeholder:I18n.tr(root.form.has-jump-password && !root.form.forget-jump-password ? "editor.jumpPasswordSaved":"editor.jumpPasswordEmpty");enabled:!root.form.forget-jump-password;reveal=>{root.action("reveal-jump-password");}}
+                            if root.form.has-jump-password: CheckBox {text:I18n.tr("editor.forgetPassword");checked<=>root.form.forget-jump-password;}
+                        }
+                    }
+                    if root.jump-hint!="": Text {text:root.jump-hint;color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+                    EditorRow {label:I18n.tr("editor.keepalive");hint:I18n.tr("editor.keepaliveHint");control-width:90px;Input {text<=>root.form.keepalive;label:I18n.tr("editor.keepalive");placeholder:"30";}}
+                    EditorRow {label:I18n.tr("editor.timeout");hint:I18n.tr("editor.timeoutHint");control-width:90px;Input {text<=>root.form.timeout;label:I18n.tr("editor.timeout");placeholder:"15";}}
+                }
+                if root.section=="forwarding": VerticalLayout {spacing:12px;
+                    Text {text:I18n.tr("editor.forwardingHint");color:Theme.text-2;wrap:word-wrap;}
+                    if root.forwards.length==0: Text {text:I18n.tr("editor.forwardingEmpty");color:Theme.text-3;}
+                    for forward[index] in root.forwards: HorizontalLayout {spacing:6px;height:32px;
+                        Select {width:124px;label:I18n.tr("editor.forwarding")+" "+(index+1);value<=>forward.kind;choices:[{value:"local",label:I18n.tr("forward.local")},{value:"remote",label:I18n.tr("forward.remote")},{value:"dynamic",label:I18n.tr("forward.dynamic")}];}
+                        Input {width:64px;text<=>forward.bind-port;label:I18n.tr(forward.kind=="remote" ? "editor.serverPort":"editor.localPort")+" "+(index+1);placeholder:"0";}
+                        if forward.kind!="dynamic": Text {width:12px;text:"→";color:Theme.text-3;vertical-alignment:center;}
+                        if forward.kind!="dynamic": Input {text<=>forward.target-host;label:I18n.tr("editor.host")+" "+(index+1);placeholder:"localhost";}
+                        if forward.kind!="dynamic": Input {width:64px;text<=>forward.target-port;label:I18n.tr("editor.port")+" "+(index+1);placeholder:"0";}
+                        if forward.kind=="dynamic": Text {text:"SOCKS";color:Theme.text-2;vertical-alignment:center;}
+                        IconButton {width:24px;icon:"x";label:I18n.tr("common.remove")+" "+(index+1);clicked=>{root.action("remove-forward:"+index);}}
+                    }
+                    HorizontalLayout {alignment:start;Action {text:I18n.tr("editor.addForward");icon:"plus";ghost:true;clicked=>{root.action("add-forward");}}}
+                    Rectangle {height:1px;background:Theme.border-soft;}
+                    for kind in ["local","remote","dynamic"]: HorizontalLayout {spacing:10px;
+                        Text {width:62px;text:I18n.tr("forward."+kind);color:Theme.text;font-size:11.5px;font-weight:600;}
+                        Text {text:I18n.tr("forward."+kind+".hint");color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+                    }
+                }
+                if root.section=="commands": VerticalLayout {spacing:10px;
+                    Text {text:I18n.tr("editor.commands");color:Theme.text-2;font-size:11.5px;font-weight:600;}
+                    Text {text:I18n.tr("editor.commandsHint");color:Theme.text-2;wrap:word-wrap;}
+                    CommandsInput {text<=>root.form.commands;label:I18n.tr("editor.commands");placeholder:I18n.tr("editor.commandsPlaceholder");}
+                    Text {text:I18n.tr("editor.commandsNote");color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+                }
+                if root.section=="agents": VerticalLayout {spacing:12px;
+                    EditorRow {label:I18n.tr("editor.agentsAccess");hint:I18n.tr("editor.agents"+(root.form.agents=="allow" ? "Allow":root.form.agents=="ask" ? "Ask":"Off")+".hint");control-width:access.width;
+                        access:=Segmented {label:I18n.tr("editor.agents");value<=>root.form.agents;choices:[{value:"off",label:I18n.tr("editor.agentsOff")},{value:"ask",label:I18n.tr("editor.agentsAsk")},{value:"allow",label:I18n.tr("editor.agentsAllow")}];}
+                    }
+                    if root.form.agents!="off" && !root.agents-enabled: Text {text:I18n.tr("editor.agentsDisabled");color:Theme.amber;wrap:word-wrap;}
+                }
+                if root.error!="": Text {text:root.error;color:Theme.red;wrap:word-wrap;}
+            }
+        }
+        scrollbar:=Rectangle {x:parent.width - 16px;y:106px;width:10px;height:viewport.height;visible:viewport.content-height>viewport.height;
+            Rectangle {x:3px;y:-viewport.content-y/viewport.content-height*parent.height;width:4px;height:max(24px,parent.height*viewport.height/viewport.content-height);background:Theme.text-3.with-alpha(0.4);border-radius:2px;}
+            TouchArea {property <length> start;pointer-event(event)=>{if event.kind==PointerEventKind.down {self.start=viewport.content-y;}}moved=>{if self.pressed {viewport.content-y=max(viewport.height - viewport.content-height,min(0px,self.start - (self.mouse-y - self.pressed-y)*viewport.content-height/self.height));}}}
+        }
+        Rectangle {y:parent.height - 54px;height:54px;background:Theme.frame;border-bottom-left-radius:12px;border-bottom-right-radius:12px;
+            Rectangle {x:0px;y:0px;height:1px;background:Theme.border-soft;}
+            HorizontalLayout {padding-left:20px;padding-right:20px;padding-top:12px;padding-bottom:12px;spacing:8px;
+                if root.form.id!="": Action {text:I18n.tr("common.delete");icon:"trash";ghost:true;danger:true;enabled:!root.busy;clicked=>{root.action("delete");}}
+                Rectangle {horizontal-stretch:1;}
+                Action {text:I18n.tr("common.cancel");enabled:!root.busy;clicked=>{root.action("cancel");}}
+                Action {text:I18n.tr("common.save");enabled:!root.busy;clicked=>{root.save(false);}}
+                Action {text:I18n.tr("editor.saveConnect");primary:true;enabled:!root.busy;clicked=>{root.save(true);}}
+            }
+        }
+    }
+}

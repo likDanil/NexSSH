@@ -4,12 +4,15 @@ import { ThemeCatalog } from "theme.slint";
 import "../assets/fonts/JetBrainsMono.ttf";
 import { SettingsDialog, SettingRow, AssociationRow, Choice, I18n,ColorTools,ColorValue,ColorSwatch } from "settings.slint";
 import { FilesDrawer,FileRow,EditRow } from "files.slint";
+import { ServerEditor,ServerForm,ForwardRow } from "server-editor.slint";
+import { ServerMenu } from "server-menu.slint";
+export { ServerForm,ForwardRow } from "server-editor.slint";
 export { I18n,ColorTools } from "settings.slint";
 
 // Layout values come from App.svelte, Sidebar, TabBar, ServerRow, Home and Modal.
 export struct ServerRow {
     id: string, name: string, address: string, host: string, group: string,
-    header: bool, count: int, collapsed: bool, hidden: bool, state: int, auth: string,
+    header: bool, count: int, collapsed: bool, hidden: bool, state: int, auth: string, open-session:bool,
 }
 export struct TabRow { title: string, status: string, state: int, local: bool }
 export struct TerminalCell {
@@ -109,6 +112,7 @@ export component AppWindow inherits Window {
     in property <bool> prompt-can-accept: true;
     in property <string> prompt-title;
     in property <string> prompt-detail;
+    in property <string> prompt-accept-label;
     in-out property <[PromptField]> prompt-fields;
     in-out property <bool> remember-host;
     out property <int> terminal-cols: max(2, min(400, floor((root.width - root.sidebar-size - root.files-size - 36px) / root.cell-width)));
@@ -118,11 +122,19 @@ export component AppWindow inherits Window {
     property <length> cell-width: metrics.preferred-width;
     property <length> cell-height: ceil(root.font-size * root.line-height) * 1px;
     property <string> resolved-font: root.terminal-font == "" ? "JetBrains Mono" : root.terminal-font;
-    property <string> server-name;
-    property <string> server-host;
-    property <string> server-user;
-    property <string> server-port: "22";
-    property <string> server-group;
+    in-out property <ServerForm> server-form;
+    in-out property <[ForwardRow]> server-forwards;
+    in property <[Choice]> server-groups;
+    in property <[Choice]> server-keys;
+    in property <[Choice]> server-jumps;
+    in property <string> server-key-detail;
+    in property <string> server-jump-hint;
+    in property <bool> server-jump-typed;
+    in property <string> server-error;
+    in property <string> server-error-section;
+    in-out property <string> server-section;
+    in property <bool> server-busy;
+    callback server-action(string,string);
     property <string> palette-text;
     property <int> palette-index;
     callback filter-servers(string);
@@ -133,7 +145,7 @@ export component AppWindow inherits Window {
     callback quick-connect(string);
     callback palette-query(string);
     callback open-local();
-    callback save-server(string, string, string, string, string);
+    callback save-server(bool);
     callback import-servers();
     callback select-tab(int);
     callback close-tab(int);
@@ -155,11 +167,8 @@ export component AppWindow inherits Window {
     callback close-decide(string,bool,bool);
     public function focus-terminal() { keyboard.focus(); }
     public function show-quick-connect() { root.palette-text = ""; root.palette-index = 0; root.palette-query(""); root.overlay = "quick"; }
-    public function close-overlay() { root.settings-agent-token="";root.overlay = ""; keyboard.focus(); }
-    public function add-server() {
-        root.server-name = ""; root.server-host = ""; root.server-user = ""; root.server-port = "22"; root.server-group = "";
-        root.overlay = "server";
-    }
+    public function close-overlay() { if root.overlay=="server" && root.server-busy {return;}root.server-form.password="";root.server-form.jump-password="";root.settings-agent-token="";root.overlay = ""; keyboard.focus(); }
+    public function add-server() {root.server-action("new","");}
     forward-focus: shortcuts;
     init => { Theme.variant = root.resolved-theme; }
     changed resolved-theme => { Theme.variant = root.resolved-theme; }
@@ -171,6 +180,7 @@ export component AppWindow inherits Window {
         capture-key-pressed(event) => {
             if event.text == Key.Escape && root.prompt-visible { root.answer-prompt(false); return accept; }
             if event.text == Key.Escape && root.overlay != "" { root.close-overlay(); return accept; }
+            if root.overlay=="server" && event.modifiers.control && event.text==Key.Return {root.save-server(event.modifiers.shift);return accept;}
             if root.prompt-visible { return reject; }
             if root.overlay == "quick" {
                 let count = root.palette-servers.length + (root.palette-text == "" ? 0 : 1);
@@ -264,10 +274,11 @@ export component AppWindow inherits Window {
                         }
                         if !server.header: Rectangle {
                             Rectangle { x: 12px; y: 17px; width: 7px; height: 7px; border-radius: 4px; background: server.state == 2 ? Theme.green : server.state == 1 ? Theme.amber : Theme.text-3; }
-                            Text { x: 29px; y: 4px; width: parent.width - 35px; height: 17px; text: server.name; color: Theme.text; font-weight: 500; overflow: elide; }
-                            Text { x: 29px; y: 21px; width: parent.width - 35px; height: 15px; text: server.host; color: Theme.text-2; font-size: 11.5px; overflow: elide; }
+                            Text { x: 29px; y: 4px; width: parent.width - 63px; height: 17px; text: server.name; color: Theme.text; font-weight: 500; overflow: elide; }
+                            Text { x: 29px; y: 21px; width: parent.width - 63px; height: 15px; text: server.host; color: Theme.text-2; font-size: 11.5px; overflow: elide; }
                         }
-                        row-touch := TouchArea { clicked => { if server.header { root.toggle-group(server.group); } else { root.connect-server(server.id); keyboard.focus(); } } }
+                        row-touch := TouchArea { clicked => { if server.header { root.toggle-group(server.group); } else { root.connect-server(server.id); keyboard.focus(); } } pointer-event(event)=>{if !server.header && event.button==PointerEventButton.right && event.kind==PointerEventKind.up {row-menu.show();}} }
+                        row-menu:=ServerMenu {x:parent.width - 30px;y:6px;visible:!server.header;open-session:server.open-session;server-name:server.name;action(command)=>{root.server-action(command,server.id);}}
                     }
                     if root.grouped-servers.length == 0: Rectangle { height: 44px; Text { x: 8px; y: 12px; text: root.filter-active ? "Совпадений не найдено." : I18n.tr("sidebar.empty"); color: Theme.text-2; } }
                     Rectangle { vertical-stretch: 1; }
@@ -392,9 +403,10 @@ export component AppWindow inherits Window {
                             Rectangle { x: 12px; y: 16px; width: 6px; height: 6px; border-radius: 3px; background: server.state == 2 ? Theme.green : Theme.text-3; }
                             Text { x: 32px; width: parent.width * 0.28 - 32px; height: 38px; text: server.name; color: Theme.text; font-weight: 500; vertical-alignment: center; overflow: elide; }
                             Text { x: parent.width * 0.28; width: parent.width * 0.45; height: 38px; text: server.address; color: Theme.text-2; font-family: root.resolved-font; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
-                            Text { x: parent.width * 0.75; width: parent.width * 0.25; height: 38px; text: server.auth; color: Theme.text-2; horizontal-alignment: right; vertical-alignment: center; font-size: 11px; }
+                            Text { x: parent.width * 0.75; width: parent.width * 0.25 - 34px; height: 38px; text: server.auth; color: Theme.text-2; horizontal-alignment: right; vertical-alignment: center; font-size: 11px; }
                         }
-                        home-row := TouchArea { enabled: !server.header; clicked => { root.connect-server(server.id); keyboard.focus(); } }
+                        home-row := TouchArea { enabled: !server.header; clicked => { root.connect-server(server.id); keyboard.focus(); } pointer-event(event)=>{if !server.header && event.button==PointerEventButton.right && event.kind==PointerEventKind.up {home-menu.show();}} }
+                        home-menu:=ServerMenu {x:parent.width - 30px;y:5px;visible:!server.header;open-session:server.open-session;server-name:server.name;action(command)=>{root.server-action(command,server.id);}}
                     }
                     Rectangle { vertical-stretch: 1; }
                 }
@@ -523,7 +535,13 @@ export component AppWindow inherits Window {
             }
         }
     }
-    if root.overlay == "server" || root.prompt-visible: Rectangle {
+    if root.overlay=="server" && !root.prompt-visible: ServerEditor {
+        form<=>root.server-form;forwards<=>root.server-forwards;groups:root.server-groups;keys:root.server-keys;jumps:root.server-jumps;
+        key-detail:root.server-key-detail;jump-hint:root.server-jump-hint;jump-typed:root.server-jump-typed;keychain-ok:root.settings-keychain-ok;agents-enabled:root.settings-agents-enabled;
+        busy:root.server-busy;error:root.server-error;error-section:root.server-error-section;section<=>root.server-section;
+        action(command)=>{root.server-action(command,root.server-form.id);}save(connect)=>{root.save-server(connect);}
+    }
+    if root.prompt-visible: Rectangle {
         x: root.prompt-visible && root.prompt-auth ? root.sidebar-size + 6px : 0px;
         y: root.prompt-visible && root.prompt-auth ? 40px : 0px;
         width: root.prompt-visible && root.prompt-auth ? root.width - root.sidebar-size - 12px : root.width;
@@ -545,17 +563,6 @@ export component AppWindow inherits Window {
                     Text { text: root.prompt-visible ? root.prompt-title : root.overlay == "server" ? I18n.tr("sidebar.addServer") : I18n.tr("nav.settings"); color: Theme.text; font-size: root.prompt-visible && root.prompt-auth ? 14px : 15px; font-weight: 600; vertical-alignment: center; }
                     IconButton { visible: !root.prompt-auth; icon: "x"; label: "Закрыть диалог"; clicked => { if root.prompt-visible { root.answer-prompt(false); } else { root.close-overlay(); } } }
                 }
-                if root.overlay == "server" && !root.prompt-visible: VerticalLayout {
-                    spacing: 10px;
-                    Text { text: I18n.tr("editor.name"); color: Theme.text-2; font-size: 12px; }
-                    Input { init => { self.focus(); } text <=> root.server-name; placeholder: "Мой сервер"; }
-                    Text { text: I18n.tr("editor.host"); color: Theme.text-2; font-size: 12px; }
-                    Input { text <=> root.server-host; placeholder: "example.com"; }
-                    HorizontalLayout { spacing: 12px; VerticalLayout { Text { text: I18n.tr("editor.user"); color: Theme.text-2; font-size: 12px; } Input { text <=> root.server-user; placeholder: "root"; } } VerticalLayout { Text { text: I18n.tr("editor.port"); color: Theme.text-2; font-size: 12px; } Input { text <=> root.server-port; } } }
-                    Text { text: I18n.tr("editor.group"); color: Theme.text-2; font-size: 12px; }
-                    Input { text <=> root.server-group; placeholder: "Без группы"; }
-                    HorizontalLayout { alignment: end; spacing: 8px; Action { text: I18n.tr("common.cancel"); clicked => { root.close-overlay(); } } Action { text: I18n.tr("common.save"); primary: true; clicked => { root.save-server(root.server-name, root.server-host, root.server-user, root.server-port, root.server-group); } } }
-                }
                 if root.prompt-visible: VerticalLayout {
                     spacing: 14px;
                     Text { text: root.prompt-detail; color: Theme.text-2; wrap: word-wrap; }
@@ -565,7 +572,7 @@ export component AppWindow inherits Window {
                         Input { init => { if index == 0 { self.focus(); } } text <=> field.value; input-type: field.secret ? password : text; accepted(text) => { root.answer-prompt(true); } }
                     }
                     if root.prompt-host-key: CheckBox { text: "Запомнить ключ сервера"; checked <=> root.remember-host; }
-                    HorizontalLayout { alignment: end; spacing: 8px; Action { text: I18n.tr("common.cancel"); clicked => { root.answer-prompt(false); } } Action { text: root.prompt-host-key ? "Доверять ключу" : I18n.tr("common.continue"); enabled: root.prompt-can-accept; primary: true; clicked => { root.answer-prompt(true); } } }
+                    HorizontalLayout { alignment: end; spacing: 8px; Action { text: I18n.tr("common.cancel"); clicked => { root.answer-prompt(false); } } Action { text: root.prompt-accept-label!="" ? root.prompt-accept-label:root.prompt-host-key ? "Доверять ключу" : I18n.tr("common.continue"); enabled: root.prompt-can-accept; primary: true; clicked => { root.answer-prompt(true); } } }
                 }
             }
         }

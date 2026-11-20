@@ -1,0 +1,42 @@
+import { Theme, Icon, IconButton } from "controls.slint";
+import { I18n } from "i18n.slint";
+
+component Item inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> danger;
+    callback clicked();
+    height:30px;border-radius:6px;background:area.has-hover ? Theme.hover:transparent;
+    accessible-role:button;accessible-label:root.label;accessible-action-default=>{root.clicked();}
+    Icon {x:9px;y:8px;width:14px;height:14px;name:root.icon;colorize:root.danger ? Theme.red:Theme.text-2;}
+    Text {x:33px;width:parent.width - 42px;height:30px;text:root.label;color:root.danger ? Theme.red:Theme.text;vertical-alignment:center;}
+    area:=TouchArea {clicked=>{root.clicked();}}
+}
+
+export component ServerMenu inherits Rectangle {
+    in property <bool> open-session;
+    in property <string> server-name;
+    callback action(string);
+    property <string> pending;
+    property <bool> action-pending;
+    width:28px;height:28px;
+    public function show() {popup.show();}
+    function choose(action:string) {root.pending=action;root.action-pending=true;popup.close();}
+    Timer {interval:1ms;running:root.action-pending;triggered=>{root.action-pending=false;root.action(root.pending);}}
+    IconButton {icon:"more";label:I18n.tr("server.actions")+": "+root.server-name;clicked=>{popup.show();}}
+    popup:=PopupWindow {
+        x:0px;y:root.height;width:210px;height:208px;
+        Rectangle {background:Theme.elevated;border-radius:10px;border-width:1px;border-color:Theme.border;
+            VerticalLayout {padding:6px;spacing:2px;
+                Item {label:I18n.tr(root.open-session ? "server.goToSession":"server.connect");icon:"terminal";clicked=>{root.choose("connect");}}
+                Item {label:I18n.tr("server.newSession");icon:"plus";clicked=>{root.choose("new-session");}}
+                Rectangle {height:1px;background:Theme.border-soft;}
+                Item {label:I18n.tr("server.edit");icon:"edit";clicked=>{root.choose("edit");}}
+                Item {label:I18n.tr("server.duplicate");icon:"duplicate";clicked=>{root.choose("duplicate");}}
+                Item {label:I18n.tr("server.copyAddress");icon:"copy";clicked=>{root.choose("copy-address");}}
+                Rectangle {height:1px;background:Theme.border-soft;}
+                Item {label:I18n.tr("common.delete");icon:"trash";danger:true;clicked=>{root.choose("delete");}}
+            }
+        }
+    }
+}

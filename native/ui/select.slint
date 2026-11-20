@@ -7,6 +7,7 @@ export component Select inherits Rectangle {
     in-out property <string> value;
     in property <string> label;
     in property <bool> enabled: true;
+    in property <length> popup-width:root.width;
     callback chosen(string);
     property <bool> choice-pending;
     property <string> pending-value;
@@ -26,7 +27,7 @@ export component Select inherits Rectangle {
     Icon { x: parent.width - 25px; y: 9.5px; width: 13px; height: 13px; name: "chevronDown"; colorize: Theme.text-2; }
     TouchArea { enabled: root.enabled; clicked => { popup.show(); } }
     popup := PopupWindow {
-        x: 0px; y: root.height + 4px; width: root.width;
+        x: root.width - root.popup-width; y: root.height + 4px; width: root.popup-width;
         height: min(260px, root.choices.length * 30px + 12px);
         Rectangle {
             background: Theme.elevated; border-width: 1px; border-color: Theme.border; border-radius: 10px;

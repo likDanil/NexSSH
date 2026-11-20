@@ -111,6 +111,7 @@ pub fn reply(ui: &AppWindow, prompt: &Prompt, accept: bool) -> PromptReply {
 }
 
 pub fn clear(ui: &AppWindow) {
+    ui.set_prompt_accept_label("".into());
     ui.set_prompt_visible(false);
     ui.set_prompt_auth(false);
     ui.set_prompt_fields(ModelRc::default());

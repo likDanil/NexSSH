@@ -76,6 +76,10 @@ enum Dialog {
     },
     RenewToken,
     RestoreTabs,
+    DeleteServer {
+        id: String,
+        name: String,
+    },
 }
 
 struct App {
@@ -84,6 +88,7 @@ struct App {
     services: services::Services,
     agents: crate::agents_ui::AgentUi,
     files: crate::files::Files,
+    server_editor: crate::server_editor::Editor,
     startup_cwd: Option<std::path::PathBuf>,
     runtime: tokio::runtime::Runtime,
     events: mpsc::Receiver<(u64, SessionEvent)>,
@@ -98,6 +103,151 @@ struct App {
 }
 
 impl App {
+    fn connect_server(&mut self, ui: &AppWindow, server: Server, new_session: bool) {
+        if !new_session
+            && let Some(index) = self
+                .tabs
+                .iter()
+                .position(|t| t.server_id.as_deref() == Some(&server.id))
+        {
+            self.select(ui, index);
+        } else {
+            report(ui, self.open(ui, Some(server)));
+        }
+    }
+
+    fn server_action(&mut self, ui: &AppWindow, action: &str, id: &str) {
+        let lang = i18n::resolve(self.settings.text("language"));
+        match action {
+            "new" | "edit" => {
+                let existing = if action == "edit" {
+                    let Some(server) = self.core.store.get(id) else {
+                        return;
+                    };
+                    Some(server)
+                } else {
+                    None
+                };
+                ui.set_settings_agents_enabled(self.settings.boolean("agentsEnabled"));
+                ui.set_settings_keychain_ok(self.services.keychain_available);
+                self.server_editor
+                    .show(ui, Arc::clone(&self.core), existing, lang);
+            }
+            "cancel" => {
+                if !ui.get_server_busy() {
+                    self.server_editor.cancel(ui);
+                    ui.invoke_close_overlay();
+                }
+            }
+            "connect" | "new-session" => {
+                if let Some(server) = self.core.store.get(id) {
+                    self.connect_server(ui, server, action == "new-session");
+                }
+            }
+            "duplicate" => {
+                if let Some(mut server) = self.core.store.get(id) {
+                    server.id.clear();
+                    server.alias = None;
+                    server.last_used = None;
+                    server.name = i18n::tr("server.copyName", lang).replace("{name}", &server.name);
+                    self.server_editor.duplicate(Arc::clone(&self.core), server);
+                }
+            }
+            "copy-address" => {
+                if let Some(server) = self.core.store.get(id) {
+                    report(
+                        ui,
+                        arboard::Clipboard::new()
+                            .and_then(|mut c| c.set_text(server.destination())),
+                    );
+                }
+            }
+            "delete" => {
+                if ui.get_server_busy() {
+                    return;
+                }
+                if let Some(server) = self.core.store.get(id) {
+                    if self.dialog.is_some() {
+                        return;
+                    }
+                    ui.set_prompt_title(
+                        i18n::tr("server.deleteTitle", lang)
+                            .replace("{name}", &server.name)
+                            .into(),
+                    );
+                    ui.set_prompt_detail(
+                        i18n::tr(
+                            if self.tabs.iter().any(|t| t.server_id.as_deref() == Some(id)) {
+                                "server.deleteMessageOpen"
+                            } else {
+                                "server.deleteMessage"
+                            },
+                            lang,
+                        )
+                        .into(),
+                    );
+                    ui.set_prompt_accept_label(i18n::tr("common.delete", lang).into());
+                    ui.set_prompt_fields(ModelRc::default());
+                    ui.set_prompt_auth(false);
+                    ui.set_prompt_host_key(false);
+                    ui.set_prompt_can_accept(true);
+                    ui.set_prompt_visible(true);
+                    self.dialog = Some(Dialog::DeleteServer {
+                        id: server.id,
+                        name: server.name,
+                    });
+                }
+            }
+            _ => self
+                .server_editor
+                .action(ui, Arc::clone(&self.core), action, lang),
+        }
+    }
+
+    fn server_editor_events(&mut self, ui: &AppWindow) {
+        for event in self.server_editor.poll(ui) {
+            match event {
+                crate::server_editor::Outcome::Saved {
+                    server,
+                    connect,
+                    access_changed,
+                } => {
+                    if access_changed {
+                        self.agents.controller.forget_server(&server.id);
+                    }
+                    self.servers(ui);
+                    if connect {
+                        self.connect_server(ui, *server, true);
+                    }
+                }
+                crate::server_editor::Outcome::Deleted { id, name } => {
+                    self.agents.controller.forget_server(&id);
+                    self.servers(ui);
+                    if ui.get_overlay() == "server" && ui.get_server_form().id == id {
+                        self.server_editor.cancel(ui);
+                        ui.invoke_close_overlay();
+                    }
+                    if ui.get_notice().is_empty() {
+                        ui.set_notice(
+                            i18n::tr(
+                                "server.deleted",
+                                i18n::resolve(self.settings.text("language")),
+                            )
+                            .replace("{name}", &name)
+                            .into(),
+                        );
+                    }
+                }
+            }
+        }
+        if ui.get_overlay() == "server" {
+            self.server_editor.derived(
+                ui,
+                &self.core,
+                i18n::resolve(self.settings.text("language")),
+            );
+        }
+    }
     fn refresh_files(&self, ui: &AppWindow) {
         let mut entries = self
             .files
@@ -164,6 +314,12 @@ impl App {
             return;
         };
         let session = tab.id;
+        let initial_path = tab
+            .server_id
+            .as_deref()
+            .and_then(|id| self.core.store.get(id))
+            .and_then(|s| s.sftp_root)
+            .unwrap_or_default();
         match key {
             "toggle" => {
                 ui.set_files_open(!ui.get_files_open());
@@ -175,7 +331,11 @@ impl App {
                         Arc::clone(&self.core),
                         &self.runtime,
                         session,
-                        String::new(),
+                        if self.files.session == session {
+                            self.files.path.clone()
+                        } else {
+                            initial_path
+                        },
                     );
                 }
             }
@@ -290,13 +450,15 @@ impl App {
             && self.files.session != tab.id
         {
             let session = tab.id;
+            let initial_path = tab
+                .server_id
+                .as_deref()
+                .and_then(|id| self.core.store.get(id))
+                .and_then(|s| s.sftp_root)
+                .unwrap_or_default();
             ui.set_files_loading(true);
-            self.files.list(
-                Arc::clone(&self.core),
-                &self.runtime,
-                session,
-                String::new(),
-            );
+            self.files
+                .list(Arc::clone(&self.core), &self.runtime, session, initial_path);
         }
     }
     fn snapshot_tabs(&mut self, reopen: bool) {
@@ -1041,6 +1203,10 @@ impl App {
                 address: s.destination().into(),
                 host: s.host.clone().into(),
                 group: s.group.clone().into(),
+                open_session: self
+                    .tabs
+                    .iter()
+                    .any(|t| t.server_id.as_deref() == Some(&s.id)),
                 state: self
                     .tabs
                     .iter()
@@ -1258,6 +1424,7 @@ impl App {
     }
 
     fn tick(&mut self, ui: &AppWindow) {
+        self.server_editor_events(ui);
         self.service_events(ui);
         self.agent_events(ui);
         self.file_events(ui);
@@ -1594,6 +1761,13 @@ impl App {
                 });
             }
             Some(Dialog::RestoreTabs) if accept => self.restore_tabs(ui),
+            Some(Dialog::DeleteServer { id, name }) if accept => {
+                if ui.get_overlay() == "server" && ui.get_server_form().id == id {
+                    self.server_editor.cancel(ui);
+                    ui.invoke_close_overlay();
+                }
+                self.server_editor.delete(Arc::clone(&self.core), id, name);
+            }
             _ => {}
         }
         prompts::clear(ui);
@@ -1697,6 +1871,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         collapsed,
         dialog: None,
         tabs_dirty: true,
+        server_editor: crate::server_editor::Editor::default(),
     }));
     app.borrow().servers(&ui);
     {
@@ -1786,7 +1961,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
     bind!(on_connect_server, |state, window, id| {
         if let Some(server) = state.core.store.get(&id) {
-            report(&window, state.open(&window, Some(server)));
+            state.connect_server(&window, server, false);
         }
     });
     bind!(on_quick_connect, |state, window, destination| {
@@ -1834,30 +2009,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         prompts::clear(&window);
         window.invoke_close_overlay();
     });
-    bind!(on_save_server, |state,
-                           window,
-                           name,
-                           host,
-                           user,
-                           port,
-                           group| {
-        match port.parse::<u16>().ok().filter(|p| *p != 0) {
-            Some(port) => match state.core.store.save_server(Server {
-                name: name.to_string(),
-                host: host.to_string(),
-                user: user.to_string(),
-                port,
-                group: group.to_string(),
-                ..Server::default()
-            }) {
-                Ok(_) => {
-                    state.servers(&window);
-                    window.invoke_close_overlay();
-                }
-                Err(error) => window.set_notice(error.to_string().into()),
-            },
-            None => window.set_notice("Порт должен быть от 1 до 65535".into()),
-        }
+    bind!(on_save_server, |state, window, connect| {
+        state.server_editor.save(
+            &window,
+            Arc::clone(&state.core),
+            connect,
+            i18n::resolve(state.settings.text("language")),
+        );
+    });
+    bind!(on_server_action, |state, window, action, id| {
+        state.server_action(&window, &action, &id);
     });
     bind!(on_import_servers, |state, window| {
         match state.core.import_ssh_config(None, "") {
@@ -2147,6 +2308,7 @@ mod tests {
             collapsed: HashSet::new(),
             dialog: None,
             tabs_dirty: true,
+            server_editor: crate::server_editor::Editor::default(),
         };
         (ui, app, dir)
     }

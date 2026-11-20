@@ -11,6 +11,7 @@ mod highlight;
 mod i18n;
 mod logger;
 mod prompts;
+mod server_editor;
 mod services;
 mod settings;
 mod settings_schema;

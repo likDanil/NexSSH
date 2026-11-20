@@ -9,6 +9,7 @@ export component Action inherits Rectangle {
     in property <string> label;
     in property <string> icon;
     in property <bool> primary;
+    in property <bool> danger;
     in property <bool> ghost;
     in property <bool> enabled: true;
     callback clicked();
@@ -33,13 +34,13 @@ export component Action inherits Rectangle {
     }
     if root.icon != "": Icon {
         x: 12px; y: 8px; width: 14px; height: 14px; name: root.icon;
-        colorize: root.primary ? Theme.primary-text : Theme.text;
+        colorize: root.primary ? Theme.primary-text : root.danger ? Theme.red : Theme.text;
     }
     label := Text {
         x: root.icon == "" ? 12px : 32px;
         width: parent.width - self.x - 12px; height: parent.height;
         text: root.text; font-size: 13px; font-weight: 500;
-        color: root.primary ? Theme.primary-text : Theme.text;
+        color: root.primary ? Theme.primary-text : root.danger ? Theme.red : Theme.text;
         vertical-alignment: center;
     }
     area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
@@ -62,6 +63,7 @@ export component IconButton inherits Rectangle {
 }
 
 export component Input inherits Rectangle {
+    in property <bool> enabled: true;
     in-out property <string> text;
     in property <string> placeholder;
     in property <string> label;
@@ -94,6 +96,7 @@ export component Input inherits Rectangle {
         font-size: root.font-size * 1px; vertical-alignment: center; overflow: elide;
     }
     edit := TextInput {
+        enabled: root.enabled;
         accessible-role: none;
         x: root.icon == "" ? 10px : 32px; width: parent.width - self.x - 10px; height: parent.height;
         text <=> root.text; color: Theme.text; font-size: root.font-size * 1px; font-family:root.monospace ? "JetBrains Mono":"Segoe UI Variable Text"; single-line: true;

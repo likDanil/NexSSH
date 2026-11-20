@@ -35,7 +35,11 @@ cargo run -p nexssh-slint
   collapsible server groups, rounded terminal surface and session status bar.
 - Light, Graphite, Black, Navy and System themes; bundled JetBrains Mono.
 - Server home screen, sidebar search, quick-connect palette and session actions menu.
-- Add a server and import `~/.ssh/config`.
+- Add/edit servers in the six-tab 1.x editor: general fields, sign-in and key picker,
+  jump hosts, timeouts, local/remote/SOCKS forwards, login commands and agent access.
+  Passwords can be kept, replaced, revealed or forgotten in the OS credential store.
+  Server context menus connect, open another session, edit, duplicate, copy the
+  address and confirm deletion. Import from `~/.ssh/config` is also available.
 - All seven settings sections, with defaults and Russian/English messages generated from
   the original TypeScript sources. Preferences inherit `settings.json` key by key and
   save to `native-settings.json`; unknown preferences survive. Corrupt native settings
@@ -57,7 +61,8 @@ cargo run -p nexssh-slint
   paste (Ctrl+Shift+V), bracketed paste and configurable multiline confirmation.
 - SFTP drawer: browse, sort, hidden files, upload/download files and folders,
   transfer cancellation; external editors and file associations use the existing
-  core's save-back and conflict detection.
+  core's save-back and conflict detection. The server's files folder is applied on
+  first opening, including home-relative paths.
 - AI-agent MCP server and stdio bridge (`nexssh-slint mcp`), with the 1.x protocol,
   keychain token, per-server access, request dialogs and activity. Disabling the
   server or changing its port also refuses existing HTTP connections.
@@ -72,8 +77,8 @@ cargo run -p nexssh-slint
 1. **Terminal compatibility:** real-world vim, htop, tmux and ConPTY coverage;
    mouse reporting, IME, regex/whole-word search, links, resizing/reflow and rendering performance.
    Selection is cleared when output changes or the viewport scrolls.
-2. **Server management:** full edit/delete dialogs, group management and remaining
-   contextual actions. Some native notices and hints still need full localization.
+2. **Server management:** group management and remaining contextual actions.
+   Some native notices and hints still need full localization.
 3. **Files and tools:** complete file context menus, permissions, sudo editing,
    forwarding controls and metrics. SSH/SFTP/editor interaction still needs live-server QA.
 4. **Desktop integration:** window state, single-instance routing, drag-and-drop,
@@ -95,6 +100,8 @@ by this prototype. SSH and platform-specific behavior need testing on all suppor
   from `ui/src/lib/themes.ts`. These 1.x files remain the source of truth.
 - `build/settings.rs`: reads original defaults, translations and keyword patterns.
 - `src/settings.rs`, `settings_schema.rs`: complete preference storage and UI rows.
+- `ui/server-editor.slint`, `server-menu.slint`, `src/server_editor.rs`: server forms,
+  context actions, validation and asynchronous keychain/file-dialog work.
 - `src/services.rs`: file dialogs, backups, metadata and update checks off the UI thread.
 - `src/files.rs`, `editor.rs`: SFTP and external editors; `src/agents/`: native MCP host.
   Editor and MCP implementations are ported from their `desktop/src` counterparts;
@@ -105,7 +112,7 @@ by this prototype. SSH and platform-specific behavior need testing on all suppor
 - `../core`: shared SSH, local PTY and storage implementation.
 
 Layout measurements are ported from `App.svelte`, `Sidebar.svelte`, `TabBar.svelte`,
-`ServerRow.svelte`, `Home.svelte`, `CommandPalette.svelte` and `Modal.svelte`, rather
+`ServerRow.svelte`, `ServerEditor.svelte`, `Home.svelte`, `CommandPalette.svelte` and `Modal.svelte`, rather
 than estimated from screenshots. Native text rasterization, shadows and window-system
 integration can still differ from WebView rendering; full pixel parity is not yet claimed.
 
@@ -120,11 +127,14 @@ cargo run -p nexssh-slint --features slint/mcp
 Do not enable that feature in release builds. See the
 [Slint testing documentation](https://docs.rs/i-slint-backend-testing/1.19.0/i_slint_backend_testing/).
 
-The optional UI regression check starts and closes its own headless instances with
-temporary data. It verifies settings controls, dropdown callbacks, language changes,
-persistence after restart and preservation of the original settings file:
+The optional UI regression checks start and close their own headless instances with
+temporary data. They verify settings controls, dropdown callbacks, language changes,
+persistence after restart and preservation of the original settings file. The server
+check also covers all six editor tabs, validation, duplication, deletion and session actions;
+its SSH connection attempts use a closed loopback port:
 
 ```sh
 cargo build -p nexssh-slint --features slint/mcp
 python native/tests/settings_ui.py
+python native/tests/server_editor_ui.py
 ```
