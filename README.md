@@ -15,6 +15,10 @@
 
 ## Why
 
+An experimental native **2.0.0 Slint client** is being developed on `codex/2.0.0-slint`.
+Run it with `cargo run -p nexssh-slint` (Rust 1.95+).
+See [native/README.md](native/README.md) for the migration status and remaining work.
+
 * **Light.** A Rust core and the system webview (Tauri 2) instead of a bundled browser:
   a small installer, low memory use and practically no CPU while idle.
 * **Calm.** Two areas only — servers and the terminal. Everything else lives in the

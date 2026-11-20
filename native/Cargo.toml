@@ -1,0 +1,23 @@
+[package]
+name = "nexssh-slint"
+description = "NexSSH 2.0 experimental native desktop client"
+version = "2.0.0-alpha.1"
+edition.workspace = true
+rust-version = "1.95"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+nexssh-core.workspace = true
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-femtovg", "accessibility"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync"] }
+vt100 = "0.18.1"
+arboard = { version = "3.7", default-features = false }
+
+[build-dependencies]
+slint-build = "=1.19.0"
+
+[dev-dependencies]
+i-slint-backend-testing = "=1.19.0"
+tempfile = "3"

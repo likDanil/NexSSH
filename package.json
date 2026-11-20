@@ -13,7 +13,11 @@
     "check": "npm run check --workspace ui",
     "test": "npm run test --workspace ui",
     "ui:dev": "npm run dev --workspace ui",
-    "ui:build": "npm run build --workspace ui"
+    "ui:build": "npm run build --workspace ui",
+    "native:dev": "cargo run -p nexssh-slint",
+    "native:build": "cargo build -p nexssh-slint --release",
+    "native:check": "cargo check -p nexssh-slint",
+    "native:test": "cargo test -p nexssh-slint"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.0"

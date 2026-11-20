@@ -1,0 +1,284 @@
+import { LineEdit, ScrollView, CheckBox, Palette } from "std-widgets.slint";
+
+export struct ServerRow { id: string, name: string, address: string, group: string }
+export struct TabRow { title: string, status: string }
+export struct TerminalCell {
+    row: int, col: int, span: int, text: string,
+    foreground: color, background: color, bold: bool, underline: bool,
+}
+export struct PromptField { label: string, secret: bool, value: string }
+
+component Action inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked();
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    height: 32px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    width: label.preferred-width + 24px;
+    border-radius: 5px;
+    background: !root.enabled ? #222428 : root.primary ? #528c72 : area.has-hover ? #373a40 : #2a2d31;
+    label := Text {
+        text: root.text;
+        color: root.enabled ? #e5e7eb : #686e77;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+export component AppWindow inherits Window {
+    title: "NexSSH 2.0 · Slint preview";
+    preferred-width: 1160px;
+    preferred-height: 740px;
+    min-width: 780px;
+    min-height: 480px;
+    background: #141517;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+    init => { Palette.color-scheme = ColorScheme.dark; }
+
+    in property <[ServerRow]> servers;
+    in property <[TabRow]> tabs;
+    in property <int> active-tab: -1;
+    in property <[TerminalCell]> cells;
+    in property <string> terminal-font: "Consolas";
+    in property <int> cursor-row;
+    in property <int> cursor-col;
+    in property <bool> cursor-visible;
+    in property <string> status: "Готово";
+    in property <string> notice;
+    in property <int> scrollback;
+    in property <bool> prompt-visible;
+    in property <bool> prompt-host-key;
+    in property <bool> prompt-can-accept: true;
+    in property <string> prompt-title;
+    in property <string> prompt-detail;
+    in-out property <[PromptField]> prompt-fields;
+    in-out property <bool> remember-host;
+    out property <int> terminal-cols: max(2, min(400, floor((root.width - 249px) / root.cell-width)));
+    out property <int> terminal-rows: max(2, min(150, floor((root.height - 167px - (root.notice == "" ? 0px : 44px)) / root.cell-height)));
+    property <length> cell-width: metrics.preferred-width;
+    property <length> cell-height: 21px;
+    callback filter-servers(string);
+    callback refresh-servers();
+    callback connect-server(string);
+    callback quick-connect(string);
+    callback open-local();
+    callback select-tab(int);
+    callback close-tab(int);
+    callback reconnect();
+    callback terminal-key(string, bool, bool, bool);
+    callback scroll-terminal(int);
+    callback copy-screen();
+    callback paste();
+    callback answer-prompt(bool);
+    public function focus-terminal() { keyboard.focus(); }
+    forward-focus: keyboard;
+
+    metrics := Text {
+        text: "M";
+        font-family: root.terminal-font;
+        font-size: 14px;
+        visible: false;
+    }
+    VerticalLayout {
+        spacing: 0px;
+        Rectangle {
+            height: 56px;
+            background: #1c1e22;
+            HorizontalLayout {
+                padding-left: 20px; padding-right: 16px; padding-top: 12px; padding-bottom: 12px; spacing: 14px;
+                Text { text: "NexSSH"; color: #e5e7eb; font-size: 20px; font-weight: 650; vertical-alignment: center; horizontal-stretch: 0; }
+                Text { text: "2.0.0 alpha · Slint"; color: #8c929b; vertical-alignment: center; }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px;
+                    destination := LineEdit {
+                        placeholder-text: "user@host:22";
+                        min-width: 190px;
+                        accepted => { root.quick-connect(self.text); keyboard.focus(); }
+                    }
+                    Action { text: "Подключить"; primary: true; clicked => { root.quick-connect(destination.text); keyboard.focus(); } }
+                    Action { text: "+ Локальный"; clicked => { root.open-local(); keyboard.focus(); } }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 1px;
+            Rectangle {
+                width: 248px;
+                background: #1c1e22;
+                VerticalLayout {
+                    padding: 14px; spacing: 12px;
+                    HorizontalLayout {
+                        Text { text: "СЕРВЕРЫ"; color: #8c929b; font-size: 11px; vertical-alignment: center; }
+                        Action { text: "Обновить"; clicked => { root.refresh-servers(); } }
+                    }
+                    LineEdit { placeholder-text: "Поиск сервера…"; edited(text) => { root.filter-servers(text); } }
+                    ScrollView {
+                        VerticalLayout {
+                            spacing: 4px; padding: 0px;
+                            for server in root.servers: Rectangle {
+                                accessible-role: button;
+                                accessible-label: server.name + " " + server.address;
+                                accessible-action-default => { root.connect-server(server.id); keyboard.focus(); }
+                                height: 64px;
+                                background: server-area.has-hover ? #2a2d31 : transparent;
+                                border-radius: 5px;
+                                VerticalLayout {
+                                    padding: 8px; spacing: 2px;
+                                    Text { text: server.name; color: #d6d9de; font-weight: 600; overflow: elide; }
+                                    Text { text: server.address; color: #8c929b; font-size: 11px; overflow: elide; }
+                                    Text { text: server.group == "" ? "Без группы" : server.group; color: #686e77; font-size: 10px; overflow: elide; }
+                                }
+                                server-area := TouchArea { clicked => { root.connect-server(server.id); keyboard.focus(); } }
+                            }
+                            if root.servers.length == 0: Text {
+                                text: "Нет серверов.\nИспользуйте быстрое подключение\nили локальный терминал.";
+                                color: #8c929b; font-size: 11px; wrap: word-wrap;
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+                    }
+                    Text { text: "Экспериментальная версия"; color: #686e77; font-size: 11px; }
+                }
+            }
+            Rectangle {
+                VerticalLayout {
+                    spacing: 0px;
+                    Rectangle {
+                        height: 44px; background: #1c1e22;
+                        HorizontalLayout {
+                            padding: 6px; spacing: 5px; alignment: start;
+                            for tab[index] in root.tabs: Rectangle {
+                                width: 158px; border-radius: 5px;
+                                background: index == root.active-tab ? #373a40 : #25272b;
+                                HorizontalLayout {
+                                    padding-left: 10px; padding-right: 28px; spacing: 6px;
+                                    Text { text: tab.title; color: #d6d9de; overflow: elide; vertical-alignment: center; }
+                                }
+                                TouchArea { clicked => { root.select-tab(index); keyboard.focus(); } }
+                                Rectangle {
+                                    x: parent.width - 25px; width: 24px; height: parent.height;
+                                    Text { text: "×"; color: #8c929b; horizontal-alignment: center; vertical-alignment: center; }
+                                    TouchArea { clicked => { root.close-tab(index); keyboard.focus(); } }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        height: 39px;
+                        HorizontalLayout {
+                            padding-left: 12px; padding-right: 12px; padding-top: 3px; padding-bottom: 4px; spacing: 7px;
+                            Text { text: root.status; color: #8c929b; font-size: 11px; vertical-alignment: center; overflow: elide; }
+                            Action { text: "Переподключить"; enabled: root.active-tab >= 0; clicked => { root.reconnect(); keyboard.focus(); } }
+                            Action { text: "Копировать экран"; enabled: root.active-tab >= 0; clicked => { root.copy-screen(); keyboard.focus(); } }
+                            Action { text: "Вставить"; enabled: root.active-tab >= 0; clicked => { root.paste(); keyboard.focus(); } }
+                        }
+                    }
+                    terminal := Rectangle {
+                        clip: true;
+                        background: #141517;
+                        keyboard := FocusScope {
+                            enabled: !root.prompt-visible;
+                            key-pressed(event) => {
+                                root.terminal-key(event.text, event.modifiers.control, event.modifiers.alt, event.modifiers.shift);
+                                accept
+                            }
+                        }
+                        TouchArea {
+                            clicked => { keyboard.focus(); }
+                            scroll-event(event) => {
+                                root.scroll-terminal(event.delta-y > 0px ? 3 : -3);
+                                accept
+                            }
+                        }
+                        for cell in root.cells: Rectangle {
+                            x: cell.col * root.cell-width;
+                            y: cell.row * root.cell-height;
+                            width: cell.span * root.cell-width;
+                            height: root.cell-height;
+                            background: cell.background;
+                            Text {
+                                text: cell.text;
+                                color: cell.foreground;
+                                font-family: root.terminal-font;
+                                font-size: 14px;
+                                font-weight: cell.bold ? 700 : 400;
+                                vertical-alignment: center;
+                            }
+                            if cell.underline: Rectangle { y: parent.height - 2px; height: 1px; background: cell.foreground; }
+                        }
+                        if root.cursor-visible && root.active-tab >= 0: Rectangle {
+                            x: root.cursor-col * root.cell-width;
+                            y: root.cursor-row * root.cell-height;
+                            width: root.cell-width;
+                            height: root.cell-height;
+                            background: #80d6d9de;
+                        }
+                        if root.active-tab < 0: VerticalLayout {
+                            alignment: center; spacing: 14px; padding: 40px;
+                            Text { text: "NexSSH 2.0"; color: #d6d9de; font-size: 30px; horizontal-alignment: center; }
+                            Text { text: "Выберите сервер или откройте локальный терминал"; color: #8c929b; horizontal-alignment: center; }
+                            HorizontalLayout {
+                                alignment: center;
+                                Action { text: "Открыть локальный терминал"; primary: true; clicked => { root.open-local(); keyboard.focus(); } }
+                            }
+                        }
+                    }
+                    if root.notice != "": Rectangle {
+                        height: 44px; background: #302b21;
+                        Text { x: 12px; width: parent.width - 24px; text: root.notice; color: #e1bd79; wrap: word-wrap; vertical-alignment: center; font-size: 12px; }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 28px; background: #1c1e22;
+            HorizontalLayout {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                padding-left: 14px; padding-right: 14px;
+                Text { text: "Rust + Slint · native preview"; color: #686e77; font-size: 11px; vertical-alignment: center; }
+                Text { text: root.scrollback > 0 ? "История: " + root.scrollback + " строк" : root.terminal-cols + " × " + root.terminal-rows; color: #8c929b; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+            }
+        }
+    }
+    if root.prompt-visible: Rectangle {
+        background: #b0000000;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: min(560px, parent.width - 40px);
+            height: min(dialog.preferred-height, parent.height - 40px);
+            background: #26282c; border-radius: 8px;
+            dialog := VerticalLayout {
+                padding: 24px; spacing: 16px;
+                Text { text: root.prompt-title; color: #e5e7eb; font-size: 18px; font-weight: 600; }
+                Text { text: root.prompt-detail; color: #b3b8c0; wrap: word-wrap; font-size: 12px; }
+                for field[index] in root.prompt-fields: VerticalLayout {
+                    spacing: 5px;
+                    Text { text: field.label; color: #b3b8c0; wrap: word-wrap; }
+                    LineEdit {
+                        init => { if index == 0 { self.focus(); } }
+                        text <=> field.value;
+                        input-type: field.secret ? password : text;
+                        accepted => { root.answer-prompt(true); }
+                    }
+                }
+                if root.prompt-host-key: CheckBox { text: "Запомнить ключ сервера"; checked <=> root.remember-host; }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px;
+                    Action { text: "Отмена"; clicked => { root.answer-prompt(false); } }
+                    Action { text: root.prompt-host-key ? "Доверять ключу" : "Продолжить"; enabled: root.prompt-can-accept; primary: true; clicked => { root.answer-prompt(true); } }
+                }
+            }
+        }
+    }
+}
