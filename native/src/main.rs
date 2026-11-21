@@ -9,6 +9,7 @@ mod explorer;
 mod files;
 mod highlight;
 mod i18n;
+mod keyboard;
 mod logger;
 mod prompts;
 mod server_editor;

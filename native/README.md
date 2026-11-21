@@ -63,6 +63,11 @@ cargo run -p nexssh-slint
 - 1,000–100,000 lines of scrollback: mouse wheel or Shift+PageUp / Shift+PageDown.
 - Mouse selection, Unicode copying, literal search through history (Ctrl+Shift+F),
   paste (Ctrl+Shift+V), bracketed paste and configurable multiline confirmation.
+- Copy actions show a dismissible 1.x-style notification for 3.6 seconds. Repeated
+  copies restart its timer; terminal text and tokens use a generic confirmation.
+- Shortcuts work in non-Latin layouts through physical key positions, following
+  the 1.x keyboard helper. ASCII layouts keep their logical bindings; ordinary
+  typing and AltGr retain native handling. Home also has a keyboard focus target.
 - SFTP drawer: browse, sort, hidden files, upload/download files and folders,
   transfer cancellation; external editors and file associations use the existing
   core's save-back and conflict detection. The server's files folder is applied on
@@ -113,6 +118,7 @@ by this prototype. SSH and platform-specific behavior need testing on all suppor
   their protocol, access policy and editor resolution tests are retained.
 - `src/app.rs`: UI-thread controller, session lifecycle and event bridge.
 - `src/terminal.rs`: bounded terminal parser, ANSI colors, input encoding and terminal replies.
+- `src/keyboard.rs`: native shortcut normalization and paired key releases.
 - `src/prompts.rs`: SSH prompts and responses.
 - `../core`: shared SSH, local PTY and storage implementation.
 

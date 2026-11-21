@@ -155,11 +155,7 @@ impl App {
             }
             "copy-address" => {
                 if let Some(server) = self.core.store.get(id) {
-                    report(
-                        ui,
-                        arboard::Clipboard::new()
-                            .and_then(|mut c| c.set_text(server.destination())),
-                    );
+                    self.write_clipboard(ui, &server.destination(), "common.copied");
                 }
             }
             "delete" => {
@@ -999,10 +995,10 @@ impl App {
             "backup-import" => self.services.import(),
             "browse-shell" => self.services.browse("localShellCommand"),
             "browse-editor" => self.services.browse("editorCommand"),
-            "copy-data-path" => report(
+            "copy-data-path" => self.write_clipboard(
                 ui,
-                arboard::Clipboard::new()
-                    .and_then(|mut c| c.set_text(self.core.data_dir.display().to_string())),
+                &self.core.data_dir.display().to_string(),
+                "common.copied",
             ),
             "open-data-path" => self.services.open(self.core.data_dir.clone()),
             "project-home" => self.services.url("https://github.com/likDanil/NexSSH"),
@@ -1048,10 +1044,7 @@ impl App {
                     "agents-copy-http"=>serde_json::json!({"mcpServers":{"nexssh":{"type":"http","url":self.agents.status.url,"headers":{"Authorization":"Bearer <token>"}}}}).to_string(),
                     _=>serde_json::json!({"mcpServers":{"nexssh":{"command":exe,"args":["mcp"]}}}).to_string(),
                 };
-                report(
-                    ui,
-                    arboard::Clipboard::new().and_then(|mut c| c.set_text(text)),
-                );
+                self.write_clipboard(ui, &text, "agents.copied");
             }
             _ => {}
         }
@@ -1066,10 +1059,7 @@ impl App {
                         ui.set_settings_agent_token(token.into());
                     }
                 }
-                ServiceEvent::Clipboard(text) => report(
-                    ui,
-                    arboard::Clipboard::new().and_then(|mut c| c.set_text(text)),
-                ),
+                ServiceEvent::Clipboard(text) => self.write_clipboard(ui, &text, "agents.copied"),
                 ServiceEvent::Metadata {
                     shells,
                     editors,
@@ -1656,6 +1646,20 @@ impl App {
         }
     }
 
+    fn write_clipboard(&self, ui: &AppWindow, text: &str, message_key: &str) {
+        if text.is_empty() {
+            return;
+        }
+        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+            Ok(()) => {
+                let message = i18n::tr(message_key, i18n::resolve(self.settings.text("language")))
+                    .replace("{text}", text);
+                ui.invoke_show_copy_notice(message.into());
+            }
+            Err(error) => ui.set_notice(error.to_string().into()),
+        }
+    }
+
     fn copy(&self, ui: &AppWindow) {
         let Some(tab) = self.active() else { return };
         let terminal = tab.terminal.lock().unwrap();
@@ -1665,10 +1669,8 @@ impl App {
         } else {
             selected
         };
-        report(
-            ui,
-            arboard::Clipboard::new().and_then(|mut c| c.set_text(contents)),
-        );
+        drop(terminal);
+        self.write_clipboard(ui, &contents, "agents.copied");
     }
 
     fn paste(&mut self, ui: &AppWindow) {
@@ -1827,7 +1829,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let settings = Settings::load(&data_dir)?;
     // The inspector installs its own headless backend when the first window is made.
     if std::env::var("SLINT_BACKEND").as_deref() != Ok("headless") {
-        let mut backend = slint::BackendSelector::new();
+        let mut backend = slint::BackendSelector::new()
+            .with_winit_custom_application_handler(crate::keyboard::Shortcuts::default());
         #[cfg(windows)]
         {
             backend = backend.with_winit_window_attributes_hook(|attributes| {

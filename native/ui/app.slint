@@ -107,6 +107,7 @@ export component AppWindow inherits Window {
     in property <bool> cursor-visible;
     in property <string> status: I18n.tr("files.done");
     in property <string> notice;
+    property <string> copy-feedback;
     in property <int> scrollback;
     in property <bool> prompt-visible;
     in property <bool> prompt-auth;
@@ -167,18 +168,24 @@ export component AppWindow inherits Window {
     in-out property <bool> close-remember;
     in-out property <bool> close-reopen: true;
     callback close-decide(string,bool,bool);
-    public function focus-terminal() { keyboard.focus(); }
+    public function focus-terminal() { if root.active-tab>=0 {keyboard.focus();} else {home-keys.focus();} }
+    public function show-copy-notice(message:string) {
+        root.copy-feedback=message;
+        copy-timer.start();
+        copy-timer.restart();
+    }
     public function show-quick-connect() { root.palette-text = ""; root.palette-index = 0; root.palette-query(""); root.overlay = "quick"; }
-    public function close-overlay() { if root.overlay=="server" && root.server-busy {return;}root.server-form.password="";root.server-form.jump-password="";root.settings-agent-token="";root.overlay = ""; keyboard.focus(); }
+    public function close-overlay() { if root.overlay=="server" && root.server-busy {return;}root.server-form.password="";root.server-form.jump-password="";root.settings-agent-token="";root.overlay = ""; root.focus-terminal(); }
     public function add-server() {root.server-action("new","");}
     forward-focus: shortcuts;
     init => { Theme.variant = root.resolved-theme; }
     changed resolved-theme => { Theme.variant = root.resolved-theme; }
+    changed active-tab => {if root.overlay=="" && !root.prompt-visible {root.focus-terminal();}}
 
     metrics := Text { text: "M"; font-family: root.resolved-font; font-size: root.font-size * 1px; font-weight:400; visible: false; }
     shortcuts := FocusScope {
         width: 100%; height: 100%;
-        forward-focus: keyboard;
+        forward-focus: home-keys;
         capture-key-pressed(event) => {
             if event.text == Key.Escape && root.prompt-visible { root.answer-prompt(false); return accept; }
             if event.text == Key.Escape && root.overlay != "" { root.close-overlay(); return accept; }
@@ -202,6 +209,15 @@ export component AppWindow inherits Window {
             if event.modifiers.control && event.modifiers.shift && (event.text=="f" || event.text=="F") {root.find-open=true;return accept;}
             if event.text==Key.Escape && root.find-open {root.find-open=false;keyboard.focus();return accept;}
             reject
+        }
+        // Home needs a visible focus target too: the terminal is hidden there.
+        home-keys:=FocusScope {
+            enabled:root.overlay=="" && !root.prompt-visible;
+            focus-on-tab-navigation:false;
+            key-pressed(event)=>{
+                if root.active-tab<0 && !event.modifiers.control && !event.modifiers.alt && event.text!=Key.F11 {return reject;}
+                root.terminal-key(event.text,event.modifiers.control,event.modifiers.alt,event.modifiers.shift);accept
+            }
         }
         // Custom title bar: same 40px strip and window controls as the web client.
         WindowMoveArea {
@@ -585,6 +601,17 @@ export component AppWindow inherits Window {
         border-radius: 10px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
         Text { x: 14px; y: 10px; width: parent.width - 50px; height: parent.height - 20px; text: root.notice; color: Theme.text; wrap: word-wrap; vertical-alignment: center; }
         IconButton { x: parent.width - 32px; y: 5px; icon: "x"; label: "Закрыть уведомление"; clicked => { root.dismiss-notice(); } }
+    }
+    copy-timer:=Timer {interval:3600ms;running:false;triggered=>{root.copy-feedback="";self.stop();}}
+    copy-measure:=Text {text:root.copy-feedback;visible:false;}
+    // Toasts.svelte: 16px inset, 420px maximum, 8px/12px padding and a close action.
+    if root.copy-feedback!="": Rectangle {
+        x:root.width - self.width - 16px;y:root.height - self.height - 16px - (root.notice!="" ? 78px:0px);
+        width:min(420px,root.width - 32px,copy-measure.preferred-width+53px);height:max(40px,copy-caption.preferred-height+16px);
+        border-radius:10px;border-width:1px;border-color:Theme.border;background:Theme.elevated;
+        drop-shadow-blur:24px;drop-shadow-offset-y:4px;drop-shadow-color:#40000000;
+        copy-caption:=Text {x:12px;y:8px;width:parent.width - 53px;height:self.preferred-height;text:root.copy-feedback;color:Theme.text;wrap:word-wrap;}
+        IconButton {x:parent.width - 32px;y:(parent.height - 24px)/2;width:24px;height:24px;icon:"x";label:I18n.tr("common.dismiss");clicked=>{root.copy-feedback="";copy-timer.stop();}}
     }
     }
     callback dismiss-notice();
