@@ -38,7 +38,10 @@ try {
   $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
   $runtime = & $vswhere -latest -products '*' -find 'VC\Redist\MSVC\**\x64\Microsoft.VC*.CRT\vcruntime140.dll' |
     Where-Object { $_ -notmatch '\\onecore\\' } |
-    Sort-Object { [version](Get-Item -LiteralPath $_).VersionInfo.FileVersion } -Descending | Select-Object -First 1
+    Sort-Object {
+      $runtimeInfo = (Get-Item -LiteralPath $_).VersionInfo
+      [version]::new($runtimeInfo.FileMajorPart, $runtimeInfo.FileMinorPart, $runtimeInfo.FileBuildPart, $runtimeInfo.FilePrivatePart)
+    } -Descending | Select-Object -First 1
   if (-not $runtime -or -not (Test-Path -LiteralPath $runtime)) { throw 'The MSVC x64 redistributable vcruntime140.dll is missing from Visual Studio' }
   $runtimeDir = Join-Path $root 'target\native-runtime'
   New-Item -ItemType Directory -Force $runtimeDir | Out-Null
