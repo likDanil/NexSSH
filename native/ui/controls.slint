@@ -1,4 +1,5 @@
 import { Theme } from "theme.slint";
+import { Typography } from "typography.slint";
 export { Theme } from "theme.slint";
 import { Icon } from "icons.slint";
 export { Icon } from "icons.slint";
@@ -39,7 +40,7 @@ export component Action inherits Rectangle {
     label := Text {
         x: root.icon == "" ? 12px : 32px;
         width: parent.width - self.x - 12px; height: parent.height;
-        text: root.text; font-size: 13px; font-weight: 500;
+        text: root.text; font-size: 13px; font-weight: Typography.medium;
         color: root.primary ? Theme.primary-text : root.danger ? Theme.red : Theme.text;
         vertical-alignment: center;
     }
@@ -99,7 +100,7 @@ export component Input inherits Rectangle {
         enabled: root.enabled;
         accessible-role: none;
         x: root.icon == "" ? 10px : 32px; width: parent.width - self.x - 10px; height: parent.height;
-        text <=> root.text; color: Theme.text; font-size: root.font-size * 1px; font-family:root.monospace ? "JetBrains Mono":"Segoe UI Variable Text"; single-line: true;
+        text <=> root.text; color: Theme.text; font-size: root.font-size * 1px; font-family:root.monospace ? "JetBrains Mono":Typography.family; font-weight:root.monospace ? 400:Typography.regular; single-line: true;
         selection-background-color: Theme.focus; selection-foreground-color: Theme.text;
         input-type: root.input-type; vertical-alignment: center;
         edited => { root.edited(self.text); }

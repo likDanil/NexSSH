@@ -1,3 +1,4 @@
+import { Typography } from "typography.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Theme, Action, IconButton, Input, Toggle } from "controls.slint";
 import { Segmented } from "segmented.slint";
@@ -140,7 +141,7 @@ export component SettingsDialog inherits Rectangle {
         border-radius: 12px; border-width: 1px; border-color: Theme.border; background: Theme.bg;
         drop-shadow-blur: 32px; drop-shadow-offset-y: 10px; drop-shadow-color: #30000000;
         TouchArea { }
-        Text { x: 20px; y: 18px; text: I18n.tr("settings.title"); color: Theme.text; font-size: 15px; font-weight: 600; }
+        Text { x: 20px; y: 18px; text: I18n.tr("settings.title"); color: Theme.text; font-size: 15px; font-weight: Typography.semibold; }
         Rectangle {x:20px;y:52px;width:min(parent.width - 40px,tabs.preferred-width);height:30px;border-radius:7px;background:Theme.hover;}
         Flickable {
             x: 20px; y: 52px; width: parent.width - 40px; height: 30px;
@@ -152,7 +153,7 @@ export component SettingsDialog inherits Rectangle {
                     background: root.section == name ? Theme.elevated : area.has-hover ? Theme.hover : transparent;
                     accessible-role: tab; accessible-label: I18n.tr("settings." + name);
                     accessible-action-default => { root.section = name; root.select-section(name); }
-                    title := Text { text: I18n.tr("settings." + name); color: root.section == name ? Theme.text : Theme.text-2; font-weight: 500; horizontal-alignment: center; vertical-alignment: center; }
+                    title := Text { text: I18n.tr("settings." + name); color: root.section == name ? Theme.text : Theme.text-2; font-weight: Typography.medium; horizontal-alignment: center; vertical-alignment: center; }
                     area := TouchArea { clicked => { root.section = name; root.select-section(name); } }
                 }
             }
@@ -178,7 +179,7 @@ export component SettingsDialog inherits Rectangle {
                                     Rectangle { x: 8px; y: 25px; width: parent.width*0.48; height: 3px; border-radius: 2px; background: choice.text; }
                                 }
                             }
-                            Text { y: parent.width/1.35 + 7px; width: parent.width; horizontal-alignment: center; color:root.theme==index - 1 ? Theme.text:Theme.text-2;font-weight:root.theme==index - 1 ? 500:400; font-size: 12px; text: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy")); }
+                            Text { y: parent.width/1.35 + 7px; width: parent.width; horizontal-alignment: center; color:root.theme==index - 1 ? Theme.text:Theme.text-2;font-weight:root.theme==index - 1 ? Typography.medium:Typography.regular; font-size: 12px; text: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy")); }
                             accessible-role: button; accessible-label: I18n.tr("theme." + (index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"));
                             accessible-action-default => { root.patch("theme",index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"); }
                             TouchArea { clicked => { root.patch("theme",index == 0 ? "system" : index == 1 ? "light" : index == 2 ? "graphite" : index == 3 ? "black" : "navy"); } }
@@ -192,7 +193,7 @@ export component SettingsDialog inherits Rectangle {
                     action(key,value) => { if key == "backup-export" { if !root.with-passwords || (root.backup-password != "" && root.backup-password == root.backup-repeat) { root.action(key,root.with-passwords ? root.backup-password : ""); root.backup-password = ""; root.backup-repeat = ""; } } else { root.action(key,value); } }
                 } }
                 if root.section == "files": VerticalLayout { spacing: 8px;
-                    Text { text: I18n.tr("settings.associations"); color: Theme.text; font-size: 13px; font-weight: 600; height: 32px; vertical-alignment: center; }
+                    Text { text: I18n.tr("settings.associations"); color: Theme.text; font-size: 13px; font-weight: Typography.semibold; height: 32px; vertical-alignment: center; }
                     Text { text: I18n.tr("settings.associationsHint"); color: Theme.text-2; font-size: 11.5px; wrap: word-wrap; }
                     for association[index] in root.associations: VerticalLayout { spacing: 5px;
                         HorizontalLayout {
@@ -213,7 +214,7 @@ export component SettingsDialog inherits Rectangle {
                 if root.section=="about": VerticalLayout {spacing:0px;
                     Rectangle {height:54px;
                         Image {x:0px;y:0px;width:44px;height:44px;source:@image-url("../../ui/src/assets/logo.png");image-fit:contain;}
-                        Text {x:58px;y:0px;text:"NexSSH";font-size:16px;font-weight:600;color:Theme.text;}
+                        Text {x:58px;y:0px;text:"NexSSH";font-size:16px;font-weight: Typography.semibold;color:Theme.text;}
                         Text {x:58px;y:24px;width:parent.width - 58px;text:root.version;color:Theme.text-2;font-size:12.5px;}
                     }
                     Row {label:I18n.tr("settings.dataFolder");hint:I18n.tr("settings.dataFolderHint");controls-width:130px;Action {width:130px;text:I18n.tr("settings.copyPath");clicked=>{root.action("copy-data-path","");}}}

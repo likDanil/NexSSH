@@ -1,3 +1,4 @@
+import { Typography } from "typography.slint";
 import { Theme } from "controls.slint";
 import { Choice } from "select.slint";
 
@@ -19,7 +20,7 @@ export component Segmented inherits Rectangle {
             accessible-action-default=>{root.value=choice.value;root.chosen(choice.value);}
             forward-focus:focus;
             focus:=FocusScope {key-pressed(event)=>{if event.text==Key.Return || event.text==" " {root.value=choice.value;root.chosen(choice.value);accept}else{reject}}}
-            caption:=Text {x:11px;y:0px;width:parent.width - 22px;height:parent.height;text:choice.label;color:choice.value==root.value || area.has-hover ? Theme.text:Theme.text-2;font-weight:500;vertical-alignment:center;horizontal-alignment:center;}
+            caption:=Text {x:11px;y:0px;width:parent.width - 22px;height:parent.height;text:choice.label;color:choice.value==root.value || area.has-hover ? Theme.text:Theme.text-2;font-weight: Typography.medium;vertical-alignment:center;horizontal-alignment:center;}
             area:=TouchArea {clicked=>{root.value=choice.value;root.chosen(choice.value);}}
         }
     }

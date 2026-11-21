@@ -1,3 +1,4 @@
+import { Typography } from "typography.slint";
 import { CheckBox } from "std-widgets.slint";
 import { Theme, Action, IconButton, Input } from "controls.slint";
 import { Select, Choice } from "select.slint";
@@ -99,7 +100,7 @@ export component ServerEditor inherits Rectangle {
         background:Theme.bg;border-radius:12px;border-width:1px;border-color:Theme.border;
         drop-shadow-blur:32px;drop-shadow-offset-y:10px;drop-shadow-color:#60000000;
         TouchArea {}
-        Text {x:20px;y:20px;width:parent.width - 40px;height:20px;text:I18n.tr(root.form.id=="" ? "editor.titleNew":"editor.titleEdit");color:Theme.text;font-size:15px;font-weight:600;}
+        Text {x:20px;y:20px;width:parent.width - 40px;height:20px;text:I18n.tr(root.form.id=="" ? "editor.titleNew":"editor.titleEdit");color:Theme.text;font-size:15px;font-weight: Typography.semibold;}
         Flickable {
             x:20px;y:56px;width:parent.width - 40px;height:30px;content-height:30px;content-width:max(self.width,strip.preferred-width);
             Rectangle {x:0px;y:0px;width:strip.preferred-width;height:30px;border-radius:7px;background:Theme.hover;
@@ -108,7 +109,7 @@ export component ServerEditor inherits Rectangle {
                         width:caption.preferred-width+22px+(root.error-section==tab.value ? 10px:0px);height:26px;border-radius:5px;background:root.section==tab.value ? Theme.elevated:transparent;
                         accessible-role:AccessibleRole.tab;accessible-label:tab.label;accessible-checked:root.section==tab.value;
                         accessible-action-default=>{root.section=tab.value;viewport.content-y=0px;}
-                        caption:=Text {x:11px;height:26px;text:tab.label;color:root.section==tab.value || tab-touch.has-hover ? Theme.text:Theme.text-2;font-weight:500;vertical-alignment:center;}
+                        caption:=Text {x:11px;height:26px;text:tab.label;color:root.section==tab.value || tab-touch.has-hover ? Theme.text:Theme.text-2;font-weight: Typography.medium;vertical-alignment:center;}
                         if root.error-section==tab.value: Rectangle {x:parent.width - 10px;y:10px;width:6px;height:6px;border-radius:3px;background:Theme.red;}
                         tab-touch:=TouchArea {clicked=>{root.section=tab.value;viewport.content-y=0px;}}
                     }
@@ -177,12 +178,12 @@ export component ServerEditor inherits Rectangle {
                     HorizontalLayout {alignment:start;Action {text:I18n.tr("editor.addForward");icon:"plus";ghost:true;clicked=>{root.action("add-forward");}}}
                     Rectangle {height:1px;background:Theme.border-soft;}
                     for kind in ["local","remote","dynamic"]: HorizontalLayout {spacing:10px;
-                        Text {width:62px;text:I18n.tr("forward."+kind);color:Theme.text;font-size:11.5px;font-weight:600;}
+                        Text {width:62px;text:I18n.tr("forward."+kind);color:Theme.text;font-size:11.5px;font-weight: Typography.semibold;}
                         Text {text:I18n.tr("forward."+kind+".hint");color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
                     }
                 }
                 if root.section=="commands": VerticalLayout {spacing:10px;
-                    Text {text:I18n.tr("editor.commands");color:Theme.text-2;font-size:11.5px;font-weight:600;}
+                    Text {text:I18n.tr("editor.commands");color:Theme.text-2;font-size:11.5px;font-weight: Typography.semibold;}
                     Text {text:I18n.tr("editor.commandsHint");color:Theme.text-2;wrap:word-wrap;}
                     CommandsInput {text<=>root.form.commands;label:I18n.tr("editor.commands");placeholder:I18n.tr("editor.commandsPlaceholder");}
                     Text {text:I18n.tr("editor.commandsNote");color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}

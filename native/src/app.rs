@@ -1825,11 +1825,28 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = nexssh_core::default_data_dir().ok_or("Не найдена папка данных NexSSH")?;
     crate::logger::init();
     let settings = Settings::load(&data_dir)?;
-    if !settings.boolean("gpuAcceleration") && std::env::var_os("SLINT_BACKEND").is_none() {
-        slint::BackendSelector::new()
-            .backend_name("winit".into())
-            .renderer_name("software".into())
-            .select()?;
+    // The inspector installs its own headless backend when the first window is made.
+    if std::env::var("SLINT_BACKEND").as_deref() != Ok("headless") {
+        let mut backend = slint::BackendSelector::new();
+        #[cfg(windows)]
+        {
+            backend = backend.with_winit_window_attributes_hook(|attributes| {
+                use slint::winit_030::winit::platform::windows::{
+                    CornerPreference, WindowAttributesExtWindows,
+                };
+                // DWM rounds restored windows; maximized/full-screen corners stay square.
+                attributes
+                    .with_undecorated_shadow(true)
+                    .with_corner_preference(CornerPreference::Round)
+            });
+        }
+        if std::env::var_os("SLINT_BACKEND").is_none() {
+            backend = backend.backend_name("winit".into());
+            if !settings.boolean("gpuAcceleration") {
+                backend = backend.renderer_name("software".into());
+            }
+        }
+        backend.select()?;
     }
     let ui = AppWindow::new()?;
     i18n::init(&ui, settings.text("language"));

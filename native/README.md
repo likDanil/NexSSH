@@ -34,6 +34,10 @@ cargo run -p nexssh-slint
 - 1.x window layout: 240px resizable sidebar, 40px custom title bar, compact tabs,
   collapsible server groups, rounded terminal surface and session status bar.
 - Light, Graphite, Black, Navy and System themes; bundled JetBrains Mono.
+- Segoe UI Variable with separate native weights for body text, names/buttons and
+  headings, adjusted to match the visual emphasis of 1.x. Terminal font weights stay independent.
+- Windows 11 system-rounded outer corners and a shadow in restored mode; Windows
+  keeps maximized and full-screen corners square.
 - Server home screen, sidebar search, quick-connect palette and session actions menu.
 - Add/edit servers in the six-tab 1.x editor: general fields, sign-in and key picker,
   jump hosts, timeouts, local/remote/SOCKS forwards, login commands and agent access.
@@ -95,6 +99,7 @@ by this prototype. SSH and platform-specific behavior need testing on all suppor
 
 - `ui/app.slint`: native window layout, ported from the original Svelte components.
 - `ui/controls.slint`: controls ported from the shared CSS.
+- `ui/typography.slint`: common UI font family and visual emphasis roles.
 - `build.rs`: generates Slint theme colors and SVG assets directly from `ui/src/app.css`
   and `ui/src/lib/components/Icon.svelte`, plus terminal palettes and theme previews
   from `ui/src/lib/themes.ts`. These 1.x files remain the source of truth.

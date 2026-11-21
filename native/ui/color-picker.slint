@@ -1,3 +1,4 @@
+import { Typography } from "typography.slint";
 import { Theme,IconButton,Input } from "controls.slint";
 import { I18n } from "i18n.slint";
 export struct ColorValue {hex:string,digits:string,color:color,hue:float,saturation:float,brightness:float,red:int,green:int,blue:int,hsl-s:float,hsl-l:float}
@@ -49,7 +50,7 @@ export component ColorPicker inherits Rectangle {
                 }
             }
             Rectangle {x:264px;y:16px;width:26px;height:26px;border-radius:5px;background:root.state.color;}
-            Text {x:300px;y:16px;width:146px;height:28px;text:root.label;color:Theme.text;font-weight:500;vertical-alignment:center;overflow:elide;}
+            Text {x:300px;y:16px;width:146px;height:28px;text:root.label;color:Theme.text;font-weight: Typography.medium;vertical-alignment:center;overflow:elide;}
             IconButton {x:462px;y:14px;width:22px;height:22px;icon:"x";label:I18n.tr("color.close");clicked=>{picker.close();}}
             if root.is-saved: IconButton {x:436px;y:14px;width:22px;height:22px;icon:"trash";label:I18n.tr("color.unsave");clicked=>{root.save-color(root.state.hex,false);}}
             Text {x:264px;y:56px;text:I18n.tr("color.hex");color:Theme.text-2;font-size:11.5px;}

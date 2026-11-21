@@ -1,3 +1,4 @@
+import { Typography } from "typography.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Theme,Icon,IconButton,Action,Input,Toggle } from "controls.slint";
 import { I18n } from "i18n.slint";
@@ -22,7 +23,7 @@ export component FilesDrawer inherits Rectangle {
         pointer-event(event)=>{if event.kind==PointerEventKind.down {self.initial-width=root.width/1px;}}
         moved=>{if self.pressed {root.resize(self.initial-width - (self.mouse-x - self.pressed-x)/1px);}}
     }
-    Text {x:18px;y:0px;height:42px;text:I18n.tr("files.title");color:Theme.text;font-weight:600;vertical-alignment:center;}
+    Text {x:18px;y:0px;height:42px;text:I18n.tr("files.title");color:Theme.text;font-weight: Typography.semibold;vertical-alignment:center;}
     IconButton {x:parent.width - 105px;y:7px;icon:"refresh";label:I18n.tr("files.refresh");clicked=>{root.action("list",root.path);}}
     IconButton {x:parent.width - 73px;y:7px;icon:"arrowUp";label:I18n.tr("files.up");clicked=>{root.action("up","");}}
     IconButton {x:parent.width - 41px;y:7px;icon:"x";label:I18n.tr("files.close");clicked=>{root.action("close","");}}
