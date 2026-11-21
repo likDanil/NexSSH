@@ -52,7 +52,7 @@ struct Tab {
 }
 
 enum Target {
-    Ssh(Server),
+    Ssh(Box<Server>),
     Local {
         command: nexssh_core::LocalCommand,
         title: String,
@@ -514,7 +514,7 @@ impl App {
                             .and_then(|d| Destination::parse(d).ok())
                             .map(|d| d.to_server())
                     })
-                    .map(Target::Ssh)
+                    .map(|server| Target::Ssh(Box::new(server)))
             } else if let Some(command) = target["local"]["command"].as_str() {
                 nexssh_core::LocalCommand::parse(
                     command,
@@ -1297,7 +1297,7 @@ impl App {
             None
         };
         let target = if let Some(server) = server {
-            Target::Ssh(server)
+            Target::Ssh(Box::new(server))
         } else {
             if self.settings.text("localShell") == "custom" {
                 Target::Local {
@@ -1364,7 +1364,7 @@ impl App {
         let (id, title) = match target {
             Target::Ssh(server) => {
                 let title = server.name.clone();
-                (self.core.sessions.open(server, size, sink), title)
+                (self.core.sessions.open(*server, size, sink), title)
             }
             Target::Local { command, title } => {
                 (self.core.sessions.open_local(command, size, sink), title)
