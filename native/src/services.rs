@@ -23,7 +23,6 @@ pub enum ServiceEvent {
         failed: usize,
     },
     Preference(&'static str, String),
-    Update(String),
     Clipboard(String),
     AgentToken(String),
 }
@@ -33,10 +32,9 @@ pub struct Services {
     pub editors: Vec<(String, String)>,
     pub keychain: String,
     pub keychain_available: bool,
-    pub updates: String,
     pub receiver: mpsc::Receiver<ServiceEvent>,
     sender: mpsc::Sender<ServiceEvent>,
-    checking: bool,
+    pub updater: crate::updates::Updater,
 }
 
 impl Services {
@@ -58,10 +56,9 @@ impl Services {
             editors: vec![],
             keychain: "…".into(),
             keychain_available: false,
-            updates: String::new(),
             receiver,
             sender,
-            checking: false,
+            updater: crate::updates::Updater::default(),
         }
     }
 
@@ -199,50 +196,7 @@ impl Services {
         });
     }
     pub fn check_updates(&mut self) {
-        if self.checking {
-            return;
-        }
-        self.checking = true;
-        self.updates = "…".into();
-        self.job(|| {
-            let result = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?
-                .block_on(async {
-                    let client = reqwest::Client::builder()
-                        .timeout(std::time::Duration::from_secs(15))
-                        .user_agent(concat!("NexSSH/", env!("CARGO_PKG_VERSION")))
-                        .build()?;
-                    let releases: serde_json::Value = client
-                        .get("https://api.github.com/repos/likDanil/NexSSH/releases?per_page=30")
-                        .send()
-                        .await?
-                        .error_for_status()?
-                        .json()
-                        .await?;
-                    let current =
-                        semver::Version::parse(env!("CARGO_PKG_VERSION")).expect("package version");
-                    let newest = releases
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|r| r["draft"] != true)
-                        .filter_map(|r| {
-                            semver::Version::parse(r["tag_name"].as_str()?.trim_start_matches('v'))
-                                .ok()
-                        })
-                        .filter(|v| v.major >= 2 && v > &current)
-                        .max();
-                    Ok::<_, reqwest::Error>(newest.map(|v| v.to_string()).unwrap_or_default())
-                });
-            Ok(Some(ServiceEvent::Update(match result {
-                Ok(version) => version,
-                Err(error) => format!("error: {error}"),
-            })))
-        });
-    }
-    pub fn update_finished(&mut self) {
-        self.checking = false;
+        self.updater.check();
     }
 }
 

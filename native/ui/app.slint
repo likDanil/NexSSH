@@ -51,6 +51,9 @@ export component AppWindow inherits Window {
     in property <string> settings-data-path;
     in property <string> settings-version;
     in property <string> settings-update-status;
+    in property <string> settings-update-action;
+    in property <bool> settings-update-enabled;
+    in property <bool> update-offer;
     in property <string> settings-keychain-status;
     in property <bool> settings-keychain-ok;
     in property <string> settings-agents-summary;
@@ -462,7 +465,7 @@ export component AppWindow inherits Window {
         rows: root.settings-rows; associations: root.settings-associations; editor-choices: root.settings-editors;
         theme:root.theme;activity:root.agents-activity;
         color-presets:root.settings-color-presets;saved-colors:root.settings-saved-colors;save-color(value,save)=>{root.settings-save-color(value,save);}
-        data-path:root.settings-data-path;version:root.settings-version;update-status:root.settings-update-status;keychain-status:root.settings-keychain-status;keychain-ok:root.settings-keychain-ok;
+        data-path:root.settings-data-path;version:root.settings-version;update-status:root.settings-update-status;update-action:root.settings-update-action;update-enabled:root.settings-update-enabled;keychain-status:root.settings-keychain-status;keychain-ok:root.settings-keychain-ok;
         agents-summary:root.settings-agents-summary;agents-error:root.settings-agents-error;share-options:root.settings-share-options;snippets:root.settings-snippets;agents-enabled:root.settings-agents-enabled;token:root.settings-agent-token;
         select-section(section) => { root.settings-select(section); }
         patch(key,value) => { root.settings-update(key,value); }
@@ -595,6 +598,13 @@ export component AppWindow inherits Window {
             }
         }
     }
+    if root.update-offer && root.overlay=="" && !root.prompt-visible: Rectangle {
+        x:root.width - self.width - 20px;y:root.height - self.height - 20px - (root.notice!="" ? 78px:0px);
+        width:min(460px,root.width - 40px);height:76px;
+        border-radius:10px;border-width:1px;border-color:Theme.border;background:Theme.elevated;
+        Text {x:14px;y:10px;width:parent.width - 28px;height:22px;text:root.settings-update-status;color:Theme.text;overflow:elide;}
+        Action {x:parent.width - self.width - 12px;y:38px;text:root.settings-update-action;enabled:root.settings-update-enabled;clicked=>{root.settings-action("updates-check","");}}
+    }
     if root.notice != "": Rectangle {
         x: root.width - self.width - 20px; y: root.height - self.height - 20px;
         width: min(460px, root.width - 40px); height: 66px;
@@ -606,7 +616,7 @@ export component AppWindow inherits Window {
     copy-measure:=Text {text:root.copy-feedback;visible:false;}
     // Toasts.svelte: 16px inset, 420px maximum, 8px/12px padding and a close action.
     if root.copy-feedback!="": Rectangle {
-        x:root.width - self.width - 16px;y:root.height - self.height - 16px - (root.notice!="" ? 78px:0px);
+        x:root.width - self.width - 16px;y:root.height - self.height - 16px - (root.notice!="" ? 78px:0px) - (root.update-offer && root.overlay=="" && !root.prompt-visible ? 88px:0px);
         width:min(420px,root.width - 32px,copy-measure.preferred-width+53px);height:max(40px,copy-caption.preferred-height+16px);
         border-radius:10px;border-width:1px;border-color:Theme.border;background:Theme.elevated;
         drop-shadow-blur:24px;drop-shadow-offset-y:4px;drop-shadow-color:#40000000;

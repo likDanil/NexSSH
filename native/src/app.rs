@@ -75,6 +75,7 @@ enum Dialog {
         id: u64,
     },
     RenewToken,
+    InstallUpdate,
     RestoreTabs,
     DeleteServer {
         id: String,
@@ -791,6 +792,10 @@ impl App {
         }
     }
     fn refresh_settings(&self, ui: &AppWindow) {
+        let update_status = self
+            .services
+            .updater
+            .status(i18n::resolve(self.settings.text("language")));
         let snapshot = self.core.store.snapshot();
         let context = settings_schema::Context {
             shells: &self.services.shells,
@@ -798,7 +803,7 @@ impl App {
             data_dir: &self.core.data_dir,
             servers: &snapshot.servers,
             agents_status: &self.agents.summary,
-            update_status: &self.services.updates,
+            update_status: &update_status,
             keychain_status: &self.services.keychain,
         };
         ui.set_settings_rows(settings_schema::rows(
@@ -844,7 +849,10 @@ impl App {
                 .replace("{version}", env!("CARGO_PKG_VERSION"))
                 .into(),
         );
-        ui.set_settings_update_status(self.services.updates.as_str().into());
+        ui.set_settings_update_status(update_status.as_str().into());
+        ui.set_settings_update_action(self.services.updater.label(lang).into());
+        ui.set_settings_update_enabled(self.services.updater.enabled());
+        ui.set_update_offer(self.services.updater.offer());
         ui.set_settings_keychain_status(self.services.keychain.as_str().into());
         ui.set_settings_keychain_ok(self.services.keychain_available);
         ui.set_settings_agents_summary(self.agents.summary.as_str().into());
@@ -1009,7 +1017,22 @@ impl App {
             }
             "logs-export" => self.services.logs_export(),
             "updates-check" => {
-                self.services.check_updates();
+                if self.services.updater.ready() {
+                    if self.dialog.is_some() {
+                        return;
+                    }
+                    let lang = i18n::resolve(self.settings.text("language"));
+                    ui.set_prompt_title(i18n::tr("update.confirmTitle", lang).into());
+                    ui.set_prompt_detail(i18n::tr("update.confirmMessage", lang).into());
+                    ui.set_prompt_auth(false);
+                    ui.set_prompt_fields(ModelRc::default());
+                    ui.set_prompt_host_key(false);
+                    ui.set_prompt_can_accept(true);
+                    self.dialog = Some(Dialog::InstallUpdate);
+                    ui.set_prompt_visible(true);
+                } else {
+                    self.services.updater.download_or_check();
+                }
                 self.refresh_settings(ui);
             }
             "agents-clear" => self.agents.controller.clear_activity(),
@@ -1051,6 +1074,9 @@ impl App {
     }
 
     fn service_events(&mut self, ui: &AppWindow) {
+        if self.services.updater.poll() {
+            self.refresh_settings(ui);
+        }
         while let Ok(event) = self.services.receiver.try_recv() {
             let lang = i18n::resolve(self.settings.text("language"));
             match event {
@@ -1078,16 +1104,6 @@ impl App {
                 ServiceEvent::Preference(key, value) => {
                     self.patch_setting(ui, key, &value);
                     self.refresh_settings(ui);
-                }
-                ServiceEvent::Update(version) => {
-                    self.services.update_finished();
-                    self.services.updates = if version.is_empty() {
-                        i18n::tr("update.upToDate", lang)
-                    } else if version.starts_with("error:") {
-                        version
-                    } else {
-                        i18n::tr("update.available", lang).replace("{version}", &version)
-                    };
                 }
                 ServiceEvent::Chosen(backup) => {
                     // A backup replaces the current collection; show exactly what will be replaced first.
@@ -1763,6 +1779,19 @@ impl App {
                 });
             }
             Some(Dialog::RestoreTabs) if accept => self.restore_tabs(ui),
+            Some(Dialog::InstallUpdate) if accept => {
+                self.snapshot_tabs(true);
+                if let Err(error) = self
+                    .settings
+                    .flush()
+                    .map_err(|e| e.to_string())
+                    .and_then(|_| self.services.updater.install().map_err(|e| e.to_string()))
+                {
+                    ui.set_notice(error.into());
+                } else {
+                    let _ = slint::quit_event_loop();
+                }
+            }
             Some(Dialog::DeleteServer { id, name }) if accept => {
                 if ui.get_overlay() == "server" && ui.get_server_form().id == id {
                     self.server_editor.cancel(ui);

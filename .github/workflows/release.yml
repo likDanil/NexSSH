@@ -1,8 +1,8 @@
-name: Release
+name: Release 1.x
 
 # Publishes a GitHub release with the Windows installer (.exe, NSIS).
 #
-#   * push a tag:   git tag v0.2.0 && git push origin v0.2.0
+#   * push a tag:   git tag v1.5.2 && git push origin v1.5.2
 #   * or run this workflow from the Actions tab: enter a version, or leave it
 #     empty for the version in Cargo.toml when that is newer than the latest
 #     release (raised there for a minor or major release), else the next patch
@@ -32,7 +32,7 @@ name: Release
 
 on:
   push:
-    tags: ['v*.*.*']
+    tags: ['v1.*.*']
     # Dry run on branches (path filters do not apply to tags).
     branches: ['**']
     paths:
@@ -108,7 +108,7 @@ jobs:
             version="${INPUT_VERSION#v}"
           else
             current="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-            latest="$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)"
+            latest="$(git tag --list 'v1.*.*' --sort=-v:refname | grep -E '^v1\.[0-9]+\.[0-9]+$' | head -n1 || true)"
             latest="${latest#v}"
             if [[ -z "$latest" ]]; then
               # First release.
@@ -122,8 +122,8 @@ jobs:
             fi
           fi
           # Windows installers need a plain numeric version.
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::'$version' is not a version like 1.2.3"
+          if ! [[ "$version" =~ ^1\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$version' is not a stable 1.x version; use Release Slint 2.x for native releases"
             exit 1
           fi
           if $publish && ! $is_tag && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
@@ -241,7 +241,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "NexSSH $TAG" \
-            --generate-notes
+            --generate-notes --draft --latest=false
 
       - name: Publish the in-app update manifest
         env:
@@ -270,3 +270,6 @@ jobs:
               }}' > latest.json
           cat latest.json
           gh release upload "$TAG" latest.json --repo "$GITHUB_REPOSITORY"
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          if [[ "$latest" == v2.* ]]; then latest_flag=false; else latest_flag=true; fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest_flag"

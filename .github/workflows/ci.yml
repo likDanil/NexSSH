@@ -95,6 +95,12 @@ jobs:
       - name: Unit tests
         run: cargo test -p nexssh-core --lib
 
+      - name: Native UI and updater unit tests
+        run: cargo test --locked -p nexssh-slint
+
+      - name: Release channel checks
+        run: python -m unittest discover -s scripts -p test_native_release.py
+
       # Registers the package for the runner's user (without administrator rights) and asks its
       # COM server for the entry.
       - name: Explorer menu entry

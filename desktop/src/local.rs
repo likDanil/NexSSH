@@ -112,6 +112,9 @@ pub async fn pick_program(
 }
 
 /// Where "Open with NexSSH" ended up.
+#[cfg(windows)]
+pub use crate::explorer::MenuState;
+#[cfg(not(windows))]
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct MenuState {

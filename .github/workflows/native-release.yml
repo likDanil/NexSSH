@@ -1,0 +1,149 @@
+name: Release Slint 2.x
+
+on:
+  push:
+    tags: ['v2.*.*']
+    branches: ['**']
+    paths:
+      - .github/workflows/native-release.yml
+      - scripts/native-release.ps1
+      - scripts/native_release.py
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and test only; do not publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  # Shares the publishing lock with 1.x. Drafts contain all assets before publication.
+  group: ${{ github.event_name == 'push' && github.ref_type == 'branch' && format('native-check-{0}', github.ref) || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      channel: ${{ steps.plan.outputs.channel }}
+      manifest: ${{ steps.plan.outputs.manifest }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          HAS_CERT: ${{ secrets.EXPLORER_SIGNING_CERT != '' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$REF_TYPE" == tag ]]; then args+=(--tag "$REF_NAME"); fi
+          python scripts/native_release.py plan "${args[@]}" >> "$GITHUB_OUTPUT"
+          publish=false
+          if [[ "$EVENT" == push && "$REF_TYPE" == tag ]] || [[ "$EVENT" == workflow_dispatch && "$DRY_RUN" == false ]]; then
+            publish=true
+            if [[ "$HAS_KEY" != true || "$HAS_CERT" != true ]]; then
+              echo '::error::Publishing requires the existing TAURI_SIGNING_PRIVATE_KEY and EXPLORER_SIGNING_CERT secrets'
+              exit 1
+            fi
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - run: python -m unittest discover -s scripts -p test_native_release.py
+
+  windows:
+    needs: plan
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: cargo test --locked -p nexssh-slint
+      - run: cargo clippy --locked -p nexssh-slint --all-targets -- -D warnings
+      - name: Build native installer
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          NEXSSH_EXPLORER_CERT: ${{ secrets.EXPLORER_SIGNING_CERT }}
+          NEXSSH_EXPLORER_CERT_PASSWORD: ${{ secrets.EXPLORER_SIGNING_PASSWORD }}
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+        run: ./scripts/native-release.ps1 -RequireSignature:($env:PUBLISH -eq 'true')
+      - name: Prepare and verify signed update metadata
+        shell: pwsh
+        env:
+          CHANNEL_MANIFEST: ${{ needs.plan.outputs.manifest }}
+        run: |
+          if (Test-Path target/native-dist/*.sig) {
+            python scripts/native_release.py manifest --repository $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE) { throw 'Update manifest failed' }
+            $installer = (Get-ChildItem target/native-dist/*-setup.exe).FullName
+            python -c "import subprocess,sys; subprocess.run(sys.argv[1:], check=True)" ./target/release/nexssh-slint.exe --verify-update "target/native-dist/$env:CHANNEL_MANIFEST" $installer
+            if ($LASTEXITCODE) { throw 'Installer signature verification failed' }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NexSSH-${{ needs.plan.outputs.version }}-windows-x64
+          path: target/native-dist/*
+          if-no-files-found: error
+      # This test changes the runner's installation and certificate store. Never run on a user's PC.
+      - name: Install, update and uninstall on disposable runner
+        shell: powershell
+        run: ./scripts/installer-test.ps1 -Installer (Get-ChildItem target/native-dist/*-setup.exe).FullName
+      - name: Upgrade 1.x to Slint and preserve user data
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/native-upgrade-test.ps1 -Installer (Get-ChildItem target/native-dist/*-setup.exe).FullName
+
+  publish:
+    needs: [plan, windows]
+    if: ${{ needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: NexSSH-${{ needs.plan.outputs.version }}-windows-x64
+          path: dist
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          MANIFEST: ${{ needs.plan.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          test -s "dist/$MANIFEST"
+          test "$(find dist -name '*.sig' | wc -l)" -eq 1
+          if [[ "$CHANNEL" == preview ]]; then
+            test ! -e dist/latest.json
+            flags=(--prerelease --latest=false)
+          else
+            test ! -e dist/preview.json
+            flags=(--latest=true)
+          fi
+          # A rerun never replaces a published release or its signed assets.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists; inspect it before retrying"
+            exit 1
+          fi
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "NexSSH $TAG" --generate-notes --draft --latest=false
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false "${flags[@]}"
+          echo "Published $TAG ($CHANNEL); manifest: $MANIFEST" >> "$GITHUB_STEP_SUMMARY"

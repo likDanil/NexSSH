@@ -58,7 +58,11 @@ $signtool = Join-Path $sdk.FullName 'x64\signtool.exe'
 
 # Relative to the repository.
 if (-not [IO.Path]::IsPathRooted($Out)) { $Out = Join-Path (Get-Location).Path $Out }
-Remove-Item $Out -Recurse -Force -ErrorAction Ignore
+$Out = [IO.Path]::GetFullPath($Out)
+$workspacePath = [IO.Path]::GetFullPath((Get-Location).Path)
+$targetPath = Join-Path $workspacePath 'target'
+if (-not $Out.StartsWith($targetPath + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Explorer output must be inside the repository target directory' }
+Remove-Item -LiteralPath $Out -Recurse -Force -ErrorAction Ignore
 $content = Join-Path $Out 'content'
 New-Item -ItemType Directory $content | Out-Null
 
@@ -104,5 +108,5 @@ if ($env:NEXSSH_EXPLORER_CERT) {
 }
 
 Copy-Item target\explorer-build\release\nexssh_explorer_command.dll, explorer\package\logo.png $Out
-Remove-Item $content -Recurse -Force
+Remove-Item -LiteralPath $content -Recurse -Force
 Get-ChildItem $Out | Format-Table Name, Length

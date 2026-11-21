@@ -112,6 +112,8 @@ export component SettingsDialog inherits Rectangle {
     in property <string> data-path;
     in property <string> version;
     in property <string> update-status;
+    in property <string> update-action;
+    in property <bool> update-enabled;
     in property <string> keychain-status;
     in property <bool> keychain-ok;
     in property <string> agents-summary;
@@ -224,7 +226,7 @@ export component SettingsDialog inherits Rectangle {
                     Row {label:I18n.tr("logs.title");hint:I18n.tr("logs.hint");controls-width:236px;
                         HorizontalLayout {spacing:6px;Action {text:I18n.tr("logs.show");clicked=>{root.action("logs-show","");}}Action {text:I18n.tr("logs.save");clicked=>{root.action("logs-export","");}}}
                     }
-                    Row {label:I18n.tr("update.title");hint:root.update-status;controls-width:172px;Action {width:172px;text:I18n.tr("update.check");clicked=>{root.action("updates-check","");}}}
+                    Row {label:I18n.tr("update.title");hint:root.update-status;controls-width:172px;Action {width:172px;text:root.update-action;enabled:root.update-enabled;clicked=>{root.action("updates-check","");}}}
                     for setting in root.rows: VerticalLayout {if setting.key=="autoUpdateCheck": Field {entry<=>setting;patch(key,value)=>{root.patch(key,value);}}}
                     Row {label:I18n.tr("settings.keychain");controls-width:240px;Text {x:0px;y:0px;width:240px;height:32px;text:root.keychain-status;color:root.keychain-ok ? Theme.green:Theme.amber;horizontal-alignment:right;vertical-alignment:center;font-size:12px;}}
                     Text {text:I18n.tr("settings.license");color:Theme.text-3;font-size:12px;height:46px;vertical-alignment:center;TouchArea {clicked=>{root.action("project-home","");}}}

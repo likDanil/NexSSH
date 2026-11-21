@@ -76,7 +76,11 @@ cargo run -p nexssh-slint
   keychain token, per-server access, request dialogs and activity. Disabling the
   server or changing its port also refuses existing HTTP connections.
 - Compatible backup export/import, encrypted passwords, a summary and confirmation
-  before replacement; About shows data/log locations and checks for 2.x releases.
+  before replacement; About shows data/log locations.
+- Signed Windows x64 NSIS updates with progress, confirmation and restart. Preview
+  releases use `preview.json`, stable releases retain the 1.x `latest.json` endpoint;
+  preview builds graduate to the final stable release. The native release workflow
+  packages Slint and reuses the existing update key and Explorer certificate.
 - Native tray, close choices and saved tabs. Restored tabs wait for Enter before
   connecting. `--cwd <folder>` opens the selected local shell in that folder.
 - Session cleanup on exit, including local shell processes.
@@ -90,15 +94,19 @@ cargo run -p nexssh-slint
    Some native notices and hints still need full localization.
 3. **Files and tools:** complete file context menus, permissions, sudo editing,
    forwarding controls and metrics. SSH/SFTP/editor interaction still needs live-server QA.
-4. **Desktop integration:** window state, single-instance routing, drag-and-drop,
-   signed updates and packaging. The preview checks for 2.x releases but does not
-   install updates. Explorer uses a separate classic NexSSH 2.0 entry; debug builds
-   leave the registry alone unless `NEXSSH_EXPLORER_MENU` is set.
+4. **Desktop integration:** window state, single-instance routing and drag-and-drop.
+   The installer uses the existing NexSSH identity and the same Explorer package
+   handling as 1.x. Debug builds and instances with `NEXSSH_DATA_DIR` leave the
+   Explorer menu alone unless `NEXSSH_EXPLORER_MENU` is set.
 5. **Measure:** compare release builds for startup time, idle CPU and memory with
    identical session counts before deciding whether to replace the existing client.
 
 Neither full xterm.js compatibility nor a memory/performance improvement is claimed
 by this prototype. SSH and platform-specific behavior need testing on all supported OSes.
+
+See [the 2.x release guide](../docs/releases-2.x.md) for local packaging, the two update
+channels, signing, CI migration tests and publication. Installer integration tests run
+on disposable Windows runners; they must not replace a user's installed NexSSH during QA.
 
 ## Structure
 
@@ -112,7 +120,9 @@ by this prototype. SSH and platform-specific behavior need testing on all suppor
 - `src/settings.rs`, `settings_schema.rs`: complete preference storage and UI rows.
 - `ui/server-editor.slint`, `server-menu.slint`, `src/server_editor.rs`: server forms,
   context actions, validation and asynchronous keychain/file-dialog work.
-- `src/services.rs`: file dialogs, backups, metadata and update checks off the UI thread.
+- `src/services.rs`: file dialogs, backups and metadata off the UI thread.
+- `src/updates.rs`: preview/stable discovery, signed downloads and NSIS installation.
+- `../explorer/menu.rs`: Explorer integration and installer commands shared with 1.x.
 - `src/files.rs`, `editor.rs`: SFTP and external editors; `src/agents/`: native MCP host.
   Editor and MCP implementations are ported from their `desktop/src` counterparts;
   their protocol, access policy and editor resolution tests are retained.

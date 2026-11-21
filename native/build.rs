@@ -13,7 +13,37 @@ fn block<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
+#[path = "../explorer/build_support.rs"]
+mod explorer_package;
+
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo::rerun-if-changed=../desktop/icons/icon.ico");
+        tauri_winres::WindowsResource::new()
+            .set_icon("../desktop/icons/icon.ico")
+            .set("ProductName", "NexSSH")
+            .set("FileDescription", "NexSSH SSH client")
+            .set("OriginalFilename", "NexSSH.exe")
+            .set("ProductVersion", env!("CARGO_PKG_VERSION"))
+            .compile()
+            .expect("cannot compile the Windows icon and version resource");
+    }
+    explorer_package::embed(env!("CARGO_PKG_VERSION"));
+    println!("cargo::rerun-if-changed=../desktop/tauri.conf.json");
+    println!("cargo::rerun-if-env-changed=NEXSSH_UPDATER_PUBLIC_KEY");
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string("../desktop/tauri.conf.json").unwrap()).unwrap();
+    let key = env::var("NEXSSH_UPDATER_PUBLIC_KEY").unwrap_or_else(|_| {
+        config["plugins"]["updater"]["pubkey"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    });
+    assert!(
+        !key.contains(['\r', '\n']),
+        "Updater public key must be base64 on one line"
+    );
+    println!("cargo::rustc-env=NEXSSH_UPDATER_PUBLIC_KEY={key}");
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     settings::generate(&out);
     let css_path = "../ui/src/app.css";

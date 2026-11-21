@@ -1,0 +1,2 @@
+# Signed fixtures must retain exactly the bytes that were signed on every platform.
+native/tests/fixtures/updater/payload.txt -text whitespace=cr-at-eol
