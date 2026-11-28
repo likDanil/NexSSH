@@ -11,6 +11,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
+    time::Instant,
 };
 
 pub enum Event {
@@ -20,7 +21,20 @@ pub enum Event {
         result: Result<Vec<Entry>, String>,
     },
     Message(String),
-    Transfer(String),
+    Transfer {
+        done: u64,
+        total: u64,
+    },
+    TransferStarted(String),
+    Finished {
+        session: SessionId,
+        result: Result<String, String>,
+        cancelled: bool,
+    },
+    Changed {
+        session: SessionId,
+        result: Result<(), String>,
+    },
     Edits(Vec<EditInfo>),
 }
 pub struct Files {
@@ -34,6 +48,10 @@ pub struct Files {
     pub editing: Vec<EditInfo>,
     cancel: Arc<AtomicBool>,
     pub transferring: bool,
+    pub transfer_started: Instant,
+    pub transfer_local: Option<PathBuf>,
+    pub initial_path: String,
+    pub initial_source: String,
 }
 impl Files {
     pub fn new(core: &Core) -> Self {
@@ -57,6 +75,10 @@ impl Files {
             editing: vec![],
             cancel: Arc::new(AtomicBool::new(false)),
             transferring: false,
+            transfer_started: Instant::now(),
+            transfer_local: None,
+            initial_path: String::new(),
+            initial_source: String::new(),
         }
     }
     pub fn list(
@@ -67,8 +89,12 @@ impl Files {
         path: String,
     ) {
         self.generation += 1;
+        if self.session != session {
+            self.initial_path.clear();
+            self.initial_source = path.clone();
+            self.entries.clear();
+        }
         self.session = session;
-        self.entries.clear();
         let generation = self.generation;
         let sender = self.sender.clone();
         runtime.spawn(async move {
@@ -106,6 +132,7 @@ impl Files {
                 let Some(dir) = selected else {
                     return Ok(String::new());
                 };
+                let _ = sender.send(Event::TransferStarted(sftp::base_name(&path)));
                 let sftp = core
                     .sessions
                     .sftp(session)
@@ -115,7 +142,10 @@ impl Files {
                     &path,
                     &dir,
                     &mut |p| {
-                        let _ = sender.send(Event::Transfer(format!("{} / {}", p.done, p.total)));
+                        let _ = sender.send(Event::Transfer {
+                            done: p.done,
+                            total: p.total,
+                        });
                     },
                     &cancel,
                 )
@@ -124,7 +154,11 @@ impl Files {
                 .map_err(|e| e.to_string())
             }
             .await;
-            let _ = sender.send(Event::Message(result.unwrap_or_else(|e| e)));
+            let _ = sender.send(Event::Finished {
+                session,
+                result,
+                cancelled: cancel.load(Ordering::Relaxed),
+            });
         });
     }
     pub fn upload(&mut self, core: Arc<Core>, runtime: &tokio::runtime::Runtime, folder: bool) {
@@ -186,12 +220,20 @@ impl Files {
                     }
                 }
                 for path in paths {
+                    let _ = sender.send(Event::TransferStarted(
+                        path.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                    ));
                     sftp.upload_path(
                         &path,
                         &dir,
                         &mut |p| {
-                            let _ =
-                                sender.send(Event::Transfer(format!("{} / {}", p.done, p.total)));
+                            let _ = sender.send(Event::Transfer {
+                                done: p.done,
+                                total: p.total,
+                            });
                         },
                         &cancel,
                     )
@@ -201,11 +243,63 @@ impl Files {
                 Ok("Transfer completed / Передача завершена".into())
             }
             .await;
-            let _ = sender.send(Event::Message(result.unwrap_or_else(|e| e)));
+            let _ = sender.send(Event::Finished {
+                session,
+                result,
+                cancelled: cancel.load(Ordering::Relaxed),
+            });
         });
     }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
+    }
+    pub fn change(
+        &self,
+        core: Arc<Core>,
+        runtime: &tokio::runtime::Runtime,
+        session: SessionId,
+        action: String,
+        path: String,
+        value: String,
+    ) {
+        let sender = self.sender.clone();
+        runtime.spawn(async move {
+            let result = async {
+                let sftp = core
+                    .sessions
+                    .sftp(session)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                match action.as_str() {
+                    "mkdir" => sftp
+                        .mkdir(&sftp::join(&path, &value))
+                        .await
+                        .map_err(|e| e.to_string()),
+                    "new-file" => {
+                        let target = sftp::join(&path, &value);
+                        sftp.new_file(&target).await.map_err(|e| e.to_string())
+                    }
+                    "rename" => {
+                        let parent = path
+                            .rsplit_once('/')
+                            .map_or("/", |(p, _)| if p.is_empty() { "/" } else { p });
+                        sftp.rename(&path, &sftp::join(parent, &value))
+                            .await
+                            .map_err(|e| e.to_string())
+                    }
+                    "delete" => sftp.remove(&path).await.map_err(|e| e.to_string()),
+                    "chmod" => {
+                        let mode = u32::from_str_radix(&value, 8).map_err(|e| e.to_string())?;
+                        sftp.chmod(&path, mode, false)
+                            .await
+                            .map_err(|e| e.to_string())
+                    }
+                    _ => Err("Unknown file action".into()),
+                }
+            }
+            .await;
+            let _ = sender.send(Event::Changed { session, result });
+        });
     }
     pub fn edit(
         &self,
@@ -248,5 +342,123 @@ impl Files {
                 )
                 .await;
         });
+    }
+}
+
+/// The same units/precision as state/files.svelte.ts, with the UI language.
+pub fn format_size(bytes: u64, lang: &str) -> String {
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < 4 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    let text = if unit == 0 || value >= 100.0 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.1}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_owned()
+    };
+    let text = if lang == "ru" {
+        text.replace('.', ",")
+    } else {
+        text
+    };
+    format!(
+        "{} {}",
+        text,
+        crate::i18n::tr(
+            ["size.b", "size.kb", "size.mb", "size.gb", "size.tb"][unit],
+            lang
+        )
+    )
+}
+
+pub fn format_date(seconds: Option<u64>, lang: &str) -> String {
+    use chrono::{Datelike, Local, TimeZone};
+    let Some(date) = seconds
+        .filter(|n| *n > 0)
+        .and_then(|n| i64::try_from(n).ok())
+        .and_then(|n| Local.timestamp_opt(n, 0).single())
+    else {
+        return String::new();
+    };
+    let current = date.year() == Local::now().year();
+    if lang == "ru" {
+        let month = [
+            "янв.",
+            "февр.",
+            "мар.",
+            "апр.",
+            "мая",
+            "июн.",
+            "июл.",
+            "авг.",
+            "сент.",
+            "окт.",
+            "нояб.",
+            "дек.",
+        ][date.month0() as usize];
+        if current {
+            format!("{} {month}, {}", date.day(), date.format("%H:%M"))
+        } else {
+            format!("{} {month} {} г.", date.day(), date.year())
+        }
+    } else if current {
+        date.format("%b %-d, %I:%M %p").to_string()
+    } else {
+        date.format("%b %-d, %Y").to_string()
+    }
+}
+
+pub fn valid_value(action: &str, value: &str) -> bool {
+    match action {
+        "chmod" => {
+            (3..=4).contains(&value.len()) && value.bytes().all(|b| (b'0'..=b'7').contains(&b))
+        }
+        "mkdir" | "new-file" | "rename" => {
+            !value.is_empty()
+                && ![".", ".."].contains(&value)
+                && !value
+                    .chars()
+                    .any(|c| c.is_control() || c == '/' || c == '\\')
+        }
+        "delete" => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn display_units_match_the_original_file_table_in_both_languages() {
+        assert_eq!(format_size(0, "en"), "0 B");
+        assert_eq!(format_size(1024, "en"), "1 KB");
+        assert_eq!(format_size(2560, "ru"), "2,5 КБ");
+        assert_eq!(format_size(1048576, "ru"), "1 МБ");
+        assert_eq!(format_date(None, "en"), "");
+        assert_eq!(format_date(Some(0), "ru"), "");
+        assert_eq!(format_date(Some(u64::MAX), "en"), "");
+        assert!(format_date(Some(946684800), "en").contains("2000"));
+        assert!(format_date(Some(946684800), "ru").contains("2000"));
+    }
+    #[test]
+    fn names_and_octal_permissions_cannot_escape_the_selected_directory() {
+        for key in ["mkdir", "new-file", "rename"] {
+            assert!(valid_value(key, "Папка с пробелами"));
+            for name in ["", ".", "..", "../outside", "a/b", "a\\b", "a\nline", "a\0"] {
+                assert!(!valid_value(key, name), "{key} {name:?}");
+            }
+        }
+        for mode in ["000", "640", "755", "1777", "4755"] {
+            assert!(valid_value("chmod", mode));
+        }
+        for mode in ["", "77", "888", "9999", "07777", "-01"] {
+            assert!(!valid_value("chmod", mode));
+        }
+        assert!(valid_value("delete", ""));
     }
 }

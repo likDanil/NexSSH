@@ -169,7 +169,7 @@ impl Settings {
             ("fontSize", 9.0, 28.0),
             ("lineHeight", 1.0, 1.5),
             ("sidebarWidth", 190.0, 380.0),
-            ("filesWidth", 260.0, 700.0),
+            ("filesWidth", 300.0, 640.0),
             ("scrollback", 1000.0, 100000.0),
             ("agentsPort", 1.0, 65535.0),
         ] {
@@ -231,6 +231,8 @@ impl Settings {
         ui.set_files_open(self.boolean("filesOpen"));
         ui.set_files_width(self.number("filesWidth") as f32);
         ui.set_files_hidden(self.boolean("filesShowHidden"));
+        ui.set_files_sort(self.text("filesSort").into());
+        ui.set_files_sort_descending(self.boolean("filesSortDesc"));
         i18n::apply(ui, self.text("language"));
     }
     pub fn capture(&mut self, ui: &AppWindow) {

@@ -1,0 +1,85 @@
+import { Theme, Action } from "controls.slint";
+import { I18n } from "i18n.slint";
+
+export struct StatusMetric { label:string, value:string, detail:string, level:int, graph:image }
+
+component HoverBox inherits Rectangle {
+    in property <string> detail;
+    callback tooltip(string,bool);
+    callback menu();
+    property <bool> hovered:area.has-hover;
+    changed hovered => { root.tooltip(root.detail,root.hovered); }
+    changed detail => {if root.hovered {root.tooltip(root.detail,true);}}
+    @children
+    area:=TouchArea {pointer-event(event)=>{if event.button==PointerEventButton.right && event.kind==PointerEventKind.up {root.menu();}}}
+}
+
+component Meter inherits HoverBox {
+    in property <StatusMetric> entry;
+    in property <bool> expanded;
+    property <color> ink:root.entry.level==2 ? Theme.red:root.entry.level==1 ? Theme.amber:Theme.text-2;
+    property <length> value-width:max(32px,value.preferred-width);
+    width:caption.preferred-width+6px+root.value-width+(root.expanded ? 66px:0px);height:26px;
+    horizontal-stretch:0;
+    detail:root.entry.detail;
+    accessible-role:groupbox;accessible-label:root.entry.label+": "+root.entry.value;
+    caption:=Text {x:0px;y:0px;width:self.preferred-width;height:26px;text:root.entry.label;color:Theme.text-3;font-size:11.5px;vertical-alignment:center;}
+    if root.expanded: Rectangle {
+        x:caption.preferred-width+6px;y:5px;width:60px;height:16px;border-radius:3px;background:Theme.active.with-alpha(0.7);clip:true;
+        Image {width:parent.width;height:parent.height;source:root.entry.graph;colorize:root.ink;}
+    }
+    value:=Text {x:parent.width - root.value-width;width:root.value-width;height:26px;text:root.entry.value;color:root.entry.level==2 ? Theme.red:Theme.text-2;font-size:11.5px;vertical-alignment:center;}
+}
+
+// StatusBar.svelte: 26px, 12/14px padding, 16px metric gaps, 60x16 graphs.
+export component StatusBar inherits Rectangle {
+    in property <string> host;
+    in property <string> host-tip;
+    in property <int> state;
+    in property <int> tab-index: -1;
+    in property <[StatusMetric]> metrics;
+    in property <string> uptime;
+    in property <string> uptime-tip;
+    in property <bool> unavailable;
+    callback hide();
+    property <bool> expanded:root.width>760px;
+    property <string> tip;
+    changed host => {root.tip="";}
+    changed tab-index => {root.tip="";}
+    function show-tip(text:string,show:bool) {root.tip=show ? text:"";}
+    accessible-role:groupbox;accessible-label:I18n.tr("settings.statusBar");
+    TouchArea {pointer-event(event)=>{if event.button==PointerEventButton.right && event.kind==PointerEventKind.up {menu.show();}}}
+    HorizontalLayout {
+        padding-left:12px;padding-right:14px;spacing:16px;
+        Rectangle {
+            horizontal-stretch:1;min-width:0px;height:26px;
+            Rectangle {x:0px;y:10px;width:6px;height:6px;border-radius:3px;background:root.state==2 ? Theme.green:root.state==1 ? Theme.amber:Theme.text-3;}
+            HoverBox {
+                x:14px;y:0px;width:max(0px,parent.width - 14px - (up-tip.visible ? up-tip.width+8px:0px));height:26px;detail:root.host-tip;
+                tooltip(text,show)=>{root.show-tip(text,show);}menu=>{menu.show();}
+                Text {x:0px;y:0px;width:parent.width;height:26px;text:root.host;color:Theme.text-2;font-size:11.5px;vertical-alignment:center;overflow:elide;}
+            }
+            up-tip:=HoverBox {
+                x:max(0px,parent.width - self.width);y:0px;width:up.preferred-width;height:26px;visible:root.expanded && root.uptime!="";detail:root.uptime-tip;
+                tooltip(text,show)=>{root.show-tip(text,show);}menu=>{menu.show();}
+                up:=Text {x:0px;y:0px;width:self.preferred-width;height:26px;text:root.uptime;color:Theme.text-3;font-size:11.5px;vertical-alignment:center;}
+            }
+        }
+        if root.unavailable: HoverBox {
+            width:none.preferred-width;horizontal-stretch:0;detail:I18n.tr("status.unavailableTip");
+            tooltip(text,show)=>{root.show-tip(text,show);}menu=>{menu.show();}
+            none:=Text {height:26px;text:I18n.tr("status.unavailable");color:Theme.text-3;font-size:11.5px;vertical-alignment:center;}
+        }
+        for metric in root.metrics: Meter {entry:metric;expanded:root.expanded;tooltip(text,show)=>{root.show-tip(text,show);}menu=>{menu.show();}}
+    }
+    if root.tip!="": Rectangle {
+        x:parent.width - self.width;y:-self.height - 5px;width:min(380px,parent.width);height:detail.preferred-height+16px;
+        background:Theme.elevated;border-radius:7px;border-width:1px;border-color:Theme.border;
+        detail:=Text {x:8px;y:8px;width:parent.width - 16px;height:self.preferred-height;text:root.tip;color:Theme.text;font-size:11.5px;wrap:word-wrap;}
+    }
+    menu:=PopupWindow {x:max(0px,root.width - 224px);y:-42px;width:224px;height:42px;
+        Rectangle {background:Theme.elevated;border-radius:8px;border-width:1px;border-color:Theme.border;
+            Action {x:6px;y:6px;width:parent.width - 12px;text:I18n.tr("status.hide");ghost:true;clicked=>{menu.close();root.tip="";root.hide();}}
+        }
+    }
+}

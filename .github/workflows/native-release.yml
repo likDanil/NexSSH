@@ -8,7 +8,11 @@ on:
       - .github/workflows/native-release.yml
       - scripts/native-release.ps1
       - scripts/native_release.py
-      - native/windows/**
+      - native/**
+      - core/**
+      - Cargo.toml
+      - Cargo.lock
+      - ui/src/lib/locales/**
       - scripts/native-upgrade-test.ps1
       - scripts/installer-test.ps1
   workflow_dispatch:

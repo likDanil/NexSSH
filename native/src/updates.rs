@@ -430,11 +430,11 @@ mod tests {
         let payload = include_bytes!("../tests/fixtures/updater/payload.txt");
         let signature = include_str!("../tests/fixtures/updater/payload.txt.sig");
         let key = include_str!("../tests/fixtures/updater/test.key.pub");
-        let release = fixture(signature.trim(), "2.0.0-alpha.2");
+        let release = fixture(signature.trim(), "9999.0.0");
         verify(payload, &release, key).unwrap();
         assert!(verify(b"modified installer", &release, key).is_err());
         // An unsigned manifest cannot replay an older, valid installer as a newer version.
-        let replay = fixture(signature.trim(), "2.0.0-alpha.3");
+        let replay = fixture(signature.trim(), "9999.0.1");
         assert!(
             verify(payload, &replay, key)
                 .unwrap_err()
@@ -443,7 +443,7 @@ mod tests {
         );
         let old = fixture(
             include_str!("../tests/fixtures/updater/unversioned.sig").trim(),
-            "2.0.0-alpha.2",
+            "9999.0.0",
         );
         assert!(
             verify(payload, &old, key)

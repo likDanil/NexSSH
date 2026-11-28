@@ -1,7 +1,7 @@
 # NexSSH 2.0 — Slint preview
 
 Experimental native client on branch `codex/2.0.0-slint`. This is the first migration
-slice, version **2.0.0-alpha.1**, not a replacement for the 1.x release yet.
+slice, version **2.0.0-alpha.2** (local development), not a replacement for the 1.x release yet.
 It renders with Slint/FemtoVG and uses `nexssh-core` directly, without Tauri or a WebView.
 
 ## Run
@@ -34,6 +34,14 @@ cargo run -p nexssh-slint
 - 1.x window layout: 240px resizable sidebar, 40px custom title bar, compact tabs,
   collapsible server groups, rounded terminal surface and session status bar.
 - Light, Graphite, Black, Navy and System themes; bundled JetBrains Mono.
+- The terminal font picker enumerates installed monospaced families in the
+  background (system and user font folders), with the bundled font always available.
+  Legacy names/CSS stacks are preserved; unavailable or proportional fonts render
+  with the bundled fallback. Preferences survive restart and remain 1.x-compatible.
+- Batched terminal text uses explicit cell bounds and calibrated regular/bold
+  advances instead of rounded single-letter measurements. Letter spacing and the
+  physical-pixel grid keep colour/style fragments aligned, including fractional DPI;
+  Unicode graphemes and wide cells retain their parser positions.
 - Segoe UI Variable with separate native weights for body text, names/buttons and
   headings, adjusted to match the visual emphasis of 1.x. Terminal font weights stay independent.
 - Windows 11 system-rounded outer corners and a shadow in restored mode; Windows
@@ -68,10 +76,15 @@ cargo run -p nexssh-slint
 - Shortcuts work in non-Latin layouts through physical key positions, following
   the 1.x keyboard helper. ASCII layouts keep their logical bindings; ordinary
   typing and AltGr retain native handling. Home also has a keyboard focus target.
-- SFTP drawer: browse, sort, hidden files, upload/download files and folders,
-  transfer cancellation; external editors and file associations use the existing
-  core's save-back and conflict detection. The server's files folder is applied on
-  first opening, including home-relative paths.
+- SFTP drawer follows `FilesDrawer.svelte` and `ContextMenu.svelte`: compact
+  header/path, sortable Name/Size/Modified columns, 28px rows, themed scrollbar,
+  300–640px resizing (380px reset) and a date column hidden below 341px. Upload,
+  folder/file creation, rename, permissions, path copying, terminal navigation,
+  the server's starting folder and confirmed deletion live in compact menus.
+  Editing and transfer progress use the 1.x footers. External editors and file
+  associations reuse the core's save-back/conflict handling; new files use its
+  exclusive-create operation. The server's files folder is applied on first
+  opening, including home-relative paths.
 - AI-agent MCP server and stdio bridge (`nexssh-slint mcp`), with the 1.x protocol,
   keychain token, per-server access, request dialogs and activity. Disabling the
   server or changing its port also refuses existing HTTP connections.
@@ -83,7 +96,25 @@ cargo run -p nexssh-slint
   packages Slint and reuses the existing update key and Explorer certificate.
 - Native tray, close choices and saved tabs. Restored tabs wait for Enter before
   connecting. `--cwd <folder>` opens the selected local shell in that folder.
+- The 1.x status bar: server address and uptime, CPU/RAM/root-disk figures, one-minute
+  graphs, usage colours and detailed tooltips (load averages, swap, free space and
+  minimum/maximum/average). A narrow window retains numbers and hides graphs/uptime.
+  It reuses the core's Linux metrics command on a separate SSH channel every two seconds;
+  only the active connected SSH tab is polled, with no polling while minimized, in
+  the tray or with the bar hidden. Each tab keeps its own bounded history. Right-click
+  the bar to hide it; the existing General preference restores it. Local terminals
+  keep their shell label, and non-Linux servers show the same unavailable state as 1.x.
+- One GUI per data directory, including simultaneous launches and differently named
+  copies of the executable. Launching again reveals the existing window, restoring
+  it from minimization or the tray without changing its tabs or open dialogs.
+  Explorer's `--cwd` requests (also `--cwd=...`, multiple folders and relative paths)
+  are forwarded to that GUI. OS locks release automatically after exit or a crash.
+  Installer helpers, update verification and the MCP stdio bridge remain independent.
+  Separate `NEXSSH_DATA_DIR` profiles can run side by side; older alpha.1 binaries
+  do not participate in the new instance protocol.
 - Session cleanup on exit, including local shell processes.
+- Hidden/minimized windows retain the PTY size and existing output; terminal frame
+  construction waits until the window is visible, while protocol replies still run.
 
 ## Migration plan / limitations
 
@@ -92,9 +123,9 @@ cargo run -p nexssh-slint
    Selection is cleared when output changes or the viewport scrolls.
 2. **Server management:** group management and remaining contextual actions.
    Some native notices and hints still need full localization.
-3. **Files and tools:** complete file context menus, permissions, sudo editing,
-   forwarding controls and metrics. SSH/SFTP/editor interaction still needs live-server QA.
-4. **Desktop integration:** window state, single-instance routing and drag-and-drop.
+3. **Files and tools:** bulk selection, drag-and-drop transfers, sudo editing,
+   forwarding controls. SSH/SFTP/editor interaction still needs live-server QA.
+4. **Desktop integration:** window state and drag-and-drop.
    The installer uses the existing NexSSH identity and the same Explorer package
    handling as 1.x. Debug builds and instances with `NEXSSH_DATA_DIR` leave the
    Explorer menu alone unless `NEXSSH_EXPLORER_MENU` is set.
@@ -129,6 +160,9 @@ on disposable Windows runners; they must not replace a user's installed NexSSH d
 - `src/app.rs`: UI-thread controller, session lifecycle and event bridge.
 - `src/terminal.rs`: bounded terminal parser, ANSI colors, input encoding and terminal replies.
 - `src/keyboard.rs`: native shortcut normalization and paired key releases.
+- `src/metrics.rs`, `ui/status-bar.slint`: asynchronous metrics, bounded history,
+  translated values, graphs, tooltips and the responsive footer ported from 1.x.
+- `src/instance.rs`: profile lock, authenticated local launch forwarding and foreground handoff.
 - `src/prompts.rs`: SSH prompts and responses.
 - `../core`: shared SSH, local PTY and storage implementation.
 
@@ -158,4 +192,65 @@ its SSH connection attempts use a closed loopback port:
 cargo build -p nexssh-slint --features slint/mcp
 python native/tests/settings_ui.py
 python native/tests/server_editor_ui.py
+python native/tests/single_instance.py target/debug/nexssh-slint.exe
+# Windows native-window checks (also requires the optional inspector build):
+python native/tests/single_instance.py target/debug/nexssh-slint.exe --native
 ```
+
+The single-instance check covers concurrent starts, preserving UI/tab state, a renamed
+executable, forwarded Unicode folders, independent profiles and crash recovery. Its
+Windows native pass also checks minimized/tray restoration and foreground activation.
+It creates its own temporary profiles and never closes an existing user's NexSSH.
+
+The optional metrics regression runs its own loopback SSH server with a test-only
+Python dependency. It checks actual SSH exec channels, independent tab data, colours,
+tooltips, languages, hide/resume, unsupported servers and refused commands. The native
+Windows pass also checks pausing while minimized and the narrow footer layout:
+
+```powershell
+$env:SLINT_EMIT_DEBUG_INFO = '1'
+cargo build -p nexssh-slint --features slint/mcp
+python -m venv target/native-metrics-tests
+./target/native-metrics-tests/Scripts/python.exe -m pip install paramiko==5.1.0
+./target/native-metrics-tests/Scripts/python.exe native/tests/metrics_ui.py target/debug/nexssh-slint.exe
+./target/native-metrics-tests/Scripts/python.exe native/tests/metrics_ui.py target/debug/nexssh-slint.exe --native
+```
+
+The file-drawer regression uses the same test dependency and an isolated loopback
+SFTP filesystem. It checks row geometry, menus, sorting, folder navigation,
+creation/rename/deletion confirmation, permissions validation, inline errors,
+languages and resizing. It never uses saved connections or remote user files:
+
+```powershell
+./target/native-metrics-tests/Scripts/python.exe native/tests/files_ui.py target/debug/nexssh-slint.exe
+./target/native-metrics-tests/Scripts/python.exe native/tests/files_ui.py target/debug/nexssh-slint.exe --native
+```
+
+The optional font regression additionally needs Pillow. It compares pixels of
+long, colour-split and bold runs with isolated glyphs in the same terminal columns,
+then checks the installed-font picker, persistence/restart and both UI languages:
+
+```powershell
+./target/native-metrics-tests/Scripts/python.exe -m pip install Pillow==13.0.0
+./target/native-metrics-tests/Scripts/python.exe native/tests/terminal_fonts_ui.py target/debug/nexssh-slint.exe --artifacts target/native-font-tests
+# Fractional Windows DPI with the native renderer:
+$env:SLINT_SCALE_FACTOR = '1.25'
+./target/native-metrics-tests/Scripts/python.exe native/tests/terminal_fonts_ui.py target/debug/nexssh-slint.exe --native --artifacts target/native-font-tests-dpi
+Remove-Item Env:SLINT_SCALE_FACTOR
+```
+
+For repeatable renderer memory measurements, use the isolated loopback fixture:
+
+```powershell
+$env:SLINT_EMIT_DEBUG_INFO = '1'
+cargo build -p nexssh-slint --features slint/mcp
+uv run --with paramiko --with psutil native/tests/render_memory.py target/debug/nexssh-slint.exe --backend winit-femtovg --output target/render-memory.json
+```
+
+The probe samples the home screen, a coloured terminal, 400 updates at 20 Hz,
+and idle memory after those updates. It reports resident/private memory, process
+CPU time and thread count. Compare the same build profile, window scale and
+renderer on the same machine; inspector builds are not release-memory estimates.
+GPU drivers/context allocations remain even when terminal items are reused.
+Terminal frames update existing model rows and retain unchanged text items;
+clearing the screen or closing the last tab releases the terminal model.

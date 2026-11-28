@@ -1,11 +1,41 @@
 //! Native terminal state. Session threads parse output; the UI samples dirty frames.
 use std::num::NonZeroU16;
 
-use slint::Color;
+use slint::{Color, Model, ModelRc, VecModel};
 
 use crate::TerminalCell;
 
 include!(concat!(env!("OUT_DIR"), "/terminal_palettes.rs"));
+
+/// Keep unchanged text items (and their renderer caches) alive across frames.
+/// Replacing the entire model makes Slint invalidate every run, even for a cursor move.
+pub fn present(ui: &crate::AppWindow, cells: Vec<TerminalCell>) {
+    let current = ui.get_cells();
+    if cells.is_empty() {
+        if current.row_count() != 0 {
+            // Drop the backing allocation as well when the last tab/screen is cleared.
+            ui.set_cells(ModelRc::default());
+        }
+        return;
+    }
+    let Some(model) = current.as_any().downcast_ref::<VecModel<TerminalCell>>() else {
+        ui.set_cells(ModelRc::new(VecModel::from(cells)));
+        return;
+    };
+    for index in (cells.len()..model.row_count()).rev() {
+        model.remove(index);
+    }
+    let shared = model.row_count();
+    let mut cells = cells.into_iter();
+    for (index, cell) in cells.by_ref().take(shared).enumerate() {
+        if model.row_data(index).as_ref() != Some(&cell) {
+            model.set_row_data(index, cell);
+        }
+    }
+    if cells.len() > 0 {
+        model.extend(cells);
+    }
+}
 
 #[derive(Default)]
 pub struct Replies(Vec<u8>);
@@ -269,11 +299,16 @@ impl Terminal {
         let mut cells: Vec<TerminalCell> = Vec::new();
         let palette = PALETTES[self.theme];
         let background = rgb(palette[0]);
+        // Scratch storage is shared by all rows of this frame instead of allocating
+        // three buffers for every line. It is not retained by inactive tabs.
+        let mut highlights = vec![None; cols.get() as usize];
+        let mut text = String::new();
+        let mut mapping = Vec::new();
         for row in 0..rows.get() {
-            let mut highlights = vec![None; cols.get() as usize];
+            highlights.fill(None);
             if self.highlighting && !screen.alternate_screen() {
-                let mut text = String::new();
-                let mut mapping = vec![];
+                text.clear();
+                mapping.clear();
                 for col in 0..cols.get() {
                     let Some(cell) = screen.cell(row, col) else {
                         continue;
@@ -383,6 +418,7 @@ impl Terminal {
                     background: bg,
                     bold: cell.bold(),
                     underline: cell.underline(),
+                    ascii: text.is_ascii(),
                 });
             }
         }
@@ -500,6 +536,37 @@ pub fn encode_key(text: &str, control: bool, alt: bool, shift: bool, application
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presentation_reuses_model_and_handles_edits_growth_shrink_and_clear() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = crate::AppWindow::new().unwrap();
+        let mut terminal = Terminal::new(4, 40);
+        terminal.process(b"first\r\nsecond");
+        present(&ui, terminal.frame());
+        let model = ui.get_cells();
+        assert_eq!(model.row_count(), 2);
+        terminal.process(b"\x1b[1;1HFirst");
+        let changed = terminal.frame();
+        present(&ui, changed.clone());
+        assert!(model == ui.get_cells());
+        assert_eq!(model.iter().collect::<Vec<_>>(), changed);
+        present(&ui, changed.clone());
+        assert!(model == ui.get_cells());
+        terminal.process(b"\x1b[3;1Hthird");
+        let grown = terminal.frame();
+        present(&ui, grown.clone());
+        assert!(model == ui.get_cells());
+        assert_eq!(model.iter().collect::<Vec<_>>(), grown);
+        present(&ui, changed[..1].to_vec());
+        assert_eq!(model.row_count(), 1);
+        assert_eq!(model.row_data(0), Some(changed[0].clone()));
+        present(&ui, vec![]);
+        assert_eq!(ui.get_cells().row_count(), 0);
+        assert!(model != ui.get_cells());
+        present(&ui, changed.clone());
+        assert_eq!(ui.get_cells().iter().collect::<Vec<_>>(), changed);
+    }
 
     #[test]
     fn selection_handles_wide_characters_and_search_reaches_history() {

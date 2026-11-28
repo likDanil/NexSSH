@@ -573,6 +573,7 @@ const en = {
   'settings.theme': 'Theme',
   'settings.font': 'Font',
   'settings.fontPlaceholder': 'JetBrains Mono (built in)',
+  'settings.fontUnavailable': 'unavailable; using built-in font',
   'settings.fontSize': 'Font size',
   'settings.smaller': 'Smaller',
   'settings.larger': 'Larger',
@@ -635,6 +636,8 @@ const en = {
   'settings.pasteAlways': 'Always',
   'settings.pasteNever': 'Never',
   'settings.gpu': 'GPU rendering',
+  'settings.gpuMemoryHint': 'GPU rendering may increase RAM usage. This change takes effect after restarting the application.',
+  'settings.gpuEnabledNotice': 'GPU enabled: RAM usage may increase. This change takes effect after restarting the app.',
   'settings.gpuHint': 'WebGL renderer: lower CPU usage on heavy output.',
   'settings.highlight': 'Keyword highlighting',
   'settings.highlightHint':

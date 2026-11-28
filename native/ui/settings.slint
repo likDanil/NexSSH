@@ -23,10 +23,26 @@ component Field inherits Rectangle {
     callback action(string,string);
     callback save-color(string,bool);
     property <length> control-width: root.entry.kind==1 ? 34px:root.entry.kind==8 ? segments.width:root.entry.kind==9 ? 100px:root.entry.kind==5 ? 56px:root.entry.kind==6 ? action.width:root.entry.key=="lineHeight" || root.entry.key=="scrollback" ? 160px:root.entry.key=="agentsPort" ? 90px:260px;
-    height:root.shortcut ? 34px:root.entry.kind==5 ? 40px:root.entry.hint=="" ? 44px:max(44px,caption.preferred-height+hint.preferred-height+16px);
+    // Compact shortcut rows have no hint; described settings must fit wrapped text.
+    height:root.shortcut && root.entry.hint=="" ? 34px:root.entry.kind==5 ? 40px:root.entry.hint=="" ? 44px:max(44px,caption.preferred-height+hint.preferred-height+16px);
     opacity:root.entry.enabled ? 1:0.5;
     caption:=Text {x:root.entry.kind==5 ? 14px:0px;y:root.entry.hint=="" ? (parent.height - self.height)/2:6px;width:parent.width - root.control-width - 16px;height:self.preferred-height;text:root.entry.label;color:Theme.text;wrap:word-wrap;}
     hint:=Text {x:0px;y:caption.y+caption.height+2px;width:min(380px,parent.width - root.control-width - 16px);height:self.preferred-height;text:root.entry.hint;color:Theme.text-2;font-size:11.5px;wrap:word-wrap;}
+    if root.entry.key=="gpuAcceleration": Rectangle {
+        x:parent.width - 64px;y:5px;width:22px;height:22px;
+        accessible-role:groupbox;accessible-label:I18n.tr("settings.gpuMemoryHint");
+        Rectangle {x:4px;y:4px;width:14px;height:14px;border-radius:7px;border-width:1px;border-color:Theme.text-2;
+            Text {text:"i";color:Theme.text-2;font-size:11px;font-weight:Typography.semibold;horizontal-alignment:center;vertical-alignment:center;}
+        }
+        info-area:=TouchArea {mouse-cursor:help;}
+        // A popup captures pointer input. Keep the tooltip in the scene so hover
+        // continues to follow the icon and disappears as soon as the pointer leaves.
+        if info-area.has-hover: Rectangle {
+            x:-300px;y:-self.height - 6px;width:330px;height:tip-text.preferred-height+20px;
+            background:Theme.elevated;border-radius:7px;border-width:1px;border-color:Theme.border;
+            tip-text:=Text {x:10px;y:10px;width:parent.width - 20px;height:self.preferred-height;text:I18n.tr("settings.gpuMemoryHint");color:Theme.text;font-size:11.5px;wrap:word-wrap;}
+        }
+    }
     if root.entry.kind==1: Toggle {x:parent.width - 34px;y:root.entry.hint=="" ? (parent.height - self.height)/2:6px;label:root.entry.label;checked<=>root.entry.checked;toggled(value)=>{root.patch(root.entry.key,value ? "true":"false");}}
     if root.entry.kind==2: Select {x:parent.width - root.control-width;y:6px;width:root.control-width;choices:root.entry.choices;value<=>root.entry.value;label:root.entry.label;enabled:root.entry.enabled;chosen(value)=>{root.patch(root.entry.key,value);}}
     segments:=Segmented {x:parent.width - self.width;y:6px;visible:root.entry.kind==8;choices:root.entry.choices;value<=>root.entry.value;label:root.entry.label;chosen(value)=>{root.patch(root.entry.key,value);}}

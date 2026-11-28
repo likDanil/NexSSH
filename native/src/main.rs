@@ -7,10 +7,13 @@ mod colors;
 mod editor;
 mod explorer;
 mod files;
+mod fonts;
 mod highlight;
 mod i18n;
+mod instance;
 mod keyboard;
 mod logger;
+mod metrics;
 mod prompts;
 mod server_editor;
 mod services;
@@ -42,14 +45,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     #[cfg(windows)]
-    if let Some(code) = explorer::command(&std::env::args().skip(1).collect::<Vec<_>>()) {
+    if let Some(code) = explorer::command(&args) {
         std::process::exit(code);
     }
-    if std::env::args()
-        .skip(1)
-        .any(|arg| arg == "mcp" || arg == "--mcp")
+    if args
+        .first()
+        .is_some_and(|arg| arg == "mcp" || arg == "--mcp")
     {
         std::process::exit(agents::run_bridge());
     }
-    app::run()
+    let data_dir = nexssh_core::default_data_dir().ok_or("Не найдена папка данных NexSSH")?;
+    let launch = instance::Launch::from_args(&args, &std::env::current_dir()?)?;
+    match instance::start(&data_dir, &launch)? {
+        instance::Start::Forwarded => Ok(()),
+        instance::Start::Primary(primary) => app::run(data_dir, primary, launch),
+    }
 }

@@ -7,6 +7,7 @@ use std::{
 };
 
 pub enum ServiceEvent {
+    Fonts(Vec<String>),
     Metadata {
         shells: Vec<ShellProfile>,
         editors: Vec<(String, String)>,
@@ -28,6 +29,7 @@ pub enum ServiceEvent {
 }
 
 pub struct Services {
+    pub fonts: Option<Vec<String>>,
     pub shells: Vec<ShellProfile>,
     pub editors: Vec<(String, String)>,
     pub keychain: String,
@@ -50,8 +52,10 @@ impl Services {
                 editors,
                 keychain,
             });
+            let _ = tx.send(ServiceEvent::Fonts(crate::fonts::discover()));
         });
         Self {
+            fonts: None,
             shells: vec![],
             editors: vec![],
             keychain: "…".into(),

@@ -7,6 +7,8 @@ import { FilesDrawer,FileRow,EditRow } from "files.slint";
 import { ServerEditor,ServerForm,ForwardRow } from "server-editor.slint";
 import { ServerMenu } from "server-menu.slint";
 import { Typography } from "typography.slint";
+import { StatusBar, StatusMetric } from "status-bar.slint";
+export { StatusMetric } from "status-bar.slint";
 export { ServerForm,ForwardRow } from "server-editor.slint";
 export { I18n,ColorTools } from "settings.slint";
 
@@ -18,7 +20,7 @@ export struct ServerRow {
 export struct TabRow { title: string, status: string, state: int, local: bool }
 export struct TerminalCell {
     row: int, col: int, span: int, text: string,
-    foreground: color, background: color, bold: bool, underline: bool,
+    foreground: color, background: color, bold: bool, underline: bool, ascii: bool,
 }
 export struct PromptField { label: string, secret: bool, value: string }
 
@@ -51,6 +53,11 @@ export component AppWindow inherits Window {
     in property <string> settings-data-path;
     in property <string> settings-version;
     in property <string> settings-update-status;
+    in property <string> status-host;
+    in property <string> status-uptime;
+    in property <string> status-uptime-tip;
+    in property <[StatusMetric]> status-metrics;
+    in property <bool> metrics-unavailable;
     in property <string> settings-update-action;
     in property <bool> settings-update-enabled;
     in property <bool> update-offer;
@@ -74,8 +81,19 @@ export component AppWindow inherits Window {
     in property <[FileRow]> file-entries;
     in property <[EditRow]> file-edits;
     in property <bool> files-loading;
+    in property <string> files-error;
+    in property <bool> files-start-folder;
+    in property <string> files-sort:"name";
+    in property <bool> files-sort-descending;
+    in property <string> file-editor-label;
     in property <bool> files-hidden;
     in property <string> file-transfer;
+    in property <string> file-transfer-name;
+    in property <string> file-transfer-pace;
+    in property <bool> file-transfer-active;
+    in property <bool> file-transfer-failed;
+    in property <bool> file-transfer-down;
+    in property <float> file-transfer-progress:-1;
     callback file-action(string,string);
     callback files-show-hidden(bool);
     property <length> files-size:root.files-open && root.active-tab>=0 && !root.active-local ? root.files-width*1px:0px;
@@ -125,9 +143,14 @@ export component AppWindow inherits Window {
     out property <int> terminal-rows: max(2, min(150, floor((root.height - 68px - root.status-height) / root.cell-height)));
     property <length> sidebar-size: root.sidebar-hidden ? 0px : root.sidebar-width * 1px;
     property <length> status-height: root.show-status && root.active-tab >= 0 ? 26px : 0px;
-    property <length> cell-width: metrics.preferred-width;
-    property <length> cell-height: ceil(root.font-size * root.line-height) * 1px;
-    property <string> resolved-font: root.terminal-font == "" ? "JetBrains Mono" : root.terminal-font;
+    in property <string> resolved-font:"JetBrains Mono";
+    in property <float> render-scale:1;
+    // preferred-width is rounded up by Slint: averaging a long sample avoids
+    // treating a 7.8px glyph as 8px, then accumulating drift across a text run.
+    property <length> regular-advance:metrics.preferred-width/256;
+    property <length> bold-advance:bold-metrics.preferred-width/256;
+    property <length> cell-width:ceil(max(root.regular-advance,root.bold-advance)/1px*root.render-scale)/root.render-scale*1px;
+    property <length> cell-height:ceil(root.font-size * root.line-height * root.render-scale)/root.render-scale*1px;
     in-out property <ServerForm> server-form;
     in-out property <[ForwardRow]> server-forwards;
     in property <[Choice]> server-groups;
@@ -185,7 +208,8 @@ export component AppWindow inherits Window {
     changed resolved-theme => { Theme.variant = root.resolved-theme; }
     changed active-tab => {if root.overlay=="" && !root.prompt-visible {root.focus-terminal();}}
 
-    metrics := Text { text: "M"; font-family: root.resolved-font; font-size: root.font-size * 1px; font-weight:400; visible: false; }
+    metrics := Text {width:0px;height:0px;text:"MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM";font-family:root.resolved-font;font-size:root.font-size*1px;font-weight:400;visible:false;}
+    bold-metrics:=Text {width:0px;height:0px;text:metrics.text;font-family:root.resolved-font;font-size:root.font-size*1px;font-weight:650;visible:false;}
     shortcuts := FocusScope {
         width: 100%; height: 100%;
         forward-focus: home-keys;
@@ -358,7 +382,7 @@ export component AppWindow inherits Window {
                 for cell in root.cells: Rectangle {
                     x: cell.col * root.cell-width; y: cell.row * root.cell-height;
                     width: cell.span * root.cell-width; height: root.cell-height; background: cell.background;
-                    Text { text: cell.text; color: cell.foreground; font-family: root.resolved-font; font-size: root.font-size * 1px; font-weight: cell.bold ? 650 : 400; vertical-alignment: center; }
+                    Text {x:0px;y:0px;width:parent.width;height:parent.height;text:cell.text;color:cell.foreground;font-family:root.resolved-font;font-size:root.font-size*1px;font-weight:cell.bold ? 650:400;horizontal-alignment:left;vertical-alignment:center;wrap:no-wrap;letter-spacing:cell.ascii ? root.cell-width - (cell.bold ? root.bold-advance:root.regular-advance):0px;}
                     if cell.underline: Rectangle { y: parent.height - 2px; height: 1px; background: cell.foreground; }
                 }
                 if root.cursor-visible && (!root.cursor-blink || root.cursor-phase): Rectangle {
@@ -367,7 +391,7 @@ export component AppWindow inherits Window {
                     height: root.cursor-style == "underline" ? 1px : root.cell-height;
                     border-width: keyboard.has-focus ? 0px : 1px; border-color: Theme.text;
                     background: keyboard.has-focus ? Theme.text : transparent;
-                    if root.cursor-style == "block" && keyboard.has-focus: Text { text: root.cursor-character; color: Theme.surface; font-family: root.resolved-font; font-size: root.font-size * 1px; font-weight:400; vertical-alignment: center; }
+                    if root.cursor-style == "block" && keyboard.has-focus: Text {x:0px;y:0px;width:parent.width;height:parent.height;text:root.cursor-character;color:Theme.surface;font-family:root.resolved-font;font-size:root.font-size*1px;font-weight:400;horizontal-alignment:left;vertical-alignment:center;}
                 }
             }
             if root.active-tab < 0 && root.servers.length == 0: Rectangle {
@@ -448,17 +472,20 @@ export component AppWindow inherits Window {
             }
         }
         if root.files-size>0px: FilesDrawer {
-            x:root.width - root.files-size;y:40px;width:root.files-size;height:root.height - 40px;
-            entries:root.file-entries;edits:root.file-edits;path<=>root.files-path;loading:root.files-loading;hidden:root.files-hidden;transfer:root.file-transfer;
+            x:root.width - root.files-size;y:40px;width:root.files-size;height:max(0px,root.height - 40px - root.status-height);
+            entries:root.file-entries;edits:root.file-edits;path:root.files-path;host:root.tabs[root.active-tab].title;connected:root.active-state==2;
+            loading:root.files-loading;error:root.files-error;hidden:root.files-hidden;start-folder:root.files-start-folder;
+            sort:root.files-sort;sort-descending:root.files-sort-descending;editor-label:root.file-editor-label;
+            transfer:root.file-transfer;transfer-name:root.file-transfer-name;transfer-pace:root.file-transfer-pace;transfer-active:root.file-transfer-active;transfer-failed:root.file-transfer-failed;transfer-down:root.file-transfer-down;transfer-progress:root.file-transfer-progress;
             action(key,value)=>{root.file-action(key,value);}
             show-hidden(value)=>{root.files-show-hidden(value);}
-            resize(width)=>{root.files-width=min(700,max(260,width));}
+            resize(width)=>{root.files-width=min(640,max(300,width));}
         }
-        if root.status-height > 0px: Rectangle {
+        if root.status-height > 0px: StatusBar {
             x: root.sidebar-size + 6px; y: root.height - 26px; width: root.width - self.x - 6px; height: 26px;
-            Rectangle { x: 12px; y: 10px; width: 6px; height: 6px; border-radius: 3px; background: root.active-state == 2 ? Theme.green : Theme.text-3; }
-            Text { x: 26px; width: parent.width - 170px; height: 26px; text: root.status; color: Theme.text-2; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
-            Text { x: parent.width - 130px; width: 116px; height: 26px; text: root.scrollback > 0 ? "История: " + root.scrollback : root.terminal-cols + " × " + root.terminal-rows; color: Theme.text-3; font-size: 11.5px; horizontal-alignment: right; vertical-alignment: center; }
+            host:root.status-host;host-tip:root.active-local ? I18n.tr("status.local"):root.status-host+"\n"+root.status;
+            state:root.active-state;tab-index:root.active-tab;metrics:root.status-metrics;uptime:root.status-uptime;uptime-tip:root.status-uptime-tip;unavailable:root.metrics-unavailable;
+            hide=>{root.show-status=false;}
         }
     if root.overlay == "settings" && !root.prompt-visible: SettingsDialog {
         section <=> root.settings-section;
@@ -590,7 +617,7 @@ export component AppWindow inherits Window {
                     for field[index] in root.prompt-fields: VerticalLayout {
                         spacing: 5px;
                         Text { text: field.label; color: Theme.text-2; wrap: word-wrap; font-size: 12px; }
-                        Input { init => { if index == 0 { self.focus(); } } text <=> field.value; input-type: field.secret ? password : text; accepted(text) => { root.answer-prompt(true); } }
+                        Input { init => { if index == 0 { self.focus(); } } label:field.label;text <=> field.value; input-type: field.secret ? password : text; accepted(text) => { root.answer-prompt(true); } }
                     }
                     if root.prompt-host-key: CheckBox { text: "Запомнить ключ сервера"; checked <=> root.remember-host; }
                     HorizontalLayout { alignment: end; spacing: 8px; Action { text: I18n.tr("common.cancel"); clicked => { root.answer-prompt(false); } } Action { text: root.prompt-accept-label!="" ? root.prompt-accept-label:root.prompt-host-key ? "Доверять ключу" : I18n.tr("common.continue"); enabled: root.prompt-can-accept; primary: true; clicked => { root.answer-prompt(true); } } }

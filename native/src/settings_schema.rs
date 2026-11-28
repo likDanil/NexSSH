@@ -6,6 +6,7 @@ pub const SECTIONS: [&str; 7] = [
     "general", "terminal", "files", "keyboard", "agents", "backup", "about",
 ];
 pub struct Context<'a> {
+    pub fonts: Option<&'a [String]>,
     pub shells: &'a [nexssh_core::ShellProfile],
     pub editors: &'a [(String, String)],
     pub data_dir: &'a std::path::Path,
@@ -95,7 +96,44 @@ pub fn rows(settings: &Settings, section: &str, context: &Context<'_>) -> ModelR
                     ("ru", "Русский"),
                 ],
             ));
-            rows.push(input("fontFamily", "settings.font", ""));
+            let mut font = select("fontFamily", "settings.font", "", &[]);
+            let mut fonts = vec![Choice {
+                value: "".into(),
+                label: i18n::tr("settings.fontPlaceholder", language).into(),
+            }];
+            fonts.extend(
+                context
+                    .fonts
+                    .into_iter()
+                    .flatten()
+                    .filter(|name| name.as_str() != crate::fonts::BUNDLED)
+                    .map(|name| Choice {
+                        value: name.into(),
+                        label: name.into(),
+                    }),
+            );
+            if !font.value.is_empty() && !fonts.iter().any(|f| f.value == font.value) {
+                fonts.push(Choice {
+                    label: if context.fonts.is_none()
+                        || font.value.split(',').any(|name| {
+                            name.trim().trim_matches(['\'', '"']).eq_ignore_ascii_case(
+                                crate::fonts::resolve(context.fonts, &font.value),
+                            )
+                        }) {
+                        font.value.clone()
+                    } else {
+                        format!(
+                            "{} ({})",
+                            font.value,
+                            i18n::tr("settings.fontUnavailable", language)
+                        )
+                        .into()
+                    },
+                    value: font.value.clone(),
+                });
+            }
+            font.choices = ModelRc::new(VecModel::from(fonts));
+            rows.push(font);
             rows.push(row("fontSize", "settings.fontSize", "", 4, &[]));
             rows.push(select(
                 "lineHeight",
@@ -572,7 +610,10 @@ mod tests {
         settings.set("agentsEnabled", "true").unwrap();
         settings.set("localShell", "custom").unwrap();
         settings.set("editor", "custom").unwrap();
+        settings.set("fontFamily", "Consolas").unwrap();
+        let fonts = vec!["Consolas".into(), "Courier New".into()];
         let context = Context {
+            fonts: Some(&fonts),
             shells: &[],
             editors: &[],
             servers: &[],
@@ -583,6 +624,11 @@ mod tests {
         };
         for language in ["ru", "en"] {
             settings.set("language", language).unwrap();
+            let general = rows(&settings, "general", &context);
+            let font = general.iter().find(|row| row.key == "fontFamily").unwrap();
+            assert_eq!(font.kind, 2);
+            assert!(font.choices.iter().any(|choice| choice.value.is_empty()));
+            assert!(font.choices.iter().any(|choice| choice.value == "Consolas"));
             for section in SECTIONS {
                 for row in rows(&settings, section, &context).iter() {
                     for text in [&row.label, &row.hint] {

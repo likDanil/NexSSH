@@ -1,71 +1,222 @@
 import { Typography } from "typography.slint";
 import { ScrollView } from "std-widgets.slint";
-import { Theme,Icon,IconButton,Action,Input,Toggle } from "controls.slint";
+import { Theme,Icon,Action,Input } from "controls.slint";
 import { I18n } from "i18n.slint";
-export struct FileRow {name:string,path:string,folder:bool,size:string,modified:string}
-export struct EditRow {id:string,name:string,status:string,conflict:bool}
+
+export struct FileRow {name:string,path:string,folder:bool,link:bool,size:string,modified:string,detail:string}
+export struct EditRow {id:string,name:string,status:string,conflict:bool,failed:bool,error:string}
+
+// app.css .icon-btn.small: 22px, radius-xs=5px.
+component Tool inherits Rectangle {
+    in property <string> icon; in property <string> label;
+    in property <bool> enabled:true; in property <length> icon-size:14px;
+    callback clicked();
+    width:22px;height:22px;horizontal-stretch:0;vertical-stretch:0;border-radius:5px;
+    background:area.has-hover && root.enabled ? Theme.hover:transparent;opacity:root.enabled ? 1:0.45;
+    accessible-role:button;accessible-label:root.label;accessible-enabled:root.enabled;
+    accessible-action-default=>{if root.enabled {root.clicked();}}
+    Icon {x:(parent.width - self.width)/2;y:(parent.height - self.height)/2;width:root.icon-size;height:root.icon-size;name:root.icon;colorize:Theme.text-2;}
+    area:=TouchArea {enabled:root.enabled;clicked=>{root.clicked();}}
+}
+component Link inherits Rectangle {
+    in property <string> text;callback clicked();
+    width:caption.preferred-width;height:20px;
+    accessible-role:button;accessible-label:root.text;accessible-action-default=>{root.clicked();}
+    caption:=Text {x:0px;y:0px;width:self.preferred-width;height:20px;text:root.text;color:area.has-hover ? Theme.text:Theme.text-2;font-size:11.5px;vertical-alignment:center;}
+    area:=TouchArea {clicked=>{root.clicked();}}
+}
+component Column inherits Rectangle {
+    in property <string> text;in property <bool> sorted;in property <bool> descending;in property <bool> align-right;
+    callback chosen();
+    accessible-role:button;accessible-label:root.text;accessible-action-default=>{root.chosen();}
+    caption:=Text {x:0px;y:0px;width:parent.width - (root.sorted ? 14px:0px);height:26px;text:root.text;color:root.sorted || area.has-hover ? Theme.text-2:Theme.text-3;font-size:11px;font-weight:Typography.medium;vertical-alignment:center;horizontal-alignment:root.align-right ? right:left;overflow:elide;}
+    if root.sorted: Icon {x:root.align-right ? parent.width - 12px:min(parent.width - 12px,caption.preferred-width+2px);y:7px;width:12px;height:12px;name:"chevronDown";transform-rotation:root.descending ? 0deg:180deg;colorize:Theme.text-2;}
+    area:=TouchArea {clicked=>{root.chosen();}}
+}
+component MenuItem inherits Rectangle {
+    in property <string> text;in property <string> icon;in property <string> hint;in property <bool> danger;
+    callback chosen();
+    height:30px;border-radius:6px;background:area.has-hover ? Theme.active:transparent;
+    accessible-role:button;accessible-label:root.text;accessible-action-default=>{root.chosen();}
+    if root.icon!="": Icon {x:9px;y:7.5px;width:15px;height:15px;name:root.icon;colorize:root.danger ? Theme.red:Theme.text-2;}
+    Text {x:34px;y:0px;width:parent.width - 43px - key.preferred-width;height:30px;text:root.text;color:root.danger ? Theme.red:Theme.text;vertical-alignment:center;overflow:elide;}
+    key:=Text {x:parent.width - self.width - 9px;y:0px;width:self.preferred-width;height:30px;text:root.hint;color:Theme.text-3;font-size:11.5px;vertical-alignment:center;}
+    area:=TouchArea {clicked=>{root.chosen();}}
+}
+component Separator inherits Rectangle {height:9px;Rectangle {x:6px;y:4px;width:parent.width - 12px;height:1px;background:Theme.border-soft;}}
+
+// FilesDrawer.svelte: 72px header; 26px sticky columns; 28px rows; 380px default.
 export component FilesDrawer inherits Rectangle {
-    in property <[FileRow]> entries;
-    in property <[EditRow]> edits;
-    in-out property <string> path;
-    in property <bool> loading;
-    in property <bool> hidden;
-    in property <string> transfer;
-    callback action(string,string);
-    callback resize(float);
-    callback show-hidden(bool);
-    property <string> selected;
+    in property <[FileRow]> entries;in property <[EditRow]> edits;
+    in property <string> path;in property <string> host;in property <bool> connected;
+    in property <bool> loading;in property <string> error;in property <bool> hidden;
+    in property <bool> start-folder;in property <string> sort:"name";in property <bool> sort-descending;
+    in property <string> editor-label;
+    in property <string> transfer;in property <string> transfer-name;in property <string> transfer-pace;
+    in property <bool> transfer-active;in property <bool> transfer-failed;in property <bool> transfer-down;
+    in property <float> transfer-progress:-1;
+    callback action(string,string);callback resize(float);callback show-hidden(bool);
+    property <string> path-input:root.path;
+    property <string> selected;property <int> cursor:-1;
+    property <bool> dates:root.width>340px;
+    property <length> edits-height:root.edits.length>0 ? min(root.height*0.35,30px+root.edits.length*28px):0px;
+    property <length> transfer-height:root.transfer!="" ? (root.transfer-active ? 76px:58px):0px;
+    property <length> list-height:max(0px,root.height - 100px - root.edits-height - root.transfer-height);
+    property <bool> scrolling:root.entries.length*28px>root.list-height;
+    property <length> table-width:root.width - 8px - (root.scrolling ? 8px:0px);
+    property <length> date-width:root.dates ? 120px:0px;
+    property <length> size-x:root.table-width - 70px - root.date-width;
+    property <int> menu-kind;property <string> menu-path;property <bool> menu-folder;property <length> menu-y;
+    property <string> pending-action;property <bool> action-pending;property <string> resolve-id;
     background:Theme.bg;
-    Rectangle {x:0px;y:0px;width:1px;height:parent.height;background:Theme.border;}
-    TouchArea {
-        width:5px;mouse-cursor:col-resize;
-        property <float> initial-width;
-        pointer-event(event)=>{if event.kind==PointerEventKind.down {self.initial-width=root.width/1px;}}
-        moved=>{if self.pressed {root.resize(self.initial-width - (self.mouse-x - self.pressed-x)/1px);}}
+    accessible-role:groupbox;accessible-label:I18n.tr("files.title");
+    changed connected=>{if !root.connected {context.close();}}
+    changed path=>{root.path-input=root.path;root.selected="";root.cursor=-1;context.close();}
+    function menu(kind:int,path:string,folder:bool,y:length) {root.menu-kind=kind;root.menu-path=path;root.menu-folder=folder;root.menu-y=y;context.show();}
+    // Close the popup before a callback replaces its listing/component.
+    function choose(key:string) {root.pending-action=key;root.action-pending=true;context.close();}
+    Timer {interval:1ms;running:root.action-pending;triggered=>{root.action-pending=false;if root.pending-action=="hidden" {root.show-hidden(!root.hidden);} else {root.action(root.pending-action,root.menu-path);}}}
+    Rectangle {x:0px;y:0px;width:1px;height:parent.height;background:Theme.border-soft;}
+    Rectangle {x:0px;y:0px;width:parent.width;height:72px;
+        title:=Text {x:12px;y:8px;width:self.preferred-width;height:22px;text:I18n.tr("files.title");color:Theme.text;font-weight:Typography.semibold;vertical-alignment:center;}
+        Text {x:title.x+title.width+8px;y:8px;width:max(0px,parent.width - self.x - 108px);height:22px;text:root.host;color:Theme.text-2;font-size:12px;vertical-alignment:center;overflow:elide;}
+        Tool {x:parent.width - 102px;y:8px;icon:"upload";icon-size:15px;label:I18n.tr("files.upload");enabled:root.connected && root.path!="";clicked=>{root.menu(0,root.path,false,32px);}}
+        Tool {x:parent.width - 78px;y:8px;icon:"folderPlus";icon-size:15px;label:I18n.tr("files.newFolder");enabled:root.connected && root.path!="";clicked=>{root.action("mkdir",root.path);}}
+        Tool {x:parent.width - 54px;y:8px;icon:"refresh";label:I18n.tr("files.refresh");enabled:root.connected;clicked=>{root.action("list",root.path);}}
+        Tool {x:parent.width - 30px;y:8px;icon:"x";label:I18n.tr("files.close");clicked=>{root.action("close","");}}
+        Tool {x:12px;y:39px;icon:"arrowUp";label:I18n.tr("files.up");enabled:root.connected && root.path!="" && root.path!="/";clicked=>{root.action("up","");}}
+        Input {x:38px;y:36px;width:parent.width - 46px - (root.start-folder ? 28px:0px);height:28px;font-size:12;monospace:true;label:I18n.tr("files.path");enabled:root.connected;text<=>root.path-input;accepted(value)=>{root.action("list",value);}}
+        if root.start-folder: Icon {x:parent.width - 28px;y:43px;width:14px;height:14px;name:"home";colorize:Theme.text-2;}
+        Rectangle {y:71px;width:parent.width;height:1px;background:Theme.border-soft;}
     }
-    Text {x:18px;y:0px;height:42px;text:I18n.tr("files.title");color:Theme.text;font-weight: Typography.semibold;vertical-alignment:center;}
-    IconButton {x:parent.width - 105px;y:7px;icon:"refresh";label:I18n.tr("files.refresh");clicked=>{root.action("list",root.path);}}
-    IconButton {x:parent.width - 73px;y:7px;icon:"arrowUp";label:I18n.tr("files.up");clicked=>{root.action("up","");}}
-    IconButton {x:parent.width - 41px;y:7px;icon:"x";label:I18n.tr("files.close");clicked=>{root.action("close","");}}
-    Input {x:12px;y:44px;width:parent.width - 24px;text<=>root.path;placeholder:I18n.tr("files.path");accepted(value)=>{root.action("list",value);}}
-    HorizontalLayout {x:12px;y:84px;width:parent.width - 24px;height:30px;spacing:6px;
-        Action {text:I18n.tr("files.upload");icon:"upload";clicked=>{root.action("upload","");}}
-        Action {text:I18n.tr("files.uploadFolder");clicked=>{root.action("upload-folder","");}}
+    if root.connected && root.error=="" && (!root.loading || root.path!=""): Rectangle {
+        x:4px;y:72px;width:root.table-width;height:26px;
+        Column {x:8px;width:root.size-x - 16px;height:26px;text:I18n.tr("files.name");sorted:root.sort=="name";descending:root.sort-descending;chosen=>{root.action("sort","name");}}
+        Column {x:root.size-x;width:62px;height:26px;text:I18n.tr("files.size");align-right:true;sorted:root.sort=="size";descending:root.sort-descending;chosen=>{root.action("sort","size");}}
+        if root.dates: Column {x:parent.width - 120px;width:112px;height:26px;text:I18n.tr("files.modified");align-right:true;sorted:root.sort=="modified";descending:root.sort-descending;chosen=>{root.action("sort","modified");}}
+        Rectangle {y:25px;width:parent.width;height:1px;background:Theme.border-soft;}
     }
-    HorizontalLayout {x:12px;y:122px;width:parent.width - 24px;height:24px;
-        Text {text:I18n.tr("files.showHidden");color:Theme.text-2;vertical-alignment:center;font-size:12px;}
-        Toggle {label:I18n.tr("files.showHidden");checked:root.hidden;toggled(value)=>{root.show-hidden(value);}}
-    }
-    ScrollView {x:8px;y:154px;width:parent.width - 16px;height:parent.height - 174px - (root.edits.length>0 ? 120px:0px) - (root.transfer!="" ? 40px:0px);
-        VerticalLayout {spacing:1px;
-            if root.loading: Text {text:I18n.tr("files.loading");color:Theme.text-2;height:40px;}
-            if !root.loading && root.entries.length==0: Text {text:I18n.tr("files.empty");color:Theme.text-2;height:40px;}
-            for entry in root.entries: Rectangle {
-                height:34px;border-radius:7px;background:root.selected==entry.path ? Theme.active:area.has-hover ? Theme.hover:transparent;
-                accessible-role:button;accessible-label:entry.name;accessible-action-default=>{root.action("open",entry.path);}
-                Icon {x:8px;y:10px;width:14px;height:14px;name:entry.folder ? "folder":"file";colorize:Theme.text-2;}
-                Text {x:30px;width:parent.width - 158px;height:34px;text:entry.name;color:Theme.text;font-size:12px;vertical-alignment:center;overflow:elide;}
-                Text {x:parent.width - 122px;width:60px;height:34px;text:entry.size;color:Theme.text-3;font-size:11px;vertical-alignment:center;horizontal-alignment:right;overflow:elide;}
-                area:=TouchArea {clicked=>{root.selected=entry.path;}double-clicked=>{root.action("open",entry.path);}}
-                if !entry.folder: IconButton {x:parent.width - 58px;y:4px;icon:"edit";label:I18n.tr("common.edit");clicked=>{root.action("edit",entry.path);}}
-                IconButton {x:parent.width - 30px;y:4px;icon:"download";label:I18n.tr("files.download");clicked=>{root.action("download",entry.path);}}
-            }
-        }
-    }
-    if root.edits.length>0: ScrollView {
-        x:12px;y:parent.height - 130px - (root.transfer!="" ? 40px:0px);width:parent.width - 24px;height:120px;
-        VerticalLayout {spacing:5px;
-            for edit in root.edits: VerticalLayout {spacing:4px;
-                Text {text:edit.name+" · "+edit.status;color:edit.conflict ? Theme.amber:Theme.text-2;font-size:11px;overflow:elide;}
-                if edit.conflict: HorizontalLayout {spacing:5px;
-                    Action {text:I18n.tr("edit.overwrite");clicked=>{root.action("edit-overwrite",edit.id);}}
-                    Action {text:I18n.tr("edit.takeTheirs");clicked=>{root.action("edit-reload",edit.id);}}
+    viewport:=Flickable {
+        x:4px;y:100px;width:root.table-width;height:root.list-height;
+        mouse-drag-pan-enabled:false;
+        scroll:=Rectangle {
+            x:0px;y:0px;height:max(root.list-height,root.entries.length*28px);width:root.table-width;
+            TouchArea {enabled:root.connected && root.path!="";pointer-event(event)=>{if event.button==PointerEventButton.right && event.kind==PointerEventKind.up {root.selected="";root.menu(2,root.path,true,100px+self.mouse-y+viewport.content-y);}}}
+            for entry[index] in root.entries: Rectangle {
+                x:0px;y:index*28px;width:root.table-width;height:28px;visible:root.connected && root.error=="";
+                border-radius:7px;background:root.selected==entry.path ? Theme.active:area.has-hover ? Theme.hover:transparent;
+                accessible-role:list-item;accessible-label:entry.name;accessible-description:entry.detail;accessible-action-default=>{root.action("open",entry.path);}
+                Icon {x:9.5px;y:6.5px;width:15px;height:15px;name:entry.folder ? "folder":entry.link ? "link":"file";colorize:entry.folder ? Theme.text-2:Theme.text-3;}
+                Text {x:34px;y:0px;width:max(0px,root.size-x - 42px);height:28px;text:entry.name;color:Theme.text;vertical-alignment:center;overflow:elide;}
+                Text {x:root.size-x;y:0px;width:62px;height:28px;text:entry.size;color:Theme.text-2;font-size:11.5px;vertical-alignment:center;horizontal-alignment:right;overflow:elide;}
+                if root.dates: Text {x:parent.width - 120px;y:0px;width:112px;height:28px;text:entry.modified;color:Theme.text-2;font-size:11.5px;vertical-alignment:center;horizontal-alignment:right;overflow:elide;}
+                area:=TouchArea {
+                    clicked=>{root.selected=entry.path;root.cursor=index;list-focus.focus();}
+                    double-clicked=>{root.action("open",entry.path);}
+                    pointer-event(event)=>{if event.button==PointerEventButton.right && event.kind==PointerEventKind.up {root.selected=entry.path;root.cursor=index;root.menu(1,entry.path,entry.folder,100px+parent.y+self.mouse-y+viewport.content-y);}}
                 }
             }
         }
     }
-    if root.transfer!="": HorizontalLayout {x:12px;y:parent.height - 44px;width:parent.width - 24px;height:32px;
-        Text {text:root.transfer;color:Theme.text-2;vertical-alignment:center;overflow:elide;font-size:11px;}
-        IconButton {icon:"x";label:I18n.tr("common.cancel");clicked=>{root.action("cancel","");}}
+    if !root.connected || root.error!="" || (root.entries.length==0 && !root.loading): Rectangle {
+        x:12px;y:root.connected && root.error=="" ? 100px:72px;width:parent.width - 24px;height:note.preferred-height+64px;
+        note:=Text {x:0px;y:24px;width:parent.width;height:self.preferred-height;text:!root.connected ? I18n.tr("files.notConnected"):root.error!="" ? root.error:I18n.tr("files.empty");color:root.error!="" ? Theme.red:Theme.text-2;horizontal-alignment:center;wrap:word-wrap;}
+        if root.connected && root.error!="": Action {x:(parent.width - self.width)/2;y:note.y+note.height+10px;text:I18n.tr("files.retry");clicked=>{root.action("home","");}}
+    }
+    if root.loading && root.entries.length==0: Text {x:12px;y:72px;width:parent.width - 24px;height:64px;text:I18n.tr("files.loading");color:Theme.text-2;horizontal-alignment:center;vertical-alignment:center;}
+    if root.scrolling && root.connected && root.error=="": Rectangle {
+        x:parent.width - 9px;y:100px;width:6px;height:root.list-height;
+        property <length> maximum:max(1px,scroll.height - root.list-height);
+        thumb:=Rectangle {x:1px;y:(parent.height - self.height)*(-viewport.content-y)/parent.maximum;width:4px;height:max(24px,parent.height*root.list-height/max(1px,scroll.height));border-radius:2px;background:track.has-hover ? Theme.scrollbar-hover:Theme.scrollbar;}
+        track:=TouchArea {property <length> start;
+            pointer-event(event)=>{if event.kind==PointerEventKind.down {if self.mouse-y<thumb.y || self.mouse-y>thumb.y+thumb.height {viewport.content-y=-min(parent.maximum,max(0px,(self.mouse-y - thumb.height/2)/max(1px,self.height - thumb.height)*parent.maximum));}self.start=viewport.content-y;}}
+            moved=>{if self.pressed {viewport.content-y=min(0px,max(-parent.maximum,self.start - (self.mouse-y - self.pressed-y)/max(1px,self.height - thumb.height)*parent.maximum));}}
+        }
+    }
+    list-focus:=FocusScope {
+        // This keyboard target is a sibling of the rows: never intercept their first press.
+        focus-on-click:false;focus-on-tab-navigation:false;
+        key-pressed(event)=>{
+            if event.text==Key.DownArrow || event.text==Key.UpArrow {
+                root.cursor=min(root.entries.length - 1,max(0,root.cursor+(event.text==Key.DownArrow ? 1:-1)));
+                if root.cursor>=0 {root.selected=root.entries[root.cursor].path;viewport.content-y=min(0px,max(-max(0px,scroll.height - root.list-height),-max(0px,root.cursor*28px - root.list-height+28px)));} accept
+            } else if event.text==Key.Return && root.selected!="" {root.action("open",root.selected);accept}
+            else if event.text==Key.F2 && root.selected!="" {root.action("rename",root.selected);accept}
+            else if event.text==Key.F4 && root.selected!="" {root.action("edit",root.selected);accept}
+            else if event.text==Key.Delete && root.selected!="" {root.action("delete",root.selected);accept}
+            else if event.text==Key.Backspace {root.action("up","");accept}
+            else {reject}
+        }
+    }
+    if root.edits-height>0px: Rectangle {
+        x:0px;y:parent.height - root.transfer-height - root.edits-height;width:parent.width;height:root.edits-height;
+        Rectangle {height:1px;width:parent.width;background:Theme.border-soft;}
+        Text {x:12px;y:6px;width:parent.width - 24px;height:18px;text:I18n.tr("edit.title");color:Theme.text-2;font-size:11.5px;font-weight:Typography.medium;}
+        ScrollView {x:8px;y:26px;width:parent.width - 16px;height:parent.height - 30px;
+            VerticalLayout {spacing:0px;for edit in root.edits: Rectangle {
+                height:28px;
+                Icon {x:4px;y:7.5px;width:13px;height:13px;name:"external";colorize:Theme.text-2;}
+                Text {x:26px;y:0px;width:max(0px,parent.width - 26px - edit-state.width - 76px);height:28px;text:edit.name;color:Theme.text;font-size:12px;vertical-alignment:center;overflow:elide;}
+                edit-state:=Text {x:parent.width - 72px - self.width;y:0px;width:min(self.preferred-width,parent.width*0.45);height:28px;text:edit.status;color:edit.conflict ? Theme.amber:edit.failed ? Theme.red:Theme.text-2;font-size:11.5px;vertical-alignment:center;overflow:elide;TouchArea {enabled:edit.conflict;clicked=>{root.resolve-id=edit.id;resolve.show();}}}
+                Tool {x:parent.width - 68px;y:3px;icon:"external";icon-size:12px;label:root.editor-label;clicked=>{root.action("edit-again",edit.id);}}
+                Tool {x:parent.width - 46px;y:3px;icon:"folder";icon-size:12px;label:I18n.tr("edit.reveal");clicked=>{root.action("edit-reveal",edit.id);}}
+                Tool {x:parent.width - 24px;y:3px;icon:"x";icon-size:12px;label:I18n.tr("edit.stop");clicked=>{root.action("edit-stop",edit.id);}}
+            }}
+        }
+    }
+    if root.transfer-height>0px: Rectangle {
+        x:0px;y:parent.height - root.transfer-height;width:parent.width;height:root.transfer-height;
+        Rectangle {height:1px;width:parent.width;background:Theme.border-soft;}
+        Text {x:12px;y:6px;width:parent.width - 24px;height:18px;text:I18n.tr("files.transfers");color:Theme.text-2;font-size:11.5px;font-weight:Typography.medium;}
+        if !root.transfer-active: Link {x:parent.width - self.width - 12px;y:4px;text:I18n.tr("files.clearDone");clicked=>{root.action("clear-transfer","");}}
+        Icon {x:12px;y:33.5px;width:13px;height:13px;name:root.transfer-down ? "download":"upload";colorize:Theme.text-2;}
+        Text {x:34px;y:26px;width:max(0px,parent.width - transfer-state.width - 74px);height:28px;text:root.transfer-name;color:Theme.text;font-size:12px;vertical-alignment:center;overflow:elide;}
+        transfer-state:=Text {x:parent.width - self.width - 38px;y:26px;width:min(self.preferred-width,parent.width*0.35);height:28px;text:root.transfer;color:root.transfer-failed ? Theme.red:Theme.text-2;font-size:11.5px;vertical-alignment:center;overflow:elide;}
+        if root.transfer-active: Tool {x:parent.width - 34px;y:29px;icon:"x";icon-size:12px;label:I18n.tr("common.cancel");clicked=>{root.action("cancel","");}}
+        if !root.transfer-active && root.transfer-down && !root.transfer-failed: Tool {x:parent.width - 34px;y:29px;icon:"folder";icon-size:13px;label:I18n.tr("files.reveal");clicked=>{root.action("reveal-transfer","");}}
+        if root.transfer-active: Rectangle {x:34px;y:54px;width:parent.width - 72px;height:3px;border-radius:2px;background:Theme.border-soft;Rectangle {width:parent.width*(root.transfer-progress<0 ? 0.3:min(1,max(0,root.transfer-progress)));height:3px;border-radius:2px;background:Theme.green;}}
+        if root.transfer-active: Text {x:34px;y:59px;width:parent.width - 48px;height:14px;text:root.transfer-pace;color:Theme.text-3;font-size:11px;horizontal-alignment:right;overflow:elide;}
+    }
+    context:=PopupWindow {
+        x:max(0px,root.width - self.width - 6px);y:min(root.menu-y,max(0px,root.height - self.height));width:min(320px,root.width - 12px);
+        height:root.menu-kind==0 ? 70px:root.menu-kind==2 ? 277px:root.menu-folder ? 307px:247px;
+        Rectangle {background:Theme.elevated;border-radius:10px;border-width:1px;border-color:Theme.border;
+            VerticalLayout {padding:5px;spacing:0px;
+                if root.menu-kind==0 || root.menu-kind==2: MenuItem {text:I18n.tr("files.uploadFiles");icon:root.menu-kind==0 ? "file":"upload";chosen=>{root.choose("upload");}}
+                if root.menu-kind==0 || root.menu-kind==2: MenuItem {text:I18n.tr("files.uploadFolder");icon:"folder";chosen=>{root.choose("upload-folder");}}
+                if root.menu-kind==2: Separator {}
+                if root.menu-kind==2: MenuItem {text:I18n.tr("files.newFolder");icon:"folderPlus";chosen=>{root.choose("mkdir");}}
+                if root.menu-kind==2: MenuItem {text:I18n.tr("files.newFile");icon:"file";chosen=>{root.choose("new-file");}}
+                if root.menu-kind==2: Separator {}
+                if root.menu-kind==1 && root.menu-folder: MenuItem {text:I18n.tr("files.openItem");icon:"folder";chosen=>{root.choose("open");}}
+                if root.menu-kind==2 || (root.menu-kind==1 && root.menu-folder): MenuItem {text:I18n.tr("files.openInTerminal");icon:"terminal";chosen=>{root.choose("open-terminal");}}
+                if root.menu-kind==2 || (root.menu-kind==1 && root.menu-folder): MenuItem {text:I18n.tr(root.start-folder && root.menu-path==root.path ? "files.clearStartFolder":"files.setStartFolder");icon:"home";chosen=>{root.choose("start-folder");}}
+                if root.menu-kind==1 && !root.menu-folder: MenuItem {text:root.editor-label;icon:"external";hint:"F4";chosen=>{root.choose("edit");}}
+                if root.menu-kind==1: Separator {}
+                if root.menu-kind==1: MenuItem {text:I18n.tr("files.download");icon:"download";chosen=>{root.choose("download");}}
+                if root.menu-kind==1: MenuItem {text:I18n.tr("files.downloadTo");chosen=>{root.choose("download");}}
+                if root.menu-kind==1: Separator {}
+                if root.menu-kind==1: MenuItem {text:I18n.tr("files.rename");icon:"edit";hint:"F2";chosen=>{root.choose("rename");}}
+                if root.menu-kind==1: MenuItem {text:I18n.tr("files.permissions");icon:"lock";chosen=>{root.choose("chmod");}}
+                if root.menu-kind==1: MenuItem {text:I18n.tr("files.copyPath");icon:"copy";chosen=>{root.choose("copy-path");}}
+                if root.menu-kind==1: Separator {}
+                if root.menu-kind==1: MenuItem {text:I18n.tr("common.delete");icon:"trash";hint:"Del";danger:true;chosen=>{root.choose("delete");}}
+                if root.menu-kind==2: Separator {}
+                if root.menu-kind==2: MenuItem {text:I18n.tr("files.refresh");icon:"refresh";chosen=>{root.choose("list");}}
+                if root.menu-kind==2: MenuItem {text:I18n.tr("files.showHidden");icon:root.hidden ? "check":"";chosen=>{root.choose("hidden");}}
+            }
+        }
+    }
+    resolve:=PopupWindow {x:max(0px,root.width - 260px);y:max(0px,root.height - root.transfer-height - root.edits-height - 75px);width:250px;height:70px;
+        Rectangle {background:Theme.elevated;border-radius:10px;border-width:1px;border-color:Theme.border;
+            VerticalLayout {padding:5px;MenuItem {text:I18n.tr("edit.overwrite");chosen=>{resolve.close();root.action("edit-overwrite",root.resolve-id);}}MenuItem {text:I18n.tr("edit.takeTheirs");chosen=>{resolve.close();root.action("edit-reload",root.resolve-id);}}}
+        }
+    }
+    Rectangle {x:-3px;width:6px;height:parent.height;background:resizer.has-hover || resizer.pressed ? Theme.text-2.with-alpha(0.18):transparent;
+        resizer:=TouchArea {mouse-cursor:col-resize;property <float> initial-width;
+            pointer-event(event)=>{if event.kind==PointerEventKind.down {self.initial-width=root.width/1px;}}
+            moved=>{if self.pressed {root.resize(self.initial-width - (self.mouse-x - self.pressed-x)/1px);}}
+            double-clicked=>{root.resize(380);}
+        }
     }
 }

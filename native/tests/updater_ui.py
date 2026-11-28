@@ -26,7 +26,7 @@ def run(binary):
             if self.path == "/update.exe":
                 data = b"tampered" if state["mode"] == "tampered" else payload
             else:
-                value = {"version": "2.0.0-alpha.3" if state["mode"] == "replay" else "2.0.0-alpha.2",
+                value = {"version": "9999.0.1" if state["mode"] == "replay" else "9999.0.0",
                          "platforms": {"windows-x86_64-nsis": {
                              "url": f"http://127.0.0.1:{server.server_port}/update.exe", "signature": signature}}}
                 data = json.dumps(value).encode()

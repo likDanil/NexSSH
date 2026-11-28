@@ -41,6 +41,7 @@ struct Tab {
     token: u64,
     id: SessionId,
     title: String,
+    address: String,
     local: bool,
     server_id: Option<String>,
     status: SessionStatus,
@@ -81,6 +82,14 @@ enum Dialog {
         id: String,
         name: String,
     },
+    File {
+        session: SessionId,
+        action: String,
+        path: String,
+    },
+    StopEdit {
+        id: u64,
+    },
 }
 
 struct App {
@@ -89,6 +98,7 @@ struct App {
     services: services::Services,
     agents: crate::agents_ui::AgentUi,
     files: crate::files::Files,
+    metrics: crate::metrics::Monitor,
     server_editor: crate::server_editor::Editor,
     startup_cwd: Option<std::path::PathBuf>,
     runtime: tokio::runtime::Runtime,
@@ -246,6 +256,7 @@ impl App {
         }
     }
     fn refresh_files(&self, ui: &AppWindow) {
+        let lang = ui.global::<crate::I18n>().get_language();
         let mut entries = self
             .files
             .entries
@@ -279,23 +290,158 @@ impl App {
                     name: e.name.as_str().into(),
                     path: nexssh_core::sftp::join(&self.files.path, &e.name).into(),
                     folder: e.kind == nexssh_core::sftp::EntryKind::Dir || e.link_to_dir,
-                    size: if e.kind == nexssh_core::sftp::EntryKind::Dir {
+                    link: e.kind == nexssh_core::sftp::EntryKind::Link,
+                    detail: e
+                        .permissions
+                        .as_ref()
+                        .map_or_else(|| e.name.clone(), |p| format!("{}\n{p}", e.name))
+                        .into(),
+                    size: if e.kind == nexssh_core::sftp::EntryKind::Dir || e.link_to_dir {
                         String::new()
                     } else {
-                        format_size(e.size)
+                        crate::files::format_size(e.size, &lang)
                     }
                     .into(),
-                    modified: e.modified.map(|n| n.to_string()).unwrap_or_default().into(),
+                    modified: crate::files::format_date(e.modified, &lang).into(),
                 })
                 .collect::<Vec<_>>(),
         )));
         ui.set_files_hidden(self.settings.boolean("filesShowHidden"));
+        ui.set_files_sort(self.settings.text("filesSort").into());
+        ui.set_files_sort_descending(self.settings.boolean("filesSortDesc"));
+        let root = self
+            .active()
+            .and_then(|t| t.server_id.as_deref())
+            .and_then(|id| self.core.store.get(id))
+            .and_then(|s| s.sftp_root);
+        ui.set_files_start_folder(root.is_some_and(|p| {
+            p == self.files.path
+                || (!p.is_empty()
+                    && p == self.files.initial_source
+                    && self.files.path == self.files.initial_path)
+        }));
+        let editor = self
+            .services
+            .editors
+            .iter()
+            .find(|(id, _)| id == self.settings.text("editor"))
+            .map(|(_, label)| label.clone())
+            .unwrap_or_else(|| i18n::tr("edit.defaultProgram", &lang));
+        ui.set_file_editor_label(
+            i18n::tr("files.editIn", &lang)
+                .replace("{editor}", &editor)
+                .into(),
+        );
+        self.refresh_edits(ui);
+    }
+    fn refresh_edits(&self, ui: &AppWindow) {
+        use nexssh_core::edit::EditState;
+        let lang = ui.global::<crate::I18n>().get_language();
+        ui.set_file_edits(ModelRc::new(VecModel::from(
+            self.files
+                .editing
+                .iter()
+                .filter(|e| e.session_id == self.files.session)
+                .map(|edit| {
+                    let key = match edit.state {
+                        EditState::Synced => "edit.opened",
+                        EditState::Uploading => "edit.uploading",
+                        EditState::Conflict => "edit.conflict",
+                        EditState::Denied => {
+                            if edit.needs_password {
+                                "edit.needsPassword"
+                            } else {
+                                "edit.denied"
+                            }
+                        }
+                        EditState::Waiting => "edit.waiting",
+                        EditState::Failed => "edit.failed",
+                    };
+                    crate::EditRow {
+                        id: edit.id.to_string().into(),
+                        name: edit.name.as_str().into(),
+                        status: i18n::tr(key, &lang).into(),
+                        conflict: edit.state == EditState::Conflict,
+                        failed: edit.state == EditState::Failed,
+                        error: edit.error.clone().unwrap_or_default().into(),
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )));
     }
     fn file_action(&mut self, ui: &AppWindow, key: &str, path: &str) {
         if key == "close" {
             ui.set_files_open(false);
             self.settings.set_value("filesOpen", false.into());
             return;
+        }
+        match key {
+            "cancel" => {
+                self.files.cancel();
+                return;
+            }
+            "sort" => {
+                let descending = if self.settings.text("filesSort") == path {
+                    !self.settings.boolean("filesSortDesc")
+                } else {
+                    path != "name"
+                };
+                self.patch_setting(ui, "filesSort", path);
+                self.patch_setting(
+                    ui,
+                    "filesSortDesc",
+                    if descending { "true" } else { "false" },
+                );
+                return;
+            }
+            "copy-path" => {
+                self.write_clipboard(ui, path, "common.copied");
+                return;
+            }
+            "clear-transfer" => {
+                if !self.files.transferring {
+                    ui.set_file_transfer("".into());
+                }
+                return;
+            }
+            "reveal-transfer" => {
+                if let Some(path) = self.files.transfer_local.as_ref() {
+                    self.services.open(path.parent().unwrap_or(path).to_owned());
+                }
+                return;
+            }
+            "edit-again" | "edit-reveal" | "edit-stop" => {
+                if let Some(edit) = self.files.editing.iter().find(|e| e.id.to_string() == path) {
+                    if key == "edit-again" {
+                        let local = std::path::PathBuf::from(&edit.local_path);
+                        let settings = self.settings.value.clone();
+                        self.services.job(move || {
+                            crate::editor::launch(&settings, &local)?;
+                            Ok(None)
+                        });
+                    } else if key == "edit-reveal" {
+                        let path = std::path::Path::new(&edit.local_path);
+                        self.services.open(path.parent().unwrap_or(path).to_owned());
+                    } else if edit.state == nexssh_core::edit::EditState::Synced {
+                        self.files.edits.stop(edit.id);
+                    } else if self.dialog.is_none() {
+                        let lang = ui.global::<crate::I18n>().get_language();
+                        ui.set_prompt_title(
+                            i18n::tr("edit.stopTitle", &lang)
+                                .replace("{name}", &edit.name)
+                                .into(),
+                        );
+                        ui.set_prompt_detail(i18n::tr("edit.stopUnsent", &lang).into());
+                        ui.set_prompt_fields(ModelRc::default());
+                        ui.set_prompt_accept_label(i18n::tr("edit.stop", &lang).into());
+                        ui.set_prompt_auth(false);
+                        ui.set_prompt_visible(true);
+                        self.dialog = Some(Dialog::StopEdit { id: edit.id });
+                    }
+                }
+                return;
+            }
+            _ => {}
         }
         let Some(tab) = self
             .active()
@@ -311,6 +457,9 @@ impl App {
             return;
         };
         let session = tab.id;
+        if self.files.session != session && !["toggle", "list", "up", "home"].contains(&key) {
+            return;
+        }
         let initial_path = tab
             .server_id
             .as_deref()
@@ -323,6 +472,7 @@ impl App {
                 self.settings
                     .set_value("filesOpen", ui.get_files_open().into());
                 if ui.get_files_open() {
+                    ui.set_files_error("".into());
                     ui.set_files_loading(true);
                     self.files.list(
                         Arc::clone(&self.core),
@@ -336,25 +486,33 @@ impl App {
                     );
                 }
             }
-            "list" | "up" => {
+            "list" | "up" | "home" => {
                 let path = if key == "up" {
                     self.files
                         .path
                         .rsplit_once('/')
                         .map_or("/", |(p, _)| if p.is_empty() { "/" } else { p })
                         .to_owned()
+                } else if key == "home" {
+                    String::new()
                 } else {
                     path.to_owned()
                 };
                 ui.set_files_loading(true);
+                ui.set_files_error("".into());
                 self.files
                     .list(Arc::clone(&self.core), &self.runtime, session, path);
             }
             "open" => {
-                let name = nexssh_core::sftp::base_name(path);
-                if self.files.entries.iter().any(|e| {
-                    e.name == name && (e.kind == nexssh_core::sftp::EntryKind::Dir || e.link_to_dir)
-                }) {
+                let Some(entry) = self
+                    .files
+                    .entries
+                    .iter()
+                    .find(|e| nexssh_core::sftp::join(&self.files.path, &e.name) == path)
+                else {
+                    return;
+                };
+                if entry.kind == nexssh_core::sftp::EntryKind::Dir || entry.link_to_dir {
                     self.file_action(ui, "list", path);
                 } else {
                     self.file_action(
@@ -368,18 +526,79 @@ impl App {
                     );
                 }
             }
-            "download" => self
-                .files
-                .download(Arc::clone(&self.core), &self.runtime, path.into()),
-            "upload" | "upload-folder" => self.files.upload(
-                Arc::clone(&self.core),
-                &self.runtime,
-                key == "upload-folder",
-            ),
+            "download" | "upload" | "upload-folder" => {
+                if self.files.transferring {
+                    return;
+                }
+                ui.set_file_transfer("".into());
+                ui.set_file_transfer_active(true);
+                ui.set_file_transfer_failed(false);
+                ui.set_file_transfer_down(key == "download");
+                ui.set_file_transfer_name(
+                    if key == "download" {
+                        nexssh_core::sftp::base_name(path)
+                    } else {
+                        i18n::tr(
+                            if key == "upload-folder" {
+                                "files.uploadFolder"
+                            } else {
+                                "files.uploadFiles"
+                            },
+                            &ui.global::<crate::I18n>().get_language(),
+                        )
+                    }
+                    .into(),
+                );
+                ui.set_file_transfer_progress(-1.0);
+                ui.set_file_transfer_pace("".into());
+                if key == "download" {
+                    self.files
+                        .download(Arc::clone(&self.core), &self.runtime, path.into());
+                } else {
+                    self.files.upload(
+                        Arc::clone(&self.core),
+                        &self.runtime,
+                        key == "upload-folder",
+                    );
+                }
+            }
+            "mkdir" | "new-file" | "rename" | "delete" | "chmod" => {
+                self.file_prompt(ui, session, key, path)
+            }
+            "open-terminal" => {
+                if path.chars().any(char::is_control) {
+                    ui.set_notice(
+                        i18n::tr("files.cdUnsafe", &ui.global::<crate::I18n>().get_language())
+                            .into(),
+                    );
+                    return;
+                }
+                report(
+                    ui,
+                    self.core.sessions.write(
+                        session,
+                        format!("cd -- '{}'\r", path.replace('\'', "'\\''")).into_bytes(),
+                    ),
+                );
+                ui.invoke_focus_terminal();
+            }
+            "start-folder" => {
+                if let Some(mut server) = self
+                    .active()
+                    .and_then(|t| t.server_id.as_deref())
+                    .and_then(|id| self.core.store.get(id))
+                {
+                    let clear = ui.get_files_start_folder() && path == self.files.path;
+                    server.sftp_root = if clear { None } else { Some(path.into()) };
+                    self.files.initial_path = path.into();
+                    self.files.initial_source = path.into();
+                    report(ui, self.core.store.save_server(server));
+                    self.refresh_files(ui);
+                }
+            }
             "edit" => self
                 .files
                 .edit(&self.runtime, path.into(), self.settings.value.clone()),
-            "cancel" => self.files.cancel(),
             "edit-overwrite" | "edit-reload" => {
                 if let Ok(id) = path.parse() {
                     self.files
@@ -388,6 +607,89 @@ impl App {
             }
             _ => {}
         }
+    }
+    fn file_prompt(&mut self, ui: &AppWindow, session: SessionId, action: &str, path: &str) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let lang = ui.global::<crate::I18n>().get_language();
+        let name = nexssh_core::sftp::base_name(path);
+        let entry = self
+            .files
+            .entries
+            .iter()
+            .find(|e| nexssh_core::sftp::join(&self.files.path, &e.name) == path);
+        if ["rename", "chmod", "delete"].contains(&action) && entry.is_none() {
+            return;
+        }
+        let title = match action {
+            "mkdir" => "files.newFolderTitle",
+            "new-file" => "files.newFileTitle",
+            "rename" => "files.renameTitle",
+            "chmod" => "files.permissionsTitle",
+            _ => "files.deleteTitle",
+        };
+        ui.set_prompt_title(i18n::tr(title, &lang).replace("{name}", &name).into());
+        ui.set_prompt_detail(
+            if action == "delete" {
+                i18n::tr(
+                    if entry.is_some_and(|e| e.kind == nexssh_core::sftp::EntryKind::Dir) {
+                        "files.deleteFolderMessage"
+                    } else {
+                        "files.deleteFileMessage"
+                    },
+                    &lang,
+                )
+            } else {
+                path.into()
+            }
+            .into(),
+        );
+        ui.set_prompt_accept_label(
+            i18n::tr(
+                match action {
+                    "rename" => "files.renameAction",
+                    "chmod" => "files.apply",
+                    "delete" => "common.delete",
+                    _ => "files.create",
+                },
+                &lang,
+            )
+            .into(),
+        );
+        let fields = if action == "delete" {
+            vec![]
+        } else {
+            vec![crate::PromptField {
+                label: i18n::tr(
+                    if action == "chmod" {
+                        "files.numeric"
+                    } else {
+                        "files.name"
+                    },
+                    &lang,
+                )
+                .into(),
+                secret: false,
+                value: match action {
+                    "rename" => name.into(),
+                    "chmod" => {
+                        format!("{:03o}", entry.and_then(|e| e.mode).unwrap_or(0o644)).into()
+                    }
+                    _ => "".into(),
+                },
+            }]
+        };
+        ui.set_prompt_fields(ModelRc::new(VecModel::from(fields)));
+        ui.set_prompt_auth(false);
+        ui.set_prompt_host_key(false);
+        ui.set_prompt_can_accept(true);
+        ui.set_prompt_visible(true);
+        self.dialog = Some(Dialog::File {
+            session,
+            action: action.into(),
+            path: path.into(),
+        });
     }
     fn file_events(&mut self, ui: &AppWindow) {
         while let Ok(event) = self.files.receiver.try_recv() {
@@ -404,39 +706,116 @@ impl App {
                     self.files.path = path;
                     ui.set_files_path(self.files.path.as_str().into());
                     match result {
-                        Ok(entries) => self.files.entries = entries,
-                        Err(error) => ui.set_notice(error.into()),
+                        Ok(entries) => {
+                            self.files.entries = entries;
+                            if self.files.initial_path.is_empty() {
+                                self.files.initial_path = self.files.path.clone();
+                            }
+                        }
+                        Err(error) => {
+                            self.files.entries.clear();
+                            ui.set_files_error(error.into());
+                        }
                     };
                     self.refresh_files(ui);
                 }
                 crate::files::Event::Message(message) => {
-                    self.files.transferring = false;
-                    ui.set_file_transfer("".into());
                     if !message.is_empty() {
                         ui.set_notice(message.into());
                     }
-                    if ui.get_files_open() {
+                }
+                crate::files::Event::TransferStarted(name) => {
+                    self.files.transfer_started = std::time::Instant::now();
+                    self.files.transfer_local = None;
+                    ui.set_file_transfer_name(name.into());
+                    ui.set_file_transfer_active(true);
+                    ui.set_file_transfer("0%".into());
+                }
+                crate::files::Event::Transfer { done, total } => {
+                    let lang = ui.global::<crate::I18n>().get_language();
+                    let ratio = if total > 0 {
+                        (done as f64 / total as f64).clamp(0.0, 1.0)
+                    } else {
+                        -1.0
+                    };
+                    ui.set_file_transfer_progress(ratio as f32);
+                    ui.set_file_transfer(
+                        if total > 0 {
+                            format!("{:.0}%", ratio * 100.0)
+                        } else {
+                            crate::files::format_size(done, &lang)
+                        }
+                        .into(),
+                    );
+                    let elapsed = self.files.transfer_started.elapsed().as_secs_f64();
+                    if elapsed > 0.2 {
+                        ui.set_file_transfer_pace(
+                            i18n::tr("files.speed", &lang)
+                                .replace(
+                                    "{size}",
+                                    &crate::files::format_size(
+                                        (done as f64 / elapsed) as u64,
+                                        &lang,
+                                    ),
+                                )
+                                .into(),
+                        );
+                    }
+                }
+                crate::files::Event::Finished {
+                    session,
+                    result,
+                    cancelled,
+                } => {
+                    self.files.transferring = false;
+                    ui.set_file_transfer_active(false);
+                    let lang = ui.global::<crate::I18n>().get_language();
+                    match result {
+                        Ok(path) if path.is_empty() => ui.set_file_transfer("".into()),
+                        Ok(path) => {
+                            ui.set_file_transfer(i18n::tr("files.done", &lang).into());
+                            if ui.get_file_transfer_down() {
+                                self.files.transfer_local = Some(path.into());
+                            }
+                        }
+                        Err(error) => {
+                            ui.set_file_transfer(
+                                i18n::tr(
+                                    if cancelled {
+                                        "files.cancelled"
+                                    } else {
+                                        "files.failed"
+                                    },
+                                    &lang,
+                                )
+                                .into(),
+                            );
+                            ui.set_file_transfer_failed(!cancelled);
+                            if !cancelled {
+                                ui.set_notice(error.into());
+                            }
+                        }
+                    }
+                    if !ui.get_file_transfer_down()
+                        && ui.get_files_open()
+                        && session == self.files.session
+                    {
                         let path = self.files.path.clone();
                         self.file_action(ui, "list", &path);
                     }
                 }
-                crate::files::Event::Transfer(progress) => ui.set_file_transfer(progress.into()),
+                crate::files::Event::Changed { session, result } => {
+                    if let Err(error) = result {
+                        ui.set_notice(error.into());
+                    }
+                    if session == self.files.session && ui.get_files_open() {
+                        let path = self.files.path.clone();
+                        self.file_action(ui, "list", &path);
+                    }
+                }
                 crate::files::Event::Edits(list) => {
-                    ui.set_file_edits(ModelRc::new(VecModel::from(
-                        list.iter()
-                            .map(|edit| crate::EditRow {
-                                id: edit.id.to_string().into(),
-                                name: edit.name.as_str().into(),
-                                status: edit
-                                    .error
-                                    .clone()
-                                    .unwrap_or_else(|| format!("{:?}", edit.state))
-                                    .into(),
-                                conflict: edit.state == nexssh_core::edit::EditState::Conflict,
-                            })
-                            .collect::<Vec<_>>(),
-                    )));
                     self.files.editing = list;
+                    self.refresh_edits(ui);
                 }
             }
         }
@@ -454,6 +833,9 @@ impl App {
                 .and_then(|s| s.sftp_root)
                 .unwrap_or_default();
             ui.set_files_loading(true);
+            ui.set_files_error("".into());
+            ui.set_files_path("".into());
+            ui.set_file_entries(ModelRc::default());
             self.files
                 .list(Arc::clone(&self.core), &self.runtime, session, initial_path);
         }
@@ -550,6 +932,7 @@ impl App {
                     token,
                     id: 0,
                     title: item["title"].as_str().unwrap_or("Terminal").into(),
+                    address: target_address(&pending),
                     local,
                     server_id,
                     status: SessionStatus::Disconnected,
@@ -798,6 +1181,7 @@ impl App {
             .status(i18n::resolve(self.settings.text("language")));
         let snapshot = self.core.store.snapshot();
         let context = settings_schema::Context {
+            fonts: self.services.fonts.as_deref(),
             shells: &self.services.shells,
             editors: &self.services.editors,
             data_dir: &self.core.data_dir,
@@ -895,12 +1279,24 @@ impl App {
             }
             return;
         }
+        let enabling_gpu = key == "gpuAcceleration"
+            && value == "true"
+            && !self.settings.boolean("gpuAcceleration");
         if let Err(error) = self.settings.set(key, value) {
             ui.set_notice(error.into());
             return;
         }
         self.settings.apply(ui);
-        if key.starts_with("files") {
+        if enabling_gpu {
+            ui.set_notice(
+                i18n::tr(
+                    "settings.gpuEnabledNotice",
+                    i18n::resolve(self.settings.text("language")),
+                )
+                .into(),
+            );
+        }
+        if key.starts_with("files") || key == "language" {
             self.refresh_files(ui);
         }
         if key == "sidebarAutoHide" {
@@ -1086,6 +1482,12 @@ impl App {
                     }
                 }
                 ServiceEvent::Clipboard(text) => self.write_clipboard(ui, &text, "agents.copied"),
+                ServiceEvent::Fonts(fonts) => {
+                    self.services.fonts = Some(fonts);
+                    if ui.get_overlay() == "settings" {
+                        self.refresh_settings(ui);
+                    }
+                }
                 ServiceEvent::Metadata {
                     shells,
                     editors,
@@ -1334,6 +1736,7 @@ impl App {
     }
 
     fn start(&mut self, ui: &AppWindow, target: Target) {
+        let address = target_address(&target);
         let saved_target = match &target {
             Target::Ssh(s) if self.core.store.get(&s.id).is_some() => {
                 serde_json::json!({"serverId":s.id})
@@ -1374,6 +1777,7 @@ impl App {
             token,
             id,
             title,
+            address,
             local,
             server_id,
             terminal,
@@ -1398,6 +1802,13 @@ impl App {
         self.dialog = None;
         prompts::clear(ui);
         self.active = Some(index);
+        if self.files.session != self.tabs[index].id {
+            ui.set_file_entries(ModelRc::default());
+            ui.set_file_edits(ModelRc::default());
+            ui.set_files_start_folder(false);
+            ui.set_files_path("".into());
+            ui.set_files_error("".into());
+        }
         ui.invoke_close_overlay();
         self.tabs[index].terminal.lock().unwrap().dirty = true;
         self.tabs_dirty = true;
@@ -1432,6 +1843,14 @@ impl App {
     fn tick(&mut self, ui: &AppWindow) {
         self.server_editor_events(ui);
         self.service_events(ui);
+        let font = crate::fonts::resolve(
+            self.services.fonts.as_deref(),
+            self.settings.text("fontFamily"),
+        );
+        if ui.get_resolved_font() != font {
+            ui.set_resolved_font(font.into());
+        }
+        ui.set_render_scale(ui.window().scale_factor());
         self.agent_events(ui);
         self.file_events(ui);
         self.settings.capture(ui);
@@ -1484,6 +1903,8 @@ impl App {
             }
         }
         if self.tabs_dirty {
+            self.metrics
+                .retain(|id| self.tabs.iter().any(|t| t.id == id));
             if self.settings.text("restoreTabs") == "always" {
                 self.snapshot_tabs(true);
             }
@@ -1512,11 +1933,39 @@ impl App {
                     .map_or("Готово", |t| t.message.as_str())
                     .into(),
             );
+            ui.set_status_host(self.active().map_or("", |t| t.address.as_str()).into());
             self.tabs_dirty = false;
             self.servers(ui);
         }
+        let metrics_session = self
+            .active()
+            .filter(|tab| !tab.local && tab.status == SessionStatus::Connected)
+            .map(|tab| tab.id);
+        let window_size = ui.window().size();
+        let window_visible = ui.window().is_visible()
+            && !ui.window().is_minimized()
+            && window_size.width > 1
+            && window_size.height > 1;
+        let visible = ui.get_show_status() && window_visible;
+        self.metrics.tick(
+            &self.core,
+            &self.runtime,
+            metrics_session.filter(|_| visible),
+            std::time::Instant::now(),
+        );
+        self.metrics.apply(
+            ui,
+            metrics_session,
+            &ui.global::<crate::I18n>().get_language(),
+        );
+        // Minimized windows can report zero geometry. Retain the PTY/parser's
+        // usable size and build frames on reveal. Events and protocol replies
+        // above still run while the window is hidden.
+        if !window_visible {
+            return;
+        }
         let Some(tab) = self.active() else {
-            ui.set_cells(ModelRc::default());
+            terminal::present(ui, Vec::new());
             ui.set_cursor_visible(false);
             ui.set_scrollback(0);
             return;
@@ -1534,7 +1983,7 @@ impl App {
             let _ = self.core.sessions.resize(tab.id, size);
         }
         if terminal.dirty {
-            ui.set_cells(ModelRc::new(VecModel::from(terminal.frame())));
+            terminal::present(ui, terminal.frame());
             let screen = terminal.parser.screen();
             let (row, col) = screen.cursor_position();
             ui.set_cursor_row(row.into());
@@ -1799,6 +2248,49 @@ impl App {
                 }
                 self.server_editor.delete(Arc::clone(&self.core), id, name);
             }
+            Some(Dialog::File {
+                session,
+                action,
+                path,
+            }) if accept => {
+                let value = ui
+                    .get_prompt_fields()
+                    .row_data(0)
+                    .map(|f| f.value.trim().to_owned())
+                    .unwrap_or_default();
+                if !crate::files::valid_value(&action, &value) {
+                    let ru = ui.global::<crate::I18n>().get_language() == "ru";
+                    ui.set_prompt_detail(
+                        if action == "chmod" {
+                            if ru {
+                                "Введите права от 000 до 7777 (восьмеричные цифры)."
+                            } else {
+                                "Enter 3 or 4 octal permission digits."
+                            }
+                        } else if ru {
+                            "Введите имя без разделителей пути."
+                        } else {
+                            "Enter a name without path separators."
+                        }
+                        .into(),
+                    );
+                    self.dialog = Some(Dialog::File {
+                        session,
+                        action,
+                        path,
+                    });
+                    return;
+                }
+                self.files.change(
+                    Arc::clone(&self.core),
+                    &self.runtime,
+                    session,
+                    action,
+                    path,
+                    value,
+                );
+            }
+            Some(Dialog::StopEdit { id }) if accept => self.files.edits.stop(id),
             _ => {}
         }
         prompts::clear(ui);
@@ -1810,16 +2302,6 @@ fn matches_server(row: &ServerRow, filter: &str) -> bool {
     format!("{} {} {}", row.name, row.address, row.group)
         .to_lowercase()
         .contains(filter)
-}
-
-fn format_size(size: u64) -> String {
-    if size >= 1024 * 1024 {
-        format!("{:.1} MiB", size as f64 / (1024.0 * 1024.0))
-    } else if size >= 1024 {
-        format!("{:.1} KiB", size as f64 / 1024.0)
-    } else {
-        size.to_string()
-    }
 }
 
 fn status_text(status: SessionStatus) -> &'static str {
@@ -1852,8 +2334,53 @@ fn report<T, E: std::fmt::Display>(ui: &AppWindow, result: Result<T, E>) {
     }
 }
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let data_dir = nexssh_core::default_data_dir().ok_or("Не найдена папка данных NexSSH")?;
+fn target_address(target: &Target) -> String {
+    match target {
+        Target::Local { title, .. } => title.clone(),
+        Target::Ssh(server) => {
+            let host = if server.host.contains(':') {
+                format!("[{}]", server.host)
+            } else {
+                server.host.clone()
+            };
+            let user = if server.user.is_empty() {
+                String::new()
+            } else {
+                format!("{}@", server.user)
+            };
+            format!(
+                "{user}{host}{}",
+                if server.port == 22 {
+                    String::new()
+                } else {
+                    format!(":{}", server.port)
+                }
+            )
+        }
+    }
+}
+
+fn show_window(ui: &AppWindow) -> Result<(), slint::PlatformError> {
+    use slint::winit_030::WinitWindowAccessor;
+    ui.show()?;
+    ui.window().set_minimized(false);
+    ui.window()
+        .with_winit_window(|window| window.focus_window());
+    Ok(())
+}
+
+fn open_launch_folders(app: &mut App, ui: &AppWindow, launch: crate::instance::Launch) {
+    for folder in launch.folders {
+        app.startup_cwd = Some(folder);
+        report(ui, app.open(ui, None));
+    }
+}
+
+pub fn run(
+    data_dir: std::path::PathBuf,
+    mut primary: crate::instance::Primary,
+    launch: crate::instance::Launch,
+) -> Result<(), Box<dyn std::error::Error>> {
     crate::logger::init();
     let settings = Settings::load(&data_dir)?;
     // The inspector installs its own headless backend when the first window is made.
@@ -1901,11 +2428,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let agents = crate::agents_ui::AgentUi::new(Arc::clone(&core), &runtime, &settings.value);
     let app = Rc::new(RefCell::new(App {
-        startup_cwd: std::env::args_os()
-            .skip_while(|arg| arg != "--cwd")
-            .nth(1)
-            .map(Into::into),
+        startup_cwd: None,
         files: crate::files::Files::new(&core),
+        metrics: crate::metrics::Monitor::default(),
         core,
         settings,
         services,
@@ -1925,9 +2450,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.borrow().servers(&ui);
     {
         let mut state = app.borrow_mut();
-        if state.startup_cwd.is_some() {
-            report(&ui, state.open(&ui, None));
-        }
+        open_launch_folders(&mut state, &ui, launch);
         let enabled = state.settings.boolean("explorerMenu");
         state.services.job(move || {
             crate::explorer::apply(enabled)?;
@@ -2166,8 +2689,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let weak = ui.as_weak();
         tray.on_open(move || {
             if let Some(ui) = weak.upgrade() {
-                let _ = ui.show();
-                ui.window().set_minimized(false);
+                report(&ui, show_window(&ui));
             }
         });
         let state = Rc::clone(&app);
@@ -2216,16 +2738,24 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let timer = Timer::default();
+    let launches = primary.take_requests();
     let weak = ui.as_weak();
     let tick_app = Rc::clone(&app);
     timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
         if let Some(ui) = weak.upgrade() {
-            tick_app.borrow_mut().tick(&ui);
+            let mut app = tick_app.borrow_mut();
+            for launch in launches.try_iter().take(32) {
+                report(&ui, show_window(&ui));
+                open_launch_folders(&mut app, &ui, launch);
+            }
+            app.tick(&ui);
         }
     });
     let result = ui.run();
     timer.stop();
+    primary.stop_accepting();
     let mut app = app.borrow_mut();
+    app.metrics.stop();
     app.files.cancel();
     app.files.edits.stop_all();
     app.agents
@@ -2280,6 +2810,97 @@ mod tests {
         );
         app.close(&ui, 0);
         assert_eq!(app.core.sessions.session_count(), 0);
+    }
+
+    #[test]
+    fn transfer_progress_and_completion_are_independent_of_editor_notices() {
+        let (ui, mut app, _dir) = setup();
+        app.files.transferring = true;
+        ui.set_file_transfer_down(true);
+        let (sender, receiver) = mpsc::channel();
+        app.files.receiver = receiver;
+        sender
+            .send(crate::files::Event::TransferStarted("report.txt".into()))
+            .unwrap();
+        sender
+            .send(crate::files::Event::Transfer {
+                done: 50,
+                total: 100,
+            })
+            .unwrap();
+        sender
+            .send(crate::files::Event::Message("editor notice".into()))
+            .unwrap();
+        app.file_events(&ui);
+        assert!(app.files.transferring);
+        assert!(ui.get_file_transfer_active());
+        assert_eq!(ui.get_file_transfer_name(), "report.txt");
+        assert_eq!(ui.get_file_transfer(), "50%");
+        assert_eq!(ui.get_file_transfer_progress(), 0.5);
+        sender
+            .send(crate::files::Event::Finished {
+                session: 1,
+                result: Ok("C:/fixture/report.txt".into()),
+                cancelled: false,
+            })
+            .unwrap();
+        app.file_events(&ui);
+        assert!(!app.files.transferring);
+        assert!(!ui.get_file_transfer_active());
+        assert!(!ui.get_file_transfer_failed());
+        assert_eq!(ui.get_file_transfer(), i18n::tr("files.done", "ru"));
+        assert!(app.files.transfer_local.is_some());
+    }
+
+    #[test]
+    fn file_prompts_keep_invalid_values_open_and_cancellation_changes_nothing() {
+        let (ui, mut app, _dir) = setup();
+        app.tabs.push(Tab {
+            token: 1,
+            id: 42,
+            title: "Fixture".into(),
+            address: "first@fixture".into(),
+            local: false,
+            server_id: None,
+            status: SessionStatus::Connected,
+            message: String::new(),
+            terminal: Arc::new(Mutex::new(Terminal::new(24, 80))),
+            prompts: VecDeque::new(),
+            saved_target: serde_json::Value::Null,
+            pending: None,
+        });
+        app.active = Some(0);
+        app.files.session = 42;
+        app.files.path = "/home/test".into();
+        app.files.entries.push(nexssh_core::sftp::Entry {
+            name: "keep.txt".into(),
+            kind: nexssh_core::sftp::EntryKind::File,
+            link_to_dir: false,
+            size: 10,
+            modified: None,
+            permissions: None,
+            mode: Some(0o640),
+        });
+        app.file_action(&ui, "rename", "/home/test/keep.txt");
+        assert!(ui.get_prompt_visible());
+        let fields = ui.get_prompt_fields();
+        let mut field = fields.row_data(0).unwrap();
+        field.value = "../outside".into();
+        fields.set_row_data(0, field);
+        app.answer(&ui, true);
+        assert!(ui.get_prompt_visible());
+        assert!(matches!(app.dialog, Some(Dialog::File { session: 42, .. })));
+        app.answer(&ui, false);
+        assert!(!ui.get_prompt_visible());
+        assert!(app.dialog.is_none());
+        assert_eq!(app.files.entries[0].name, "keep.txt");
+        app.file_action(&ui, "delete", "/home/test/keep.txt");
+        assert!(ui.get_prompt_fields().row_count() == 0);
+        app.answer(&ui, false);
+        assert_eq!(app.files.entries.len(), 1);
+        // A stale row from another directory cannot create a mutation prompt.
+        app.file_action(&ui, "delete", "/elsewhere/keep.txt");
+        assert!(!ui.get_prompt_visible());
     }
 
     #[test]
@@ -2343,6 +2964,7 @@ mod tests {
         let app = App {
             agents,
             files: crate::files::Files::new(&core),
+            metrics: crate::metrics::Monitor::default(),
             startup_cwd: None,
             settings: Settings::memory(dir.path()),
             services: services::Services::new(Arc::clone(&core)),
@@ -2435,6 +3057,58 @@ mod tests {
     }
 
     #[test]
+    fn hiding_the_window_keeps_terminal_size_and_existing_output() {
+        let (ui, mut app, _dir) = setup();
+        let terminal = Arc::new(Mutex::new(Terminal::new(24, 80)));
+        terminal
+            .lock()
+            .unwrap()
+            .process(b"KEEP_THIS_TERMINAL_OUTPUT");
+        app.tabs.push(Tab {
+            token: 1,
+            id: 0,
+            title: "Test".into(),
+            address: "Test shell".into(),
+            local: true,
+            server_id: None,
+            status: SessionStatus::Connected,
+            message: String::new(),
+            terminal: Arc::clone(&terminal),
+            prompts: VecDeque::new(),
+            saved_target: serde_json::Value::Null,
+            pending: None,
+        });
+        app.active = Some(0);
+        app.tick(&ui);
+        let size = terminal.lock().unwrap().parser.screen().size();
+        ui.hide().unwrap();
+        ui.window().set_size(slint::LogicalSize::new(1.0, 1.0));
+        app.tick(&ui);
+        assert_eq!(terminal.lock().unwrap().parser.screen().size(), size);
+        assert!(
+            terminal
+                .lock()
+                .unwrap()
+                .parser
+                .screen()
+                .contents()
+                .contains("KEEP_THIS_TERMINAL_OUTPUT")
+        );
+        ui.window().set_size(slint::LogicalSize::new(1160.0, 740.0));
+        ui.show().unwrap();
+        app.tick(&ui);
+        assert!(
+            terminal
+                .lock()
+                .unwrap()
+                .parser
+                .screen()
+                .contents()
+                .contains("KEEP_THIS_TERMINAL_OUTPUT")
+        );
+    }
+
+    #[test]
     fn filters_saved_servers_by_group_and_address() {
         let (ui, mut app, _dir) = setup();
         app.core
@@ -2470,6 +3144,7 @@ mod tests {
                 token,
                 id: token,
                 title: format!("Tab {token}"),
+                address: format!("test@host{token}"),
                 local: false,
                 server_id: None,
                 status: SessionStatus::Connecting,

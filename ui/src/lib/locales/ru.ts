@@ -665,6 +665,7 @@ const ru: Catalog = {
   'settings.theme': 'Тема',
   'settings.font': 'Шрифт',
   'settings.fontPlaceholder': 'JetBrains Mono (встроенный)',
+  'settings.fontUnavailable': 'недоступен; используется встроенный',
   'settings.fontSize': 'Размер шрифта',
   'settings.smaller': 'Меньше',
   'settings.larger': 'Больше',
@@ -732,6 +733,8 @@ const ru: Catalog = {
   'settings.pasteAlways': 'Всегда',
   'settings.pasteNever': 'Никогда',
   'settings.gpu': 'Отрисовка на GPU',
+  'settings.gpuMemoryHint': 'Отрисовка на GPU может повысить потребление оперативной памяти (ОЗУ). Изменение применяется после перезапуска приложения.',
+  'settings.gpuEnabledNotice': 'GPU включён: потребление ОЗУ может увеличиться. Настройка применится после перезапуска.',
   'settings.gpuHint': 'WebGL-рендерер: меньше нагрузка на процессор при большом объёме вывода.',
   'settings.highlight': 'Подсветка ключевых слов',
   'settings.highlightHint':
